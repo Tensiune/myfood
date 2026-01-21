@@ -4,19 +4,18 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Trash2, Plus, Minus, ArrowLeft, MapPin, CreditCard, ChevronRight } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useAddresses } from "@/context/AddressContext";
 import { showSuccess, showError } from "@/utils/toast";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import AddressManager from "@/components/consumer/AddressManager";
+import { cn } from "@/lib/utils";
 
 const CartPage = () => {
   const { items, updateQuantity, removeItem, clearCart, getTotal, restaurantId } = useCart();
   const { selectedAddress } = useAddresses();
   const navigate = useNavigate();
-  const [notes, setNotes] = useState<Record<string, string>>({});
   const [paymentMethod, setPaymentMethod] = useState("credit_card");
   const [isAddressSheetOpen, setIsAddressSheetOpen] = useState(false);
 
@@ -180,7 +179,7 @@ const CartPage = () => {
   );
 };
 
-// Simple icon for empty state
+// Simple icon components
 const ShoppingBag = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
