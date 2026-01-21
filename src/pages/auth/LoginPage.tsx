@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
-import { Facebook, Google } from "lucide-react";
+import { Facebook, Chrome } from "lucide-react"; // Changed Google to Chrome
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
@@ -93,7 +93,7 @@ const LoginPage = () => {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Button variant="outline" className="w-full rounded-lg border-gray-300 text-gray-700 hover:bg-gray-50" onClick={() => handleSocialLogin('google')} disabled={loading}>
-              <Google className="mr-2 h-4 w-4" /> Google
+              <Chrome className="mr-2 h-4 w-4" /> Google
             </Button>
             <Button variant="outline" className="w-full rounded-lg border-gray-300 text-gray-700 hover:bg-gray-50" onClick={() => handleSocialLogin('facebook')} disabled={loading}>
               <Facebook className="mr-2 h-4 w-4" /> Facebook
