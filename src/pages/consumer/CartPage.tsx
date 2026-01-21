@@ -4,22 +4,23 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Trash2, Plus, Minus, ArrowLeft, MapPin, CreditCard, ChevronRight } from "lucide-react";
+import { Trash2, Plus, Minus, ArrowLeft, MapPin, CreditCard, ChevronRight, ShoppingBag } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useAddresses } from "@/context/AddressContext";
+import { usePayment } from "@/context/PaymentContext";
 import { showSuccess, showError } from "@/utils/toast";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import AddressManager from "@/components/consumer/AddressManager";
 import { cn } from "@/lib/utils";
 
 const CartPage = () => {
-  const { items, updateQuantity, removeItem, clearCart, getTotal, restaurantId } = useCart();
+  const { items, updateQuantity, removeItem, getTotal } = useCart();
   const { selectedAddress } = useAddresses();
+  const { savedCards, selectedPaymentId, setSelectedPaymentId } = usePayment();
   const navigate = useNavigate();
-  const [paymentMethod, setPaymentMethod] = useState("credit_card");
   const [isAddressSheetOpen, setIsAddressSheetOpen] = useState(false);
 
-  const handleCheckout = () => {
+  const handleGoToCheckout = () => {
     if (items.length === 0) {
       showError("Seu carrinho está vazio!");
       return;
@@ -31,9 +32,7 @@ const CartPage = () => {
       return;
     }
 
-    showSuccess("Pedido realizado com sucesso!");
-    clearCart();
-    navigate("/orders");
+    navigate("/checkout");
   };
 
   if (items.length === 0) {
@@ -88,7 +87,7 @@ const CartPage = () => {
               <ChevronRight className="h-5 w-5 text-gray-400" />
             </button>
           </SheetTrigger>
-          <SheetContent side="bottom" className="h-[80vh] rounded-t-[2.5rem]">
+          <SheetContent side="bottom" className="h-[80vh] rounded-t-[2.5rem] overflow-y-auto">
             <SheetHeader className="mb-6">
               <SheetTitle className="text-xl font-bold text-center text-indigo-900">Onde você quer receber?</SheetTitle>
             </SheetHeader>
@@ -130,24 +129,43 @@ const CartPage = () => {
       <section className="space-y-3">
         <h2 className="font-bold text-gray-800 ml-1">Pagamento</h2>
         <div className="grid grid-cols-1 gap-2">
-          {['credit_card', 'pix', 'money'].map((m) => (
+          {/* Opção PIX */}
+          <button
+            onClick={() => setSelectedPaymentId("pix")}
+            className={cn(
+              "flex items-center justify-between p-4 rounded-xl border transition-all text-sm font-bold",
+              selectedPaymentId === "pix" ? "border-brand-accent bg-brand-accent/5 text-brand-accent" : "border-gray-100 bg-white text-gray-600"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-lg">📱</span>
+              PIX
+            </div>
+            {selectedPaymentId === "pix" && <div className="h-4 w-4 rounded-full bg-brand-accent" />}
+          </button>
+
+          {/* Cartões Salvos */}
+          {savedCards.map(card => (
             <button
-              key={m}
-              onClick={() => setPaymentMethod(m)}
+              key={card.id}
+              onClick={() => setSelectedPaymentId(card.id)}
               className={cn(
                 "flex items-center justify-between p-4 rounded-xl border transition-all text-sm font-bold",
-                paymentMethod === m ? "border-brand-accent bg-brand-accent/5 text-brand-accent" : "border-gray-100 bg-white text-gray-600"
+                selectedPaymentId === card.id ? "border-brand-accent bg-brand-accent/5 text-brand-accent" : "border-gray-100 bg-white text-gray-600"
               )}
             >
               <div className="flex items-center gap-3">
-                {m === 'credit_card' && <CreditCard className="h-5 w-5" />}
-                {m === 'pix' && <span className="text-lg">📱</span>}
-                {m === 'money' && <span className="text-lg">💵</span>}
-                {m === 'credit_card' ? 'Cartão de Crédito' : m === 'pix' ? 'PIX' : 'Dinheiro'}
+                <CreditCard className="h-5 w-5" />
+                {card.brand.toUpperCase()} •••• {card.lastFour}
               </div>
-              {paymentMethod === m && <Check className="h-4 w-4" />}
+              {selectedPaymentId === card.id && <div className="h-4 w-4 rounded-full bg-brand-accent" />}
             </button>
           ))}
+
+          {/* Adicionar Novo Cartão (Placeholder por enquanto) */}
+          <Button variant="ghost" className="text-indigo-600 font-bold border-dashed border-2 border-indigo-100 rounded-xl py-8">
+            <Plus className="h-5 w-5 mr-2" /> Adicionar Cartão
+          </Button>
         </div>
       </section>
 
@@ -170,26 +188,13 @@ const CartPage = () => {
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-100 safe-area-bottom z-20">
         <Button 
           className="w-full py-6 rounded-2xl bg-brand-accent hover:bg-brand-accent/90 text-white font-bold text-lg shadow-xl shadow-brand-accent/20"
-          onClick={handleCheckout}
+          onClick={handleGoToCheckout}
         >
-          Finalizar Pedido
+          Continuar para Checkout
         </Button>
       </div>
     </div>
   );
 };
-
-// Simple icon components
-const ShoppingBag = ({ className }: { className?: string }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-  </svg>
-);
-
-const Check = ({ className }: { className?: string }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-  </svg>
-);
 
 export default CartPage;
