@@ -13,6 +13,7 @@ import HomePage from "./pages/consumer/HomePage";
 import SearchPage from "./pages/consumer/SearchPage";
 import OrdersPage from "./pages/consumer/OrdersPage";
 import ProfilePage from "./pages/consumer/ProfilePage";
+import PlaceholderPage from "./pages/consumer/PlaceholderPage"; // Import the new PlaceholderPage
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,14 @@ const App = () => (
               <Route path="/search" element={<SearchPage />} />
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              {/* Placeholder Routes for Profile Page Links */}
+              <Route path="/invite-friends" element={<PlaceholderPage title="Indicar Amigos" />} />
+              <Route path="/share-app" element={<PlaceholderPage title="Compartilhar App" />} />
+              <Route path="/rate-app" element={<PlaceholderPage title="Avaliar App" />} />
+              <Route path="/inbox" element={<PlaceholderPage title="Caixa de Entrada" />} />
+              <Route path="/settings" element={<PlaceholderPage title="Configurações de Privacidade" />} />
+              <Route path="/terms" element={<PlaceholderPage title="Termos de Uso" />} />
+              <Route path="/privacy-policy" element={<PlaceholderPage title="Política de Privacidade" />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             </Route>
           </Route>
