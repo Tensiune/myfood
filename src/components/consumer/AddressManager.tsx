@@ -1,30 +1,19 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Plus, MapPin, Home, Building, Map } from "lucide-react";
+import { Trash2, Plus, MapPin, Home, Building, Check } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
-
-interface Address {
-  id: string;
-  street: string;
-  number: string;
-  complement?: string;
-  neighborhood: string;
-  city: string;
-  state: string;
-  zipCode: string;
-  type: "home" | "work" | "other";
-  isDefault: boolean;
-}
+import { useAddresses, Address } from "@/context/AddressContext";
+import { cn } from "@/lib/utils";
 
 const AddressManager: React.FC = () => {
-  const [addresses, setAddresses] = useState<Address[]>([]);
+  const { addresses, selectedAddress, addAddress, updateAddress, removeAddress, selectAddress, setDefaultAddress } = useAddresses();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [currentAddress, setCurrentAddress] = useState<Partial<Address>>({
     type: "home",
@@ -32,32 +21,9 @@ const AddressManager: React.FC = () => {
   });
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Carregar endereços do localStorage
-  useEffect(() => {
-    const savedAddresses = localStorage.getItem("deliveryAddresses");
-    if (savedAddresses) {
-      try {
-        setAddresses(JSON.parse(savedAddresses));
-      } catch (error) {
-        console.error("Failed to parse addresses from localStorage", error);
-      }
-    }
-  }, []);
-
-  // Salvar endereços no localStorage
-  useEffect(() => {
-    if (addresses.length > 0) {
-      localStorage.setItem("deliveryAddresses", JSON.stringify(addresses));
-    }
-  }, [addresses]);
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setCurrentAddress(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSelectChange = (value: string) => {
-    setCurrentAddress(prev => ({ ...prev, type: value as "home" | "work" | "other" }));
   };
 
   const handleSaveAddress = () => {
@@ -68,37 +34,11 @@ const AddressManager: React.FC = () => {
     }
 
     if (editingId) {
-      // Atualizar endereço existente
-      setAddresses(prev =>
-        prev.map(addr =>
-          addr.id === editingId ? { ...currentAddress, id: editingId } as Address : addr
-        )
-      );
-      showSuccess("Endereço atualizado com sucesso!");
+      updateAddress(editingId, currentAddress);
+      showSuccess("Endereço atualizado!");
     } else {
-      // Adicionar novo endereço
-      const newAddress: Address = {
-        id: Date.now().toString(),
-        street: currentAddress.street!,
-        number: currentAddress.number!,
-        complement: currentAddress.complement || "",
-        neighborhood: currentAddress.neighborhood!,
-        city: currentAddress.city!,
-        state: currentAddress.state!,
-        zipCode: currentAddress.zipCode!,
-        type: currentAddress.type!,
-        isDefault: currentAddress.isDefault || false,
-      };
-
-      // Se for marcado como padrão, desmarcar os outros
-      if (newAddress.isDefault) {
-        setAddresses(prev =>
-          prev.map(addr => ({ ...addr, isDefault: false }))
-        );
-      }
-
-      setAddresses(prev => [...prev, newAddress]);
-      showSuccess("Endereço adicionado com sucesso!");
+      addAddress(currentAddress as Omit<Address, "id">);
+      showSuccess("Endereço adicionado!");
     }
 
     setIsDialogOpen(false);
@@ -106,258 +46,150 @@ const AddressManager: React.FC = () => {
   };
 
   const resetForm = () => {
-    setCurrentAddress({
-      type: "home",
-      isDefault: false,
-    });
+    setCurrentAddress({ type: "home", isDefault: false });
     setEditingId(null);
   };
 
-  const handleEditAddress = (address: Address) => {
+  const handleEdit = (e: React.MouseEvent, address: Address) => {
+    e.stopPropagation();
     setCurrentAddress(address);
     setEditingId(address.id);
     setIsDialogOpen(true);
   };
 
-  const handleDeleteAddress = (id: string) => {
-    setAddresses(prev => prev.filter(addr => addr.id !== id));
-    showSuccess("Endereço removido com sucesso!");
-  };
-
-  const handleSetDefault = (id: string) => {
-    setAddresses(prev =>
-      prev.map(addr =>
-        addr.id === id ? { ...addr, isDefault: true } : { ...addr, isDefault: false }
-      )
-    );
-    showSuccess("Endereço padrão atualizado!");
-  };
-
-  const getDefaultAddress = () => {
-    return addresses.find(addr => addr.isDefault) || addresses[0];
+  const handleDelete = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    removeAddress(id);
+    showSuccess("Endereço removido!");
   };
 
   return (
     <div className="space-y-4">
-      <Card className="rounded-xl shadow-sm border border-gray-200">
-        <CardHeader>
-          <CardTitle className="text-xl font-bold text-indigo-800">Endereços de Entrega</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {addresses.length === 0 ? (
-            <p className="text-center text-gray-600 py-8">
-              Você ainda não adicionou nenhum endereço de entrega.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {addresses.map((address) => (
-                <Card key={address.id} className="rounded-lg border border-gray-200 hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-start space-x-3">
-                        {address.type === "home" && <Home className="h-5 w-5 text-indigo-600 mt-0.5" />}
-                        {address.type === "work" && <Building className="h-5 w-5 text-indigo-600 mt-0.5" />}
-                        {address.type === "other" && <MapPin className="h-5 w-5 text-indigo-600 mt-0.5" />}
-                        <div>
-                          <p className="font-medium text-gray-800">
-                            {address.street}, {address.number}
-                            {address.complement && `, ${address.complement}`}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            {address.neighborhood} - {address.city}/{address.state}
-                          </p>
-                          <p className="text-sm text-gray-500">CEP: {address.zipCode}</p>
-                          {address.isDefault && (
-                            <span className="inline-block bg-indigo-100 text-indigo-800 text-xs font-semibold px-2 py-1 rounded-full mt-1">
-                              Padrão
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 px-2 rounded-lg border-indigo-200 text-indigo-600 hover:bg-indigo-50"
-                          onClick={() => handleEditAddress(address)}
-                        >
-                          Editar
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 px-2 rounded-lg border-red-200 text-red-600 hover:bg-red-50"
-                          onClick={() => handleDeleteAddress(address.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                        {!address.isDefault && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 px-2 rounded-lg border-green-200 text-green-600 hover:bg-green-50"
-                            onClick={() => handleSetDefault(address.id)}
-                          >
-                            Tornar Padrão
-                          </Button>
-                        )}
-                      </div>
+      <div className="space-y-3">
+        {addresses.length === 0 ? (
+          <p className="text-center text-gray-500 py-4">Nenhum endereço cadastrado.</p>
+        ) : (
+          addresses.map((address) => (
+            <Card 
+              key={address.id} 
+              className={cn(
+                "rounded-xl border transition-all cursor-pointer hover:border-brand-accent",
+                selectedAddress?.id === address.id ? "border-brand-accent bg-brand-accent/5" : "border-gray-200"
+              )}
+              onClick={() => selectAddress(address.id)}
+            >
+              <CardContent className="p-4 flex items-start justify-between">
+                <div className="flex items-start space-x-3">
+                  <div className="mt-1">
+                    {address.type === "home" ? <Home className="h-5 w-5 text-indigo-600" /> : 
+                     address.type === "work" ? <Building className="h-5 w-5 text-indigo-600" /> : 
+                     <MapPin className="h-5 w-5 text-indigo-600" />}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-gray-800">
+                        {address.street}, {address.number}
+                      </p>
+                      {selectedAddress?.id === address.id && <Check className="h-4 w-4 text-brand-accent" />}
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    <p className="text-sm text-gray-600">
+                      {address.neighborhood} - {address.city}/{address.state}
+                    </p>
+                    {address.isDefault && (
+                      <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold uppercase mt-1 inline-block">
+                        Padrão
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400" onClick={(e) => handleEdit(e, address)}>
+                    <span className="sr-only">Editar</span>
+                    ✏️
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400" onClick={(e) => handleDelete(e, address.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogTrigger asChild>
+          <Button className="w-full rounded-xl bg-brand-accent hover:bg-brand-accent/90 text-white font-bold py-6 shadow-lg shadow-brand-accent/20">
+            <Plus className="h-5 w-5 mr-2" /> Adicionar novo endereço
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-[500px] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-indigo-900">
+              {editingId ? "Editar endereço" : "Novo endereço"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>CEP</Label>
+                <Input name="zipCode" placeholder="00000-000" value={currentAddress.zipCode || ""} onChange={handleInputChange} className="rounded-lg" />
+              </div>
+              <div className="space-y-2">
+                <Label>Tipo</Label>
+                <Select value={currentAddress.type} onValueChange={(v) => setCurrentAddress(p => ({ ...p, type: v as any }))}>
+                  <SelectTrigger className="rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="home">Casa</SelectItem>
+                    <SelectItem value="work">Trabalho</SelectItem>
+                    <SelectItem value="other">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-          )}
-        </CardContent>
-        <CardFooter>
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="w-full rounded-lg bg-brand-accent hover:bg-brand-accent/90 text-white font-semibold py-2">
-                <Plus className="h-4 w-4 mr-2" /> Adicionar Endereço
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px] rounded-xl">
-              <DialogHeader>
-                <DialogTitle className="text-2xl font-bold text-indigo-800">
-                  {editingId ? "Editar Endereço" : "Adicionar Novo Endereço"}
-                </DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="zipCode" className="text-gray-700">CEP</Label>
-                    <Input
-                      id="zipCode"
-                      name="zipCode"
-                      placeholder="00000-000"
-                      value={currentAddress.zipCode || ""}
-                      onChange={handleInputChange}
-                      className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="type" className="text-gray-700">Tipo</Label>
-                    <Select value={currentAddress.type} onValueChange={handleSelectChange}>
-                      <SelectTrigger className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400">
-                        <SelectValue placeholder="Selecione o tipo" />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-lg shadow-md">
-                        <SelectItem value="home">Casa</SelectItem>
-                        <SelectItem value="work">Trabalho</SelectItem>
-                        <SelectItem value="other">Outro</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="street" className="text-gray-700">Rua</Label>
-                    <Input
-                      id="street"
-                      name="street"
-                      placeholder="Nome da rua"
-                      value={currentAddress.street || ""}
-                      onChange={handleInputChange}
-                      className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="number" className="text-gray-700">Número</Label>
-                    <Input
-                      id="number"
-                      name="number"
-                      placeholder="Número"
-                      value={currentAddress.number || ""}
-                      onChange={handleInputChange}
-                      className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="complement" className="text-gray-700">Complemento (opcional)</Label>
-                    <Input
-                      id="complement"
-                      name="complement"
-                      placeholder="Apto, bloco, etc."
-                      value={currentAddress.complement || ""}
-                      onChange={handleInputChange}
-                      className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="neighborhood" className="text-gray-700">Bairro</Label>
-                    <Input
-                      id="neighborhood"
-                      name="neighborhood"
-                      placeholder="Bairro"
-                      value={currentAddress.neighborhood || ""}
-                      onChange={handleInputChange}
-                      className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="city" className="text-gray-700">Cidade</Label>
-                    <Input
-                      id="city"
-                      name="city"
-                      placeholder="Cidade"
-                      value={currentAddress.city || ""}
-                      onChange={handleInputChange}
-                      className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="state" className="text-gray-700">Estado</Label>
-                    <Input
-                      id="state"
-                      name="state"
-                      placeholder="UF"
-                      value={currentAddress.state || ""}
-                      onChange={handleInputChange}
-                      className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
-                    />
-                  </div>
-                  <div className="space-y-2 flex items-center">
-                    <input
-                      type="checkbox"
-                      id="isDefault"
-                      name="isDefault"
-                      checked={currentAddress.isDefault || false}
-                      onChange={(e) => setCurrentAddress(prev => ({ ...prev, isDefault: e.target.checked }))}
-                      className="h-4 w-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <Label htmlFor="isDefault" className="ml-2 text-gray-700">Tornar padrão</Label>
-                  </div>
-                </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="col-span-2 space-y-2">
+                <Label>Rua</Label>
+                <Input name="street" placeholder="Nome da rua" value={currentAddress.street || ""} onChange={handleInputChange} className="rounded-lg" />
               </div>
-              <div className="flex justify-end space-x-3">
-                <Button
-                  variant="outline"
-                  className="rounded-lg border-gray-300 text-gray-700 hover:bg-gray-50"
-                  onClick={() => {
-                    setIsDialogOpen(false);
-                    resetForm();
-                  }}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  className="rounded-lg bg-brand-accent hover:bg-brand-accent/90 text-white font-semibold"
-                  onClick={handleSaveAddress}
-                >
-                  {editingId ? "Atualizar" : "Salvar"} Endereço
-                </Button>
+              <div className="space-y-2">
+                <Label>Número</Label>
+                <Input name="number" placeholder="123" value={currentAddress.number || ""} onChange={handleInputChange} className="rounded-lg" />
               </div>
-            </DialogContent>
-          </Dialog>
-        </CardFooter>
-      </Card>
+            </div>
+            <div className="space-y-2">
+              <Label>Bairro</Label>
+              <Input name="neighborhood" placeholder="Bairro" value={currentAddress.neighborhood || ""} onChange={handleInputChange} className="rounded-lg" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Cidade</Label>
+                <Input name="city" placeholder="Cidade" value={currentAddress.city || ""} onChange={handleInputChange} className="rounded-lg" />
+              </div>
+              <div className="space-y-2">
+                <Label>Estado</Label>
+                <Input name="state" placeholder="UF" value={currentAddress.state || ""} onChange={handleInputChange} className="rounded-lg" />
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 pt-2">
+              <input 
+                type="checkbox" 
+                id="def" 
+                className="rounded border-gray-300 text-brand-accent focus:ring-brand-accent"
+                checked={currentAddress.isDefault || false}
+                onChange={(e) => setCurrentAddress(p => ({ ...p, isDefault: e.target.checked }))}
+              />
+              <Label htmlFor="def" className="text-sm font-medium leading-none cursor-pointer">Definir como endereço padrão</Label>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
+            <Button className="flex-1 rounded-xl bg-brand-accent hover:bg-brand-accent/90" onClick={handleSaveAddress}>Salvar</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
