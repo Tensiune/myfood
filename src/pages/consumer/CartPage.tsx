@@ -4,7 +4,8 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Trash2, Plus, Minus, ArrowLeft, MapPin, CreditCard, ChevronRight, ShoppingBag, Wallet, QrCode, Check } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Trash2, Plus, Minus, ArrowLeft, MapPin, CreditCard, ChevronRight, ShoppingBag, Wallet, QrCode, Check, Tag, X } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useAddresses } from "@/context/AddressContext";
 import { usePayment, PaymentMethodType } from "@/context/PaymentContext";
@@ -15,12 +16,13 @@ import AddCardForm from "@/components/consumer/AddCardForm";
 import { cn } from "@/lib/utils";
 
 const CartPage = () => {
-  const { items, updateQuantity, removeItem, getTotal } = useCart();
+  const { items, updateQuantity, removeItem, getTotal, getDiscountAmount, appliedCoupon, applyCoupon, removeCoupon } = useCart();
   const { selectedAddress } = useAddresses();
   const { savedCards, selectedPaymentType, setSelectedPaymentType, selectedCardId, setSelectedCardId } = usePayment();
   const navigate = useNavigate();
   const [isAddressSheetOpen, setIsAddressSheetOpen] = useState(false);
   const [isCardSheetOpen, setIsCardSheetOpen] = useState(false);
+  const [couponInput, setCouponInput] = useState("");
 
   const handleGoToCheckout = () => {
     if (items.length === 0) {
@@ -33,6 +35,12 @@ const CartPage = () => {
       return;
     }
     navigate("/checkout");
+  };
+
+  const handleApplyCoupon = () => {
+    if (!couponInput.trim()) return;
+    applyCoupon(couponInput);
+    setCouponInput("");
   };
 
   if (items.length === 0) {
@@ -48,6 +56,8 @@ const CartPage = () => {
   }
 
   const deliveryFee = 5.0;
+  const subtotal = items.reduce((total, item) => total + (item.price * item.quantity), 0);
+  const discount = getDiscountAmount();
   const total = getTotal() + deliveryFee;
 
   return (
@@ -98,6 +108,44 @@ const CartPage = () => {
           </div>
         ))}
       </div>
+
+      {/* Cupom de Desconto */}
+      <section className="space-y-3">
+        <h2 className="font-bold text-gray-800 ml-1">Cupom de Desconto</h2>
+        {appliedCoupon ? (
+          <div className="flex items-center justify-between p-4 bg-green-50 border border-green-200 rounded-2xl">
+            <div className="flex items-center gap-3">
+              <Tag className="h-5 w-5 text-green-600" />
+              <div>
+                <p className="text-xs font-bold text-green-800 uppercase">Cupom Aplicado</p>
+                <p className="font-bold text-green-900">{appliedCoupon.code} (-{(appliedCoupon.discount * 100).toFixed(0)}%)</p>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={removeCoupon} className="text-green-800 hover:bg-green-100 rounded-full">
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Input
+                placeholder="Código do cupom"
+                value={couponInput}
+                onChange={(e) => setCouponInput(e.target.value)}
+                className="rounded-xl border-gray-200 focus:border-indigo-400 pl-10"
+              />
+              <Tag className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            </div>
+            <Button 
+              onClick={handleApplyCoupon}
+              className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+              disabled={!couponInput.trim()}
+            >
+              Aplicar
+            </Button>
+          </div>
+        )}
+      </section>
 
       {/* Pagamento */}
       <section className="space-y-3">
@@ -165,7 +213,13 @@ const CartPage = () => {
 
       {/* Summary */}
       <div className="p-4 bg-indigo-50/50 rounded-2xl space-y-2 border border-indigo-100/50">
-        <div className="flex justify-between text-sm text-gray-500"><span>Itens</span><span>R$ {getTotal().toFixed(2)}</span></div>
+        <div className="flex justify-between text-sm text-gray-500"><span>Subtotal</span><span>R$ {subtotal.toFixed(2)}</span></div>
+        {discount > 0 && (
+          <div className="flex justify-between text-sm text-green-600 font-medium">
+            <span>Desconto</span>
+            <span>- R$ {discount.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex justify-between text-sm text-gray-500"><span>Entrega</span><span>R$ {deliveryFee.toFixed(2)}</span></div>
         <div className="flex justify-between font-black text-lg text-indigo-900 pt-2 border-t border-indigo-100"><span>Total</span><span>R$ {total.toFixed(2)}</span></div>
       </div>
