@@ -28,28 +28,33 @@ interface AddressContextType {
 const AddressContext = createContext<AddressContextType | undefined>(undefined);
 
 export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [addresses, setAddresses] = useState<Address[]>([]);
-  const [selectedAddress, setSelectedAddress] = useState<Address | null>(null);
-
-  // Load from localStorage on mount
-  useEffect(() => {
+  // Inicializa o estado diretamente do localStorage para evitar sobrescrita com array vazio
+  const [addresses, setAddresses] = useState<Address[]>(() => {
     const saved = localStorage.getItem("deliveryAddresses");
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        setAddresses(parsed);
-        const defaultAddr = parsed.find((a: Address) => a.isDefault) || parsed[0];
-        setSelectedAddress(defaultAddr || null);
+        return JSON.parse(saved);
       } catch (e) {
-        console.error("Failed to parse addresses", e);
+        console.error("Erro ao carregar endereços", e);
       }
     }
-  }, []);
+    return [];
+  });
 
-  // Sync to localStorage
+  const [selectedAddress, setSelectedAddress] = useState<Address | null>(() => {
+    const defaultAddr = addresses.find((a: Address) => a.isDefault) || addresses[0];
+    return defaultAddr || null;
+  });
+
+  // Atualiza o endereço selecionado quando a lista de endereços mudar (se necessário)
   useEffect(() => {
+    if (!selectedAddress && addresses.length > 0) {
+      const defaultAddr = addresses.find((a: Address) => a.isDefault) || addresses[0];
+      setSelectedAddress(defaultAddr);
+    }
+    // Persiste no localStorage sempre que houver mudanças
     localStorage.setItem("deliveryAddresses", JSON.stringify(addresses));
-  }, [addresses]);
+  }, [addresses, selectedAddress]);
 
   const addAddress = (addr: Omit<Address, "id">) => {
     const newAddr = { ...addr, id: Date.now().toString() };
@@ -70,9 +75,10 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const removeAddress = (id: string) => {
-    setAddresses(prev => prev.filter(a => a.id !== id));
+    const newAddresses = addresses.filter(a => a.id !== id);
+    setAddresses(newAddresses);
     if (selectedAddress?.id === id) {
-      setSelectedAddress(addresses.find(a => a.id !== id) || null);
+      setSelectedAddress(newAddresses.find(a => a.isDefault) || newAddresses[0] || null);
     }
   };
 
@@ -82,8 +88,9 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const setDefaultAddress = (id: string) => {
-    setAddresses(prev => prev.map(a => ({ ...a, isDefault: a.id === id })));
-    const addr = addresses.find(a => a.id === id);
+    const updated = addresses.map(a => ({ ...a, isDefault: a.id === id }));
+    setAddresses(updated);
+    const addr = updated.find(a => a.id === id);
     if (addr) setSelectedAddress(addr);
   };
 
@@ -104,6 +111,6 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
 export const useAddresses = () => {
   const context = useContext(AddressContext);
-  if (!context) throw new Error("useAddresses must be used within AddressProvider");
+  if (!context) throw new Error("useAddresses deve ser usado dentro de um AddressProvider");
   return context;
 };

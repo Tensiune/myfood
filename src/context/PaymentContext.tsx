@@ -21,19 +21,19 @@ interface PaymentContextType {
 const PaymentContext = createContext<PaymentContextType | undefined>(undefined);
 
 export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [savedCards, setSavedCards] = useState<CreditCard[]>([]);
-  const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>("pix");
-
-  useEffect(() => {
+  const [savedCards, setSavedCards] = useState<CreditCard[]>(() => {
     const saved = localStorage.getItem("paymentMethods");
     if (saved) {
       try {
-        setSavedCards(JSON.parse(saved));
+        return JSON.parse(saved);
       } catch (e) {
-        console.error("Erro ao carregar métodos de pagamento", e);
+        console.error("Erro ao carregar cartões", e);
       }
     }
-  }, []);
+    return [];
+  });
+
+  const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>("pix");
 
   useEffect(() => {
     localStorage.setItem("paymentMethods", JSON.stringify(savedCards));
