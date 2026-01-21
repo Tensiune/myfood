@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Trash2, Plus, Minus, ArrowLeft, MapPin, CreditCard, ChevronRight, ShoppingBag, Wallet, QrCode } from "lucide-react";
+import { Trash2, Plus, Minus, ArrowLeft, MapPin, CreditCard, ChevronRight, ShoppingBag, Wallet, QrCode, Check } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useAddresses } from "@/context/AddressContext";
 import { usePayment, PaymentMethodType } from "@/context/PaymentContext";
