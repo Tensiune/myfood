@@ -100,7 +100,7 @@ const SearchPage = () => {
         </div>
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="outline" size="icon" className="rounded-full border-indigo-200 text-indigo-600 hover:bg-indigo-50">
+            <Button className="rounded-full bg-brand-accent hover:bg-brand-accent/90 text-white" size="icon">
               <Filter className="h-5 w-5" />
             </Button>
           </SheetTrigger>
