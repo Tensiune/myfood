@@ -7,11 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Star, Clock, Plus, Minus, ShoppingCart } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { showSuccess } from "@/utils/toast";
+import { useCart } from "@/context/CartContext";
 
 const RestaurantDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const { addItem, getItemCount } = useCart();
 
   // Dados mockados - em um app real, isso viria de uma API
   const restaurant = {
@@ -98,17 +100,25 @@ const RestaurantDetailPage = () => {
     }));
   };
 
-  const addToCart = (item: any) => {
+  const handleAddToCart = (item: any) => {
     const quantity = quantities[item.id] || 0;
     if (quantity > 0) {
-      showSuccess(`${quantity}x ${item.name} adicionado(s) ao carrinho!`);
-      // Em um app real, você adicionaria ao contexto do carrinho ou estado global
+      addItem(
+        {
+          id: item.id,
+          restaurantId: restaurant.id,
+          name: item.name,
+          price: item.price,
+          imageUrl: item.imageUrl,
+        },
+        quantity
+      );
+      // Resetar quantidade após adicionar
+      setQuantities(prev => ({ ...prev, [item.id]: 0 }));
     }
   };
 
-  const getTotalItems = () => {
-    return Object.values(quantities).reduce((sum, qty) => sum + qty, 0);
-  };
+  const totalItems = getItemCount();
 
   return (
     <div className="space-y-6 pb-24">
@@ -184,7 +194,7 @@ const RestaurantDetailPage = () => {
                         <Button
                           size="sm"
                           className="rounded-lg bg-brand-accent hover:bg-brand-accent/90 text-white font-medium mt-2"
-                          onClick={() => addToCart(item)}
+                          onClick={() => handleAddToCart(item)}
                           disabled={(quantities[item.id] || 0) === 0}
                         >
                           Adicionar
@@ -200,14 +210,14 @@ const RestaurantDetailPage = () => {
       </div>
 
       {/* Carrinho Flutuante */}
-      {getTotalItems() > 0 && (
+      {totalItems > 0 && (
         <div className="fixed bottom-20 left-0 right-0 p-4 bg-white shadow-lg border-t border-gray-200 z-20">
           <Button
             className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 text-lg"
             onClick={() => navigate("/cart")}
           >
             <ShoppingCart className="h-5 w-5 mr-2" />
-            Ver Carrinho ({getTotalItems()} item{n.getTotalItems() !== 1 ? 's' : ''})
+            Ver Carrinho ({totalItems} item{totalItems !== 1 ? 's' : ''})
           </Button>
         </div>
       )}

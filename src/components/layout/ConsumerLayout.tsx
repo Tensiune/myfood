@@ -6,14 +6,17 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
-import { cn } from "@/lib/utils"; // Import cn utility for conditional class names
+import { cn } from "@/lib/utils";
+import { useCart } from "@/context/CartContext";
 
 const ConsumerLayout = () => {
   const [notificationCount, setNotificationCount] = useState(0);
-  const [currentAddress, setCurrentAddress] = useState("Rua Exemplo, 123"); // Placeholder for user's selected address
+  const [currentAddress, setCurrentAddress] = useState("Rua Exemplo, 123");
   const [user, setUser] = useState<any>(null);
   const navigate = useNavigate();
-  const location = useLocation(); // Get current location for active link styling
+  const location = useLocation();
+  const { getItemCount } = useCart();
+  const cartItemCount = getItemCount();
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -52,7 +55,7 @@ const ConsumerLayout = () => {
     { path: "/", icon: Home, label: "Início" },
     { path: "/search", icon: Search, label: "Buscar" },
     { path: "/orders", icon: ShoppingBag, label: "Pedidos" },
-    { path: "/profile", icon: User, label: "Perfil" }, // Profile will use Avatar, but User icon for fallback/consistency
+    { path: "/profile", icon: User, label: "Perfil" },
   ];
 
   return (
@@ -73,7 +76,6 @@ const ConsumerLayout = () => {
               <DropdownMenuItem onClick={() => alert("Editar/Alterar Endereço")}>
                 <MapPin className="mr-2 h-4 w-4" /> Editar/Alterar
               </DropdownMenuItem>
-              {/* Add more address options here */}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -118,6 +120,11 @@ const ConsumerLayout = () => {
                   <Icon className="h-5 w-5" />
                 )}
                 <span className="text-xs mt-1 font-medium">{item.label}</span>
+                {item.path === "/orders" && cartItemCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-accent text-xs font-bold text-white shadow-sm">
+                    {cartItemCount}
+                  </span>
+                )}
               </Link>
             );
           })}
