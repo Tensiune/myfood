@@ -3,17 +3,20 @@
 import React from "react";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Star, Clock } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 interface RestaurantCardProps {
+  id?: string;
   name: string;
   cuisine: string;
   imageUrl: string;
   rating: number;
   deliveryTime: string;
-  onClick: () => void;
+  onClick?: () => void;
 }
 
 const RestaurantCard: React.FC<RestaurantCardProps> = ({
+  id,
   name,
   cuisine,
   imageUrl,
@@ -21,10 +24,20 @@ const RestaurantCard: React.FC<RestaurantCardProps> = ({
   deliveryTime,
   onClick,
 }) => {
+  const navigate = useNavigate();
+
+  const handleClick = () => {
+    if (onClick) {
+      onClick();
+    } else if (id) {
+      navigate(`/restaurant/${id}`);
+    }
+  };
+
   return (
     <Card
       className="rounded-xl shadow-lg hover:shadow-xl transition-shadow cursor-pointer border border-gray-200 bg-white overflow-hidden"
-      onClick={onClick}
+      onClick={handleClick}
     >
       <img src={imageUrl} alt={name} className="rounded-t-xl w-full h-40 object-cover" />
       <CardContent className="p-4">

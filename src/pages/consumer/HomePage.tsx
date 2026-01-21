@@ -6,7 +6,7 @@ import CategoryCard from "@/components/consumer/CategoryCard";
 import RestaurantCard from "@/components/consumer/RestaurantCard";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
 import WelcomeHeader from "@/components/consumer/WelcomeHeader";
-import SearchBar from "@/components/consumer/SearchBar"; // Import the new SearchBar component
+import SearchBar from "@/components/consumer/SearchBar";
 
 const HomePage = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -22,6 +22,7 @@ const HomePage = () => {
 
   const featuredRestaurants = [
     {
+      id: "1",
       name: "Restaurante Sabor",
       cuisine: "Culinária Brasileira",
       imageUrl: "https://via.placeholder.com/400x200/FF6347/FFFFFF?text=Sabor",
@@ -29,6 +30,7 @@ const HomePage = () => {
       deliveryTime: "30-45 min",
     },
     {
+      id: "2",
       name: "Pizzaria Delícia",
       cuisine: "Pizzas e Massas",
       imageUrl: "https://via.placeholder.com/400x200/FFA500/FFFFFF?text=Pizza",
@@ -36,13 +38,15 @@ const HomePage = () => {
       deliveryTime: "20-35 min",
     },
     {
+      id: "3",
       name: "Sushi Express",
       cuisine: "Comida Japonesa",
-      imageUrl: "https://via.placeholder.00/4682B4/FFFFFF?text=Sushi",
+      imageUrl: "https://via.placeholder.com/400x200/4682B4/FFFFFF?text=Sushi",
       rating: 4.7,
       deliveryTime: "35-50 min",
     },
     {
+      id: "4",
       name: "Hamburgueria Top",
       cuisine: "Hambúrgueres Artesanais",
       imageUrl: "https://via.placeholder.com/400x200/8B4513/FFFFFF?text=Burger",
@@ -52,14 +56,16 @@ const HomePage = () => {
   ];
 
   const handleSearch = () => {
-    alert(`Buscando por: ${searchTerm}`);
-    // Here you would typically navigate to a search results page or filter current content
+    if (searchTerm.trim()) {
+      // Navegar para página de busca com o termo
+      window.location.href = `/search?q=${encodeURIComponent(searchTerm)}`;
+    }
   };
 
   return (
     <div className="space-y-8 pb-20">
       <WelcomeHeader />
-      
+
       <SearchBar
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
@@ -80,7 +86,6 @@ const HomePage = () => {
                 <CategoryCard
                   name={category.name}
                   imageUrl={category.imageUrl}
-                  onClick={() => alert(`Clicou em ${category.name}`)}
                 />
               </CarouselItem>
             ))}
@@ -93,15 +98,15 @@ const HomePage = () => {
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-indigo-700">Estabelecimentos em Destaque</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {featuredRestaurants.map((restaurant, index) => (
+          {featuredRestaurants.map((restaurant) => (
             <RestaurantCard
-              key={index}
+              key={restaurant.id}
+              id={restaurant.id}
               name={restaurant.name}
               cuisine={restaurant.cuisine}
               imageUrl={restaurant.imageUrl}
               rating={restaurant.rating}
               deliveryTime={restaurant.deliveryTime}
-              onClick={() => alert(`Clicou em ${restaurant.name}`)}
             />
           ))}
         </div>

@@ -13,7 +13,8 @@ import HomePage from "./pages/consumer/HomePage";
 import SearchPage from "./pages/consumer/SearchPage";
 import OrdersPage from "./pages/consumer/OrdersPage";
 import ProfilePage from "./pages/consumer/ProfilePage";
-import PlaceholderPage from "./pages/consumer/PlaceholderPage"; // Import the new PlaceholderPage
+import PlaceholderPage from "./pages/consumer/PlaceholderPage";
+import RestaurantDetailPage from "./pages/consumer/RestaurantDetailPage";
 
 const queryClient = new QueryClient();
 
@@ -28,7 +29,6 @@ const App = () => (
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          {/* Add a route for password reset confirmation if needed, e.g., /reset-password */}
 
           {/* Protected Routes for Consumer App */}
           <Route element={<AuthGuard />}>
@@ -37,6 +37,7 @@ const App = () => (
               <Route path="/search" element={<SearchPage />} />
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/restaurant/:id" element={<RestaurantDetailPage />} />
               {/* Placeholder Routes for Profile Page Links */}
               <Route path="/invite-friends" element={<PlaceholderPage title="Indicar Amigos" />} />
               <Route path="/share-app" element={<PlaceholderPage title="Compartilhar App" />} />
