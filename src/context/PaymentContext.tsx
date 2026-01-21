@@ -2,9 +2,11 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 
+export type PaymentMethodType = "stripe" | "pix" | "delivery_card" | "delivery_cash";
+
 export interface CreditCard {
   id: string;
-  brand: "visa" | "mastercard" | "amex";
+  brand: string;
   lastFour: string;
   expiry: string;
   holderName: string;
@@ -14,8 +16,10 @@ interface PaymentContextType {
   savedCards: CreditCard[];
   addCard: (card: Omit<CreditCard, "id">) => void;
   removeCard: (id: string) => void;
-  selectedPaymentId: string | null;
-  setSelectedPaymentId: (id: string | null) => void;
+  selectedPaymentType: PaymentMethodType;
+  setSelectedPaymentType: (type: PaymentMethodType) => void;
+  selectedCardId: string | null;
+  setSelectedCardId: (id: string | null) => void;
 }
 
 const PaymentContext = createContext<PaymentContextType | undefined>(undefined);
@@ -33,7 +37,8 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return [];
   });
 
-  const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>("pix");
+  const [selectedPaymentType, setSelectedPaymentType] = useState<PaymentMethodType>("pix");
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem("paymentMethods", JSON.stringify(savedCards));
@@ -42,16 +47,28 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const addCard = (card: Omit<CreditCard, "id">) => {
     const newCard = { ...card, id: Date.now().toString() };
     setSavedCards(prev => [...prev, newCard]);
-    setSelectedPaymentId(newCard.id);
+    setSelectedCardId(newCard.id);
+    setSelectedPaymentType("stripe");
   };
 
   const removeCard = (id: string) => {
     setSavedCards(prev => prev.filter(c => c.id !== id));
-    if (selectedPaymentId === id) setSelectedPaymentId("pix");
+    if (selectedCardId === id) {
+      setSelectedCardId(null);
+      setSelectedPaymentType("pix");
+    }
   };
 
   return (
-    <PaymentContext.Provider value={{ savedCards, addCard, removeCard, selectedPaymentId, setSelectedPaymentId }}>
+    <PaymentContext.Provider value={{ 
+      savedCards, 
+      addCard, 
+      removeCard, 
+      selectedPaymentType, 
+      setSelectedPaymentType,
+      selectedCardId,
+      setSelectedCardId
+    }}>
       {children}
     </PaymentContext.Provider>
   );
