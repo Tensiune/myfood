@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,22 @@ const CartPage = () => {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [deliveryAddress, setDeliveryAddress] = useState("Rua Exemplo, 123 - Apto 401");
   const [paymentMethod, setPaymentMethod] = useState("credit_card");
+
+  // Carregar endereço padrão do localStorage
+  useEffect(() => {
+    const savedAddresses = localStorage.getItem("deliveryAddresses");
+    if (savedAddresses) {
+      try {
+        const addresses = JSON.parse(savedAddresses);
+        const defaultAddress = addresses.find((addr: any) => addr.isDefault) || addresses[0];
+        if (defaultAddress) {
+          setDeliveryAddress(`${defaultAddress.street}, ${defaultAddress.number} - ${defaultAddress.neighborhood}`);
+        }
+      } catch (error) {
+        console.error("Failed to parse addresses", error);
+      }
+    }
+  }, []);
 
   const handleNoteChange = (itemId: string, value: string) => {
     setNotes(prev => ({ ...prev, [itemId]: value }));

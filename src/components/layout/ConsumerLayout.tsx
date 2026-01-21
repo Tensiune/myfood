@@ -8,11 +8,14 @@ import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { useCart } from "@/context/CartContext";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import AddressManager from "@/components/consumer/AddressManager";
 
 const ConsumerLayout = () => {
   const [notificationCount, setNotificationCount] = useState(0);
   const [currentAddress, setCurrentAddress] = useState("Rua Exemplo, 123");
   const [user, setUser] = useState<any>(null);
+  const [isAddressSheetOpen, setIsAddressSheetOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { getItemCount } = useCart();
@@ -31,6 +34,20 @@ const ConsumerLayout = () => {
         navigate("/login");
       }
     });
+
+    // Carregar endereço padrão do localStorage
+    const savedAddresses = localStorage.getItem("deliveryAddresses");
+    if (savedAddresses) {
+      try {
+        const addresses = JSON.parse(savedAddresses);
+        const defaultAddress = addresses.find((addr: any) => addr.isDefault) || addresses[0];
+        if (defaultAddress) {
+          setCurrentAddress(`${defaultAddress.street}, ${defaultAddress.number} - ${defaultAddress.neighborhood}`);
+        }
+      } catch (error) {
+        console.error("Failed to parse addresses", error);
+      }
+    }
 
     // Placeholder for fetching notifications
     setNotificationCount(3);
@@ -64,20 +81,21 @@ const ConsumerLayout = () => {
       <header className="bg-white shadow-sm p-4 flex items-center justify-between sticky top-0 z-10 rounded-b-xl border-b border-gray-200">
         <div className="flex items-center space-x-2">
           <MapPin className="h-5 w-5 text-indigo-600" />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <Sheet open={isAddressSheetOpen} onOpenChange={setIsAddressSheetOpen}>
+            <SheetTrigger asChild>
               <Button variant="ghost" className="text-gray-700 font-medium hover:bg-gray-100 rounded-lg px-3 py-2">
                 {currentAddress} <span className="ml-1 text-xs text-gray-500">▼</span>
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56 rounded-lg shadow-md">
-              <DropdownMenuLabel>Endereço de Entrega</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => alert("Editar/Alterar Endereço")}>
-                <MapPin className="mr-2 h-4 w-4" /> Editar/Alterar
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </SheetTrigger>
+            <SheetContent className="w-full sm:max-w-md rounded-l-xl overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle className="text-2xl font-bold text-indigo-800">Endereços de Entrega</SheetTitle>
+              </SheetHeader>
+              <div className="py-4">
+                <AddressManager />
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
         <div className="relative">
           <Button variant="ghost" size="icon" className="rounded-full hover:bg-gray-100">

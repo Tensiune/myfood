@@ -5,10 +5,11 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { User, Share2, Star, Mail, Settings, LogOut } from "lucide-react";
+import { User, Share2, Star, Mail, Settings, LogOut, MapPin } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
 import { useNavigate } from "react-router-dom";
+import AddressManager from "@/components/consumer/AddressManager";
 
 const ProfilePage = () => {
   const navigate = useNavigate();
@@ -36,7 +37,7 @@ const ProfilePage = () => {
   return (
     <div className="space-y-6 pb-20">
       <h1 className="text-4xl font-bold text-indigo-800 text-center">Meu Perfil</h1>
-      
+
       <Card className="rounded-xl shadow-lg border border-gray-200 bg-white">
         <CardContent className="p-6 flex flex-col items-center space-y-4">
           <Avatar className="h-24 w-24 border-4 border-indigo-200">
@@ -51,6 +52,21 @@ const ProfilePage = () => {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Gerenciamento de Endereços */}
+      <section className="space-y-4">
+        <Card className="rounded-xl shadow-sm border border-gray-200 bg-white">
+          <CardHeader>
+            <CardTitle className="text-xl font-bold text-indigo-800 flex items-center">
+              <MapPin className="h-5 w-5 mr-2 text-indigo-600" />
+              Endereços de Entrega
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4">
+            <AddressManager />
+          </CardContent>
+        </Card>
+      </section>
 
       <section className="space-y-4">
         <Card className="rounded-xl shadow-sm border border-gray-200 bg-white">
