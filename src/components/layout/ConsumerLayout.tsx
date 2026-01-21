@@ -82,7 +82,7 @@ const ConsumerLayout = () => {
             <Bell className="h-5 w-5 text-gray-600" />
           </Button>
           {notificationCount > 0 && (
-            <span className="absolute -top-1 -right-1 block h-5 w-5 rounded-full bg-brand-accent text-white text-xs flex items-center justify-center font-bold">
+            <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-brand-accent text-xs font-bold text-white shadow-sm">
               {notificationCount}
             </span>
           )}
@@ -105,12 +105,12 @@ const ConsumerLayout = () => {
                 key={item.path}
                 to={item.path}
                 className={cn(
-                  "flex flex-col items-center p-2 rounded-lg transition-colors duration-200",
-                  isActive ? "text-brand-accent bg-indigo-50" : "text-gray-600 hover:text-indigo-600 hover:bg-gray-100"
+                  "flex flex-col items-center p-2 rounded-lg transition-all duration-200 transform hover:scale-105",
+                  isActive ? "text-brand-accent bg-indigo-50" : "text-gray-600 hover:text-indigo-600"
                 )}
               >
                 {item.path === "/profile" && user ? (
-                  <Avatar className={cn("h-6 w-6", isActive ? "border-2 border-brand-accent" : "")}>
+                  <Avatar className={cn("h-7 w-7 transition-all duration-200", isActive ? "border-2 border-brand-accent ring-2 ring-brand-accent/50" : "")}>
                     <AvatarImage src={user?.user_metadata?.avatar_url || "https://github.com/shadcn.png"} />
                     <AvatarFallback className="text-xs">CN</AvatarFallback>
                   </Avatar>
