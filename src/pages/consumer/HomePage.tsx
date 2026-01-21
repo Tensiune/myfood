@@ -6,6 +6,7 @@ import { Search } from "lucide-react";
 import CategoryCard from "@/components/consumer/CategoryCard";
 import RestaurantCard from "@/components/consumer/RestaurantCard";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
+import WelcomeHeader from "@/components/consumer/WelcomeHeader"; // Import the new WelcomeHeader
 
 const HomePage = () => {
   const categories = [
@@ -35,7 +36,7 @@ const HomePage = () => {
     {
       name: "Sushi Express",
       cuisine: "Comida Japonesa",
-      imageUrl: "https://via.placeholder.com/400x200/4682B4/FFFFFF?text=Sushi",
+      imageUrl: "https://via.placeholder.00/4682B4/FFFFFF?text=Sushi",
       rating: 4.7,
       deliveryTime: "35-50 min",
     },
@@ -50,7 +51,7 @@ const HomePage = () => {
 
   return (
     <div className="space-y-8 pb-20">
-      <h1 className="text-4xl font-bold text-indigo-800 text-center leading-tight">O que você quer pedir hoje?</h1>
+      <WelcomeHeader /> {/* Using the new WelcomeHeader component */}
       
       <div className="relative">
         <Input
