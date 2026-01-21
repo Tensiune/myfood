@@ -18,6 +18,8 @@ import ProfilePage from "./pages/consumer/ProfilePage";
 import PlaceholderPage from "./pages/consumer/PlaceholderPage";
 import RestaurantDetailPage from "./pages/consumer/RestaurantDetailPage";
 import CartPage from "./pages/consumer/CartPage";
+import InboxPage from "./pages/consumer/InboxPage";
+import ChatPage from "./pages/consumer/ChatPage";
 
 const queryClient = new QueryClient();
 
@@ -42,17 +44,19 @@ const App = () => (
                   <Route path="/search" element={<SearchPage />} />
                   <Route path="/orders" element={<OrdersPage />} />
                   <Route path="/profile" element={<ProfilePage />} />
+                  <Route path="/inbox" element={<InboxPage />} />
                   <Route path="/restaurant/:id" element={<RestaurantDetailPage />} />
                   <Route path="/cart" element={<CartPage />} />
                   {/* Placeholder Routes for Profile Page Links */}
                   <Route path="/invite-friends" element={<PlaceholderPage title="Indicar Amigos" />} />
                   <Route path="/share-app" element={<PlaceholderPage title="Compartilhar App" />} />
                   <Route path="/rate-app" element={<PlaceholderPage title="Avaliar App" />} />
-                  <Route path="/inbox" element={<PlaceholderPage title="Caixa de Entrada" />} />
                   <Route path="/settings" element={<PlaceholderPage title="Configurações de Privacidade" />} />
                   <Route path="/terms" element={<PlaceholderPage title="Termos de Uso" />} />
                   <Route path="/privacy-policy" element={<PlaceholderPage title="Política de Privacidade" />} />
                 </Route>
+                {/* Chat route is full screen, so outside the layout but still protected */}
+                <Route path="/chat/:id" element={<ChatPage />} />
               </Route>
 
               {/* Catch-all route */}
