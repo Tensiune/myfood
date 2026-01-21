@@ -14,6 +14,7 @@ import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import AuthGuard from "./components/AuthGuard";
 import ConsumerLayout from "./components/layout/ConsumerLayout";
 import DashboardLayout from "./components/layout/DashboardLayout";
+import DriverLayout from "./components/layout/DriverLayout";
 import HomePage from "./pages/consumer/HomePage";
 import SearchPage from "./pages/consumer/SearchPage";
 import OrdersPage from "./pages/consumer/OrdersPage";
@@ -25,6 +26,8 @@ import CheckoutPage from "./pages/consumer/CheckoutPage";
 import InboxPage from "./pages/consumer/InboxPage";
 import ChatPage from "./pages/consumer/ChatPage";
 import ValidateMerchantsPage from "./pages/admin/ValidateMerchantsPage";
+import MerchantOrdersPage from "./pages/merchant/MerchantOrdersPage";
+import AvailableOrdersPage from "./pages/driver/AvailableOrdersPage";
 
 const queryClient = new QueryClient();
 
@@ -44,8 +47,9 @@ const App = () => (
                 <Route path="/merchant-register" element={<MerchantRegisterPage />} />
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
-                {/* Protected Routes for Consumer App */}
+                {/* Protected Routes */}
                 <Route element={<AuthGuard />}>
+                  {/* APP CONSUMIDOR */}
                   <Route element={<ConsumerLayout />}>
                     <Route path="/" element={<HomePage />} />
                     <Route path="/search" element={<SearchPage />} />
@@ -54,26 +58,36 @@ const App = () => (
                     <Route path="/inbox" element={<InboxPage />} />
                     <Route path="/restaurant/:id" element={<RestaurantDetailPage />} />
                     <Route path="/cart" element={<CartPage />} />
+                    {/* Placeholders */}
                     <Route path="/invite-friends" element={<PlaceholderPage title="Indicar Amigos" />} />
                     <Route path="/share-app" element={<PlaceholderPage title="Compartilhar App" />} />
                     <Route path="/rate-app" element={<PlaceholderPage title="Avaliar App" />} />
-                    <Route path="/settings" element={<PlaceholderPage title="Configurações de Privacidade" />} />
+                    <Route path="/settings" element={<PlaceholderPage title="Configurações" />} />
                     <Route path="/terms" element={<PlaceholderPage title="Termos de Uso" />} />
-                    <Route path="/privacy-policy" element={<PlaceholderPage title="Política de Privacidade" />} />
+                    <Route path="/privacy-policy" element={<PlaceholderPage title="Privacidade" />} />
                   </Route>
 
-                  {/* Merchant & Admin Dashboard Shared Layout */}
+                  {/* SISTEMA WEB (MERCHANT & ADMIN) */}
                   <Route element={<DashboardLayout />}>
-                    <Route path="/merchant/dashboard" element={<PlaceholderPage title="Dashboard do Lojista" message="Bem-vindo ao seu painel de vendas!" />} />
-                    <Route path="/merchant/menu" element={<PlaceholderPage title="Gestão de Cardápio" message="Gerencie seus pratos e categorias." />} />
+                    {/* Merchant Routes */}
+                    <Route path="/merchant/dashboard" element={<MerchantOrdersPage />} />
+                    <Route path="/merchant/menu" element={<PlaceholderPage title="Gestão de Cardápio" message="Gerencie seus pratos." />} />
                     <Route path="/merchant/settings" element={<PlaceholderPage title="Configurações da Loja" />} />
                     
                     {/* Admin Routes */}
-                    <Route path="/admin/dashboard" element={<PlaceholderPage title="Painel do Administrador" message="Visão geral de toda a plataforma." />} />
+                    <Route path="/admin/dashboard" element={<PlaceholderPage title="Painel Admin" message="Visão global." />} />
                     <Route path="/admin/merchants" element={<ValidateMerchantsPage />} />
                     <Route path="/admin/users" element={<PlaceholderPage title="Gestão de Usuários" />} />
                   </Route>
 
+                  {/* APP ENTREGADOR */}
+                  <Route element={<DriverLayout />}>
+                    <Route path="/driver/orders" element={<AvailableOrdersPage />} />
+                    <Route path="/driver/map" element={<PlaceholderPage title="Mapa de Entregas" message="Navegação em tempo real." />} />
+                    <Route path="/driver/profile" element={<PlaceholderPage title="Meu Perfil Driver" />} />
+                  </Route>
+
+                  {/* Shared/Utility Routes */}
                   <Route path="/checkout" element={<CheckoutPage />} />
                   <Route path="/chat/:id" element={<ChatPage />} />
                 </Route>
