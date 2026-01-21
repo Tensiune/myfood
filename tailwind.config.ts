@@ -62,6 +62,11 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        // New brand accent color
+        "brand-accent": {
+          DEFAULT: "hsl(var(--brand-accent))",
+          foreground: "hsl(var(--primary-foreground))", // Assuming white text on accent
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
