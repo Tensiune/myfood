@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
-import { Facebook, Chrome } from "lucide-react"; // Changed Google to Chrome
+import { Facebook, Chrome } from "lucide-react";
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
@@ -47,7 +47,7 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-indigo-50 p-4">
       <Card className="w-full max-w-md rounded-xl shadow-lg border-none">
         <CardHeader className="text-center space-y-2">
           <CardTitle className="text-3xl font-bold text-indigo-800">Bem-vindo de volta!</CardTitle>

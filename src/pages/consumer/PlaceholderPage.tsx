@@ -12,7 +12,7 @@ interface PlaceholderPageProps {
 
 const PlaceholderPage: React.FC<PlaceholderPageProps> = ({ title, message }) => {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-purple-50 to-indigo-100 p-4 text-center">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-indigo-50 p-4 text-center">
       <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full space-y-6">
         <h1 className="text-4xl font-bold text-indigo-800">{title}</h1>
         <p className="text-lg text-gray-600">

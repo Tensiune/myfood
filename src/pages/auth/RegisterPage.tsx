@@ -34,7 +34,7 @@ const RegisterPage = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-indigo-50 p-4">
       <Card className="w-full max-w-md rounded-xl shadow-lg border-none">
         <CardHeader className="text-center space-y-2">
           <CardTitle className="text-3xl font-bold text-indigo-800">Crie sua conta</CardTitle>
