@@ -1,14 +1,16 @@
 "use client";
 
-import React from "react";
-import { Input } from "@/components/ui/input";
+import React, { useState } from "react";
 import { Search } from "lucide-react";
 import CategoryCard from "@/components/consumer/CategoryCard";
 import RestaurantCard from "@/components/consumer/RestaurantCard";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
-import WelcomeHeader from "@/components/consumer/WelcomeHeader"; // Import the new WelcomeHeader
+import WelcomeHeader from "@/components/consumer/WelcomeHeader";
+import SearchBar from "@/components/consumer/SearchBar"; // Import the new SearchBar component
 
 const HomePage = () => {
+  const [searchTerm, setSearchTerm] = useState("");
+
   const categories = [
     { name: "Restaurantes", imageUrl: "https://via.placeholder.com/100/FFD700/FFFFFF?text=Rest" },
     { name: "Mercados", imageUrl: "https://via.placeholder.com/100/32CD32/FFFFFF?text=Merc" },
@@ -49,18 +51,20 @@ const HomePage = () => {
     },
   ];
 
+  const handleSearch = () => {
+    alert(`Buscando por: ${searchTerm}`);
+    // Here you would typically navigate to a search results page or filter current content
+  };
+
   return (
     <div className="space-y-8 pb-20">
-      <WelcomeHeader /> {/* Using the new WelcomeHeader component */}
+      <WelcomeHeader />
       
-      <div className="relative">
-        <Input
-          type="text"
-          placeholder="Buscar restaurantes ou pratos..."
-          className="w-full pl-10 pr-4 py-3 rounded-full border-2 border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400 shadow-sm text-base"
-        />
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-      </div>
+      <SearchBar
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        onSearch={handleSearch}
+      />
 
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-indigo-700">Categorias</h2>
