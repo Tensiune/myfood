@@ -19,6 +19,7 @@ const SearchPage = () => {
 
   const allRestaurants = [
     {
+      id: "1",
       name: "Restaurante Sabor",
       cuisine: "Culinária Brasileira",
       imageUrl: "https://via.placeholder.com/400x200/FF6347/FFFFFF?text=Sabor",
@@ -27,6 +28,7 @@ const SearchPage = () => {
       category: "Restaurantes",
     },
     {
+      id: "2",
       name: "Pizzaria Delícia",
       cuisine: "Pizzas e Massas",
       imageUrl: "https://via.placeholder.com/400x200/FFA500/FFFFFF?text=Pizza",
@@ -35,6 +37,7 @@ const SearchPage = () => {
       category: "Restaurantes",
     },
     {
+      id: "3",
       name: "Sushi Express",
       cuisine: "Comida Japonesa",
       imageUrl: "https://via.placeholder.com/400x200/4682B4/FFFFFF?text=Sushi",
@@ -43,6 +46,7 @@ const SearchPage = () => {
       category: "Restaurantes",
     },
     {
+      id: "4",
       name: "Hamburgueria Top",
       cuisine: "Hambúrgueres Artesanais",
       imageUrl: "https://via.placeholder.com/400x200/8B4513/FFFFFF?text=Burger",
@@ -51,6 +55,7 @@ const SearchPage = () => {
       category: "Restaurantes",
     },
     {
+      id: "5",
       name: "Mercado Fresco",
       cuisine: "Supermercado",
       imageUrl: "https://via.placeholder.com/400x200/32CD32/FFFFFF?text=Mercado",
@@ -59,6 +64,7 @@ const SearchPage = () => {
       category: "Mercados",
     },
     {
+      id: "6",
       name: "Padaria Doce Pão",
       cuisine: "Pães e Doces",
       imageUrl: "https://via.placeholder.com/400x200/DAA520/FFFFFF?text=Padaria",
@@ -73,9 +79,9 @@ const SearchPage = () => {
                               restaurant.cuisine.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = filterCategory === "all" || restaurant.category === filterCategory;
     const matchesRating = filterRating === "all" || restaurant.rating >= parseFloat(filterRating);
-    
+
     // Simple delivery time filter (can be made more complex)
-    const matchesDeliveryTime = filterDeliveryTime === "all" || 
+    const matchesDeliveryTime = filterDeliveryTime === "all" ||
                                 (filterDeliveryTime === "short" && parseInt(restaurant.deliveryTime.split('-')[0]) <= 30) ||
                                 (filterDeliveryTime === "medium" && parseInt(restaurant.deliveryTime.split('-')[0]) > 30 && parseInt(restaurant.deliveryTime.split('-')[0]) <= 45) ||
                                 (filterDeliveryTime === "long" && parseInt(restaurant.deliveryTime.split('-')[0]) > 45);
@@ -86,7 +92,7 @@ const SearchPage = () => {
   return (
     <div className="space-y-6 pb-20">
       <h1 className="text-4xl font-bold text-indigo-800 text-center">Buscar Estabelecimentos</h1>
-      
+
       <div className="flex items-center space-x-2">
         <div className="relative flex-grow">
           <Input
@@ -179,12 +185,12 @@ const SearchPage = () => {
             filteredRestaurants.map((restaurant, index) => (
               <RestaurantCard
                 key={index}
+                id={restaurant.id}
                 name={restaurant.name}
                 cuisine={restaurant.cuisine}
                 imageUrl={restaurant.imageUrl}
                 rating={restaurant.rating}
                 deliveryTime={restaurant.deliveryTime}
-                onClick={() => alert(`Clicou em ${restaurant.name}`)}
               />
             ))
           ) : (

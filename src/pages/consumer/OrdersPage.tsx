@@ -3,7 +3,10 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, Clock, CheckCircle } from "lucide-react";
+import { Package, Clock, CheckCircle, Star } from "lucide-react";
+import RatingComponent from "@/components/consumer/RatingComponent";
+import { Button } from "@/components/ui/button";
+import { showSuccess } from "@/utils/toast";
 
 const OrdersPage = () => {
   const orders = [
@@ -14,6 +17,8 @@ const OrdersPage = () => {
       status: "Em Entrega",
       time: "15:30",
       total: "R$ 75.00",
+      rating: null,
+      canRate: true,
     },
     {
       id: "2",
@@ -22,6 +27,8 @@ const OrdersPage = () => {
       status: "Entregue",
       time: "Ontem, 19:00",
       total: "R$ 55.00",
+      rating: 4.5,
+      canRate: false,
     },
     {
       id: "3",
@@ -30,6 +37,8 @@ const OrdersPage = () => {
       status: "Aguardando Confirmação",
       time: "Hoje, 10:00",
       total: "R$ 42.50",
+      rating: null,
+      canRate: false,
     },
   ];
 
@@ -46,10 +55,19 @@ const OrdersPage = () => {
     }
   };
 
+  const handleRatingSubmit = (orderId: string, rating: number, comment?: string) => {
+    return new Promise<void>((resolve) => {
+      // Em um app real, você enviaria isso para o backend
+      console.log(`Avaliação para pedido ${orderId}: ${rating} estrelas`, comment);
+      showSuccess("Obrigado pela sua avaliação!");
+      resolve();
+    });
+  };
+
   return (
     <div className="space-y-6 pb-20">
       <h1 className="text-4xl font-bold text-indigo-800 text-center">Meus Pedidos</h1>
-      
+
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-indigo-700">Pedidos Ativos</h2>
         {orders.filter(order => order.status !== "Entregue").length > 0 ? (
@@ -82,7 +100,7 @@ const OrdersPage = () => {
         {orders.filter(order => order.status === "Entregue").length > 0 ? (
           orders.filter(order => order.status === "Entregue").map((order) => (
             <Card key={order.id} className="rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-gray-200 bg-white">
-              <CardContent className="p-4 space-y-2">
+              <CardContent className="p-4 space-y-3">
                 <div className="flex justify-between items-center">
                   <CardTitle className="text-lg font-semibold text-gray-800">{order.restaurant}</CardTitle>
                   {getStatusBadge(order.status)}
@@ -96,6 +114,22 @@ const OrdersPage = () => {
                     <CheckCircle className="h-4 w-4 mr-1" /> {order.total}
                   </div>
                 </div>
+
+                {order.rating !== null && (
+                  <div className="flex items-center space-x-2 pt-2 border-t border-gray-100 mt-2">
+                    <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                    <span className="text-sm font-medium text-gray-700">Sua avaliação: {order.rating.toFixed(1)}</span>
+                  </div>
+                )}
+
+                {order.canRate && (
+                  <div className="pt-3 border-t border-gray-100 mt-3">
+                    <h3 className="text-sm font-medium text-gray-700 mb-2">Avalie sua experiência:</h3>
+                    <RatingComponent
+                      onRatingSubmit={(rating, comment) => handleRatingSubmit(order.id, rating, comment)}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))
