@@ -54,7 +54,7 @@ const OrdersPage = () => {
         <h2 className="text-2xl font-semibold text-indigo-700">Pedidos Ativos</h2>
         {orders.filter(order => order.status !== "Entregue").length > 0 ? (
           orders.filter(order => order.status !== "Entregue").map((order) => (
-            <Card key={order.id} className="rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border-none bg-white">
+            <Card key={order.id} className="rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-gray-200 bg-white">
               <CardContent className="p-4 space-y-2">
                 <div className="flex justify-between items-center">
                   <CardTitle className="text-lg font-semibold text-gray-800">{order.restaurant}</CardTitle>
@@ -81,7 +81,7 @@ const OrdersPage = () => {
         <h2 className="text-2xl font-semibold text-indigo-700">Histórico de Pedidos</h2>
         {orders.filter(order => order.status === "Entregue").length > 0 ? (
           orders.filter(order => order.status === "Entregue").map((order) => (
-            <Card key={order.id} className="rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border-none bg-white">
+            <Card key={order.id} className="rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-gray-200 bg-white">
               <CardContent className="p-4 space-y-2">
                 <div className="flex justify-between items-center">
                   <CardTitle className="text-lg font-semibold text-gray-800">{order.restaurant}</CardTitle>

@@ -23,7 +23,7 @@ const RestaurantCard: React.FC<RestaurantCardProps> = ({
 }) => {
   return (
     <Card
-      className="rounded-xl shadow-lg hover:shadow-xl transition-shadow cursor-pointer border-none bg-white overflow-hidden"
+      className="rounded-xl shadow-lg hover:shadow-xl transition-shadow cursor-pointer border border-gray-200 bg-white overflow-hidden"
       onClick={onClick}
     >
       <img src={imageUrl} alt={name} className="rounded-t-xl w-full h-40 object-cover" />

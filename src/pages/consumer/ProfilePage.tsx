@@ -37,7 +37,7 @@ const ProfilePage = () => {
     <div className="space-y-6 pb-20">
       <h1 className="text-4xl font-bold text-indigo-800 text-center">Meu Perfil</h1>
       
-      <Card className="rounded-xl shadow-lg border-none bg-white">
+      <Card className="rounded-xl shadow-lg border border-gray-200 bg-white">
         <CardContent className="p-6 flex flex-col items-center space-y-4">
           <Avatar className="h-24 w-24 border-4 border-indigo-200">
             <AvatarImage src={user?.user_metadata?.avatar_url || "https://github.com/shadcn.png"} />
@@ -53,7 +53,7 @@ const ProfilePage = () => {
       </Card>
 
       <section className="space-y-4">
-        <Card className="rounded-xl shadow-sm border-none bg-white">
+        <Card className="rounded-xl shadow-sm border border-gray-200 bg-white">
           <CardContent className="p-4 space-y-2">
             <Link to="/invite-friends" className="flex items-center p-2 rounded-lg hover:bg-gray-50 transition-colors">
               <Share2 className="h-5 w-5 mr-3 text-indigo-600" />
@@ -74,7 +74,7 @@ const ProfilePage = () => {
           </CardContent>
         </Card>
 
-        <Card className="rounded-xl shadow-sm border-none bg-white">
+        <Card className="rounded-xl shadow-sm border border-gray-200 bg-white">
           <CardContent className="p-4 space-y-2">
             <Link to="/settings" className="flex items-center p-2 rounded-lg hover:bg-gray-50 transition-colors">
               <Settings className="h-5 w-5 mr-3 text-indigo-600" />

@@ -12,7 +12,7 @@ interface CategoryCardProps {
 const CategoryCard: React.FC<CategoryCardProps> = ({ name, imageUrl, onClick }) => {
   return (
     <Card
-      className="flex flex-col items-center justify-center p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border-none bg-white h-full w-full"
+      className="flex flex-col items-center justify-center p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-gray-200 bg-white h-full w-full"
       onClick={onClick}
     >
       <img src={imageUrl} alt={name} className="rounded-full mb-2 w-16 h-16 object-cover" />
