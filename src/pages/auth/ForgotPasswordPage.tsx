@@ -28,7 +28,7 @@ const ForgotPasswordPage = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-indigo-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 to-purple-100 p-4">
       <Card className="w-full max-w-md rounded-xl shadow-lg border-none">
         <CardHeader className="text-center space-y-2">
           <CardTitle className="text-3xl font-bold text-indigo-800">Recuperar Senha</CardTitle>
@@ -50,7 +50,7 @@ const ForgotPasswordPage = () => {
                 className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
               />
             </div>
-            <Button type="submit" className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2" disabled={loading}>
+            <Button type="submit" className="w-full rounded-lg bg-brand-accent hover:bg-brand-accent/90 text-white font-semibold py-2" disabled={loading}>
               {loading ? "Enviando..." : "Enviar Link de Recuperação"}
             </Button>
           </form>
