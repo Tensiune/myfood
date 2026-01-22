@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
 
 export interface Address {
   id: string;
@@ -28,33 +29,39 @@ interface AddressContextType {
 const AddressContext = createContext<AddressContextType | undefined>(undefined);
 
 export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Inicializa o estado diretamente do localStorage para evitar sobrescrita com array vazio
-  const [addresses, setAddresses] = useState<Address[]>(() => {
-    const saved = localStorage.getItem("deliveryAddresses");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error("Erro ao carregar endereços", e);
-      }
-    }
-    return [];
-  });
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [selectedAddress, setSelectedAddress] = useState<Address | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
-  const [selectedAddress, setSelectedAddress] = useState<Address | null>(() => {
-    const defaultAddr = addresses.find((a: Address) => a.isDefault) || addresses[0];
-    return defaultAddr || null;
-  });
-
-  // Atualiza o endereço selecionado quando a lista de endereços mudar (se necessário)
   useEffect(() => {
-    if (!selectedAddress && addresses.length > 0) {
-      const defaultAddr = addresses.find((a: Address) => a.isDefault) || addresses[0];
-      setSelectedAddress(defaultAddr);
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+        const saved = localStorage.getItem(`addresses_${user.id}`);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            setAddresses(parsed);
+            const defaultAddr = parsed.find((a: Address) => a.isDefault) || parsed[0];
+            setSelectedAddress(defaultAddr || null);
+          } catch (e) {
+            console.error("Erro ao carregar endereços", e);
+          }
+        }
+      } else {
+        setAddresses([]);
+        setSelectedAddress(null);
+      }
+    };
+    fetchUser();
+  }, []);
+
+  useEffect(() => {
+    if (userId) {
+      localStorage.setItem(`addresses_${userId}`, JSON.stringify(addresses));
     }
-    // Persiste no localStorage sempre que houver mudanças
-    localStorage.setItem("deliveryAddresses", JSON.stringify(addresses));
-  }, [addresses, selectedAddress]);
+  }, [addresses, userId]);
 
   const addAddress = (addr: Omit<Address, "id">) => {
     const newAddr = { ...addr, id: Date.now().toString() };
