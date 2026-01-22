@@ -32,6 +32,7 @@ import AvailableOrdersPage from "./pages/driver/AvailableOrdersPage";
 import NavigationPage from "./pages/driver/NavigationPage";
 import MerchantMenuPage from "./pages/merchant/MerchantMenuPage";
 import MerchantReportsPage from "./pages/merchant/MerchantReportsPage";
+import MerchantDashboardPage from "./pages/merchant/MerchantDashboardPage"; // Added this import
 
 const queryClient = new QueryClient();
 
@@ -50,7 +51,7 @@ const App = () => (
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/merchant-register" element={<MerchantRegisterPage />} />
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-
+                
                 {/* Protected Routes */}
                 <Route element={<AuthGuard />}>
                   {/* APP CONSUMIDOR */}
@@ -71,11 +72,11 @@ const App = () => (
                     <Route path="/terms" element={<PlaceholderPage title="Termos de Uso" />} />
                     <Route path="/privacy-policy" element={<PlaceholderPage title="Privacidade" />} />
                   </Route>
-
+                  
                   {/* SISTEMA WEB (MERCHANT & ADMIN) */}
                   <Route element={<DashboardLayout />}>
                     {/* Merchant Routes */}
-                    <Route path="/merchant/dashboard" element={<MerchantOrdersPage />} />
+                    <Route path="/merchant/dashboard" element={<MerchantDashboardPage />} />
                     <Route path="/merchant/menu" element={<MerchantMenuPage />} />
                     <Route path="/merchant/reports" element={<MerchantReportsPage />} />
                     <Route path="/merchant/settings" element={<PlaceholderPage title="Configurações da Loja" />} />
@@ -85,19 +86,19 @@ const App = () => (
                     <Route path="/admin/merchants" element={<ValidateMerchantsPage />} />
                     <Route path="/admin/users" element={<PlaceholderPage title="Gestão de Usuários" />} />
                   </Route>
-
+                  
                   {/* APP ENTREGADOR */}
                   <Route element={<DriverLayout />}>
                     <Route path="/driver/orders" element={<AvailableOrdersPage />} />
                     <Route path="/driver/map" element={<NavigationPage />} />
                     <Route path="/driver/profile" element={<PlaceholderPage title="Meu Perfil Driver" />} />
                   </Route>
-
+                  
                   {/* Shared/Utility Routes */}
                   <Route path="/checkout" element={<CheckoutPage />} />
                   <Route path="/chat/:id" element={<ChatPage />} />
                 </Route>
-
+                
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>
