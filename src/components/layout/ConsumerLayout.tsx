@@ -8,17 +8,20 @@ import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { useCart } from "@/context/CartContext";
 import { useAddresses } from "@/context/AddressContext";
+import { useNotifications } from "@/context/NotificationContext";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import AddressManager from "@/components/consumer/AddressManager";
+import NotificationList from "@/components/shared/NotificationList";
 
 const ConsumerLayout = () => {
-  const [notificationCount, setNotificationCount] = useState(3);
   const [user, setUser] = useState<any>(null);
   const [isAddressSheetOpen, setIsAddressSheetOpen] = useState(false);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { getItemCount } = useCart();
   const { selectedAddress } = useAddresses();
+  const { unreadCount } = useNotifications();
   const cartItemCount = getItemCount();
 
   useEffect(() => {
@@ -27,15 +30,6 @@ const ConsumerLayout = () => {
       setUser(user);
     };
     fetchUser();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
-      if (!session) navigate("/login");
-    });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
   }, [navigate]);
 
   const navItems = [
@@ -64,25 +58,28 @@ const ConsumerLayout = () => {
             </SheetTrigger>
             <SheetContent side="bottom" className="h-[80vh] rounded-t-[2.5rem] overflow-y-auto">
               <SheetHeader className="mb-6">
-                <SheetTitle className="text-xl font-bold text-center text-indigo-900">Onde você quer receber seu pedido?</SheetTitle>
+                <SheetTitle className="text-xl font-bold text-center text-indigo-900">Onde você quer receber?</SheetTitle>
               </SheetHeader>
-              <div className="px-2">
-                <AddressManager />
-              </div>
+              <div className="px-2"><AddressManager /></div>
             </SheetContent>
           </Sheet>
         </div>
         <div className="flex items-center gap-2">
-          <div className="relative">
-            <Button variant="ghost" size="icon" className="rounded-full">
-              <Bell className="h-6 w-6 text-gray-700" />
-              {notificationCount > 0 && (
-                <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-accent text-[10px] font-bold text-white">
-                  {notificationCount}
-                </span>
-              )}
-            </Button>
-          </div>
+          <Sheet open={isNotifOpen} onOpenChange={setIsNotifOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="rounded-full relative">
+                <Bell className="h-6 w-6 text-gray-700" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-accent text-[10px] font-bold text-white border-2 border-white">
+                    {unreadCount}
+                  </span>
+                )}
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-full sm:max-w-md rounded-l-3xl">
+              <NotificationList onClose={() => setIsNotifOpen(false)} />
+            </SheetContent>
+          </Sheet>
         </div>
       </header>
 
@@ -93,7 +90,7 @@ const ConsumerLayout = () => {
 
       {/* Bottom Navigation */}
       <nav className="bg-white border-t border-gray-100 p-2 fixed bottom-0 left-0 right-0 z-10 safe-area-bottom">
-        <div className="flex justify-around items-center max-w-md mx-auto relative">
+        <div className="flex justify-around items-center max-w-md mx-auto">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             const Icon = item.icon;
@@ -116,7 +113,7 @@ const ConsumerLayout = () => {
                     <Icon className="h-6 w-6" />
                   )}
                   {item.path === "/orders" && cartItemCount > 0 && (
-                    <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-brand-accent text-[10px] font-bold text-white shadow-md">
+                    <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-brand-accent text-[10px] font-bold text-white">
                       {cartItemCount}
                     </span>
                   )}
