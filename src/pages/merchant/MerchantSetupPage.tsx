@@ -23,6 +23,7 @@ import { showError, showSuccess } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
 import BusinessHoursManager, { DayHours } from "@/components/merchant/BusinessHoursManager";
+import MerchantAddressForm from "@/components/merchant/MerchantAddressForm";
 
 const MerchantSetupPage = () => {
   const navigate = useNavigate();
@@ -55,7 +56,9 @@ const MerchantSetupPage = () => {
       neighborhood: "",
       city: "",
       state: "",
-      zipCode: ""
+      zipCode: "",
+      lat: -23.5505,
+      lng: -46.6333
     }
   });
   
@@ -84,7 +87,6 @@ const MerchantSetupPage = () => {
   });
 
   const handleSaveHours = () => {
-    // Validação básica: verificar se dias abertos têm pelo menos uma janela
     const invalidDays = Object.entries(hours).filter(([_, h]) => !h.closed && h.windows.length === 0);
     if (invalidDays.length > 0) {
       showError("Dias marcados como abertos devem ter pelo menos um horário de funcionamento.");
@@ -278,7 +280,7 @@ const MerchantSetupPage = () => {
             <p className="text-gray-500 text-sm">Dados básicos e endereço comercial.</p>
           </CardHeader>
           <CardContent className="space-y-6 pt-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <div className="space-y-2">
                 <Label className="font-bold text-gray-700">Nome da Loja *</Label>
                 <Input
@@ -300,7 +302,7 @@ const MerchantSetupPage = () => {
               </div>
             </div>
             
-            <div className="space-y-2">
+            <div className="space-y-2 mb-8">
               <Label className="font-bold text-gray-700">Descrição</Label>
               <textarea
                 placeholder="Conte um pouco sobre sua loja..."
@@ -311,119 +313,18 @@ const MerchantSetupPage = () => {
             </div>
             
             <div className="pt-4 border-t border-gray-50">
-              <h3 className="font-black text-lg text-indigo-900 mb-4 flex items-center gap-2">
+              <h3 className="font-black text-lg text-indigo-900 mb-6 flex items-center gap-2">
                 <MapPin className="h-5 w-5 text-brand-accent" />
                 Endereço de Entrega/Coleta
               </h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="md:col-span-2 space-y-2">
-                  <Label className="font-bold text-gray-700">Rua/Avenida *</Label>
-                  <Input
-                    placeholder="Logradouro"
-                    value={storeInfo.address.street}
-                    onChange={(e) => setStoreInfo({
-                      ...storeInfo, 
-                      address: {...storeInfo.address, street: e.target.value}
-                    })}
-                    className="rounded-xl h-12 border-gray-100"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label className="font-bold text-gray-700">Número *</Label>
-                  <Input
-                    placeholder="000"
-                    value={storeInfo.address.number}
-                    onChange={(e) => setStoreInfo({
-                      ...storeInfo, 
-                      address: {...storeInfo.address, number: e.target.value}
-                    })}
-                    className="rounded-xl h-12 border-gray-100"
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                <div className="space-y-2">
-                  <Label className="font-bold text-gray-700">Complemento</Label>
-                  <Input
-                    placeholder="Sala, Andar, etc."
-                    value={storeInfo.address.complement}
-                    onChange={(e) => setStoreInfo({
-                      ...storeInfo, 
-                      address: {...storeInfo.address, complement: e.target.value}
-                    })}
-                    className="rounded-xl h-12 border-gray-100"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label className="font-bold text-gray-700">Bairro *</Label>
-                  <Input
-                    placeholder="Bairro"
-                    value={storeInfo.address.neighborhood}
-                    onChange={(e) => setStoreInfo({
-                      ...storeInfo, 
-                      address: {...storeInfo.address, neighborhood: e.target.value}
-                    })}
-                    className="rounded-xl h-12 border-gray-100"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label className="font-bold text-gray-700">CEP *</Label>
-                  <Input
-                    placeholder="00000-000"
-                    value={storeInfo.address.zipCode}
-                    onChange={(e) => setStoreInfo({
-                      ...storeInfo, 
-                      address: {...storeInfo.address, zipCode: e.target.value}
-                    })}
-                    className="rounded-xl h-12 border-gray-100"
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                <div className="space-y-2">
-                  <Label className="font-bold text-gray-700">Cidade *</Label>
-                  <Input
-                    placeholder="Cidade"
-                    value={storeInfo.address.city}
-                    onChange={(e) => setStoreInfo({
-                      ...storeInfo, 
-                      address: {...storeInfo.address, city: e.target.value}
-                    })}
-                    className="rounded-xl h-12 border-gray-100"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label className="font-bold text-gray-700">Estado *</Label>
-                  <Select 
-                    value={storeInfo.address.state}
-                    onValueChange={(value) => setStoreInfo({
-                      ...storeInfo, 
-                      address: {...storeInfo.address, state: value}
-                    })}
-                  >
-                    <SelectTrigger className="rounded-xl h-12 border-gray-100">
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-xl">
-                      <SelectItem value="SP">São Paulo</SelectItem>
-                      <SelectItem value="RJ">Rio de Janeiro</SelectItem>
-                      <SelectItem value="MG">Minas Gerais</SelectItem>
-                      <SelectItem value="PR">Paraná</SelectItem>
-                      {/* Outros estados poderiam ser adicionados aqui */}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+              <MerchantAddressForm 
+                address={storeInfo.address}
+                onChange={(address) => setStoreInfo({ ...storeInfo, address })}
+              />
             </div>
             
-            <div className="flex justify-between pt-4">
+            <div className="flex justify-between pt-8">
               <Button 
                 variant="ghost" 
                 className="rounded-xl font-bold text-gray-400"
@@ -442,6 +343,7 @@ const MerchantSetupPage = () => {
         </Card>
       )}
 
+      {/* Restante das abas mantidas como estavam */}
       {activeTab === "bank" && (
         <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden">
           <CardHeader className="pb-4 bg-white">
