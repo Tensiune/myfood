@@ -73,7 +73,9 @@ const RoleSelectionPage = () => {
   const getRolePath = (role: UserRole) => {
     switch (role) {
       case 'CONSUMER': return '/';
-      case 'MERCHANT': return user?.user_metadata?.status === 'PENDING' ? '/merchant/setup' : '/merchant/dashboard';
+      case 'MERCHANT': 
+        const status = user?.user_metadata?.status;
+        return status === 'NEEDS_SETUP' ? '/merchant/setup' : '/merchant/dashboard';
       case 'DRIVER': return '/driver/orders';
       case 'ADMIN': return '/admin/dashboard';
       default: return '/';
@@ -81,7 +83,6 @@ const RoleSelectionPage = () => {
   };
 
   const handleRoleSelect = (role: UserRole) => {
-    // Store the selected role in local storage
     localStorage.setItem('active_role', role);
     showSuccess(`Acessando como ${getRoleLabel(role)}.`);
     navigate(getRolePath(role));
@@ -109,22 +110,22 @@ const RoleSelectionPage = () => {
             const Icon = getRoleIcon(role);
             const label = getRoleLabel(role);
             
-            // Check if Merchant is pending approval
-            const isMerchantPending = role === 'MERCHANT' && user?.user_metadata?.status === 'PENDING';
+            // Rejeitado se o status for explicitamente REJECTED
+            const isRejected = role === 'MERCHANT' && user?.user_metadata?.status === 'REJECTED';
 
             return (
               <button
                 key={role}
                 onClick={() => handleRoleSelect(role)}
                 className="w-full"
-                disabled={isMerchantPending}
+                disabled={isRejected}
               >
                 <div className={`flex items-center justify-between p-4 rounded-xl border transition-colors ${
                   role === 'MERCHANT' ? 'bg-brand-accent/10 border-brand-accent/50 hover:bg-brand-accent/20' :
                   role === 'DRIVER' ? 'bg-blue-50 border-blue-200 hover:bg-blue-100' :
                   role === 'ADMIN' ? 'bg-red-50 border-red-200 hover:bg-red-100' :
                   'bg-indigo-50 border-indigo-200 hover:bg-indigo-100'
-                } ${isMerchantPending ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                } ${isRejected ? 'opacity-50 cursor-not-allowed' : ''}`}>
                   <div className="flex items-center gap-4">
                     <Icon className={`h-6 w-6 ${
                       role === 'MERCHANT' ? 'text-brand-accent' :
@@ -134,8 +135,8 @@ const RoleSelectionPage = () => {
                     }`} />
                     <div className="text-left">
                         <span className="font-bold text-gray-800 block">{label}</span>
-                        {isMerchantPending && (
-                            <span className="text-xs text-red-500 font-medium">Aguardando Aprovação</span>
+                        {isRejected && (
+                            <span className="text-xs text-red-500 font-medium">Acesso Negado</span>
                         )}
                     </div>
                   </div>
