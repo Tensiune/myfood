@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,14 +14,28 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  // Redirect if already logged in
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        navigate("/");
+      }
+    };
+    checkSession();
+  }, [navigate]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      
       showSuccess("Login realizado com sucesso!");
-      // AuthGuard handles redirection based on role/status
+      // Navigate to root, where AuthGuard will take over and decide 
+      // where to send the user based on their role/status
+      navigate("/");
     } catch (error: any) {
       showError(error.message || "Erro ao fazer login.");
     } finally {
@@ -35,7 +49,7 @@ const LoginPage = () => {
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: window.location.origin, // Redirect back to the app
+          redirectTo: window.location.origin,
         },
       });
       if (error) throw error;
