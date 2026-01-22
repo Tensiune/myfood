@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Plus, MapPin, Home, Building, Check, Loader2 } from "lucide-react";
+import { Trash2, Plus, MapPin, Home, Building, Check, Loader2, X } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { useAddresses, Address } from "@/context/AddressContext";
 import { cn } from "@/lib/utils";
@@ -25,7 +25,6 @@ const AddressManager: React.FC = () => {
   });
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Busca CEP via API ViaCEP
   const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
     const cep = e.target.value.replace(/\D/g, "");
     if (cep.length === 8) {
@@ -44,6 +43,7 @@ const AddressManager: React.FC = () => {
             city: data.localidade,
             state: data.uf,
           }));
+          setShowSuggestions(false);
         }
       } catch (error) {
         showError("Erro ao buscar CEP.");
@@ -53,7 +53,6 @@ const AddressManager: React.FC = () => {
     }
   };
 
-  // Sugestão de ruas via OpenStreetMap (Nominatim)
   const fetchStreetSuggestions = useCallback(async (query: string) => {
     if (query.length < 3) {
       setStreetSuggestions([]);
@@ -72,10 +71,10 @@ const AddressManager: React.FC = () => {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (showSuggestions && currentAddress.street) {
+      if (showSuggestions && currentAddress.street && currentAddress.street.length >= 3) {
         fetchStreetSuggestions(currentAddress.street);
       }
-    }, 500);
+    }, 600);
     return () => clearTimeout(timer);
   }, [currentAddress.street, fetchStreetSuggestions, showSuggestions]);
 
@@ -89,7 +88,7 @@ const AddressManager: React.FC = () => {
     setCurrentAddress(prev => ({
       ...prev,
       street: suggestion.address.road || suggestion.display_name.split(",")[0],
-      neighborhood: suggestion.address.suburb || prev.neighborhood,
+      neighborhood: suggestion.address.suburb || suggestion.address.neighbourhood || prev.neighborhood,
       city: suggestion.address.city || suggestion.address.town || prev.city,
       state: suggestion.address.state_code || prev.state,
     }));
@@ -120,19 +119,7 @@ const AddressManager: React.FC = () => {
     setCurrentAddress({ type: "home", isDefault: false });
     setEditingId(null);
     setStreetSuggestions([]);
-  };
-
-  const handleEdit = (e: React.MouseEvent, address: Address) => {
-    e.stopPropagation();
-    setCurrentAddress(address);
-    setEditingId(address.id);
-    setIsDialogOpen(true);
-  };
-
-  const handleDelete = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    removeAddress(id);
-    showSuccess("Endereço removido!");
+    setShowSuggestions(false);
   };
 
   return (
@@ -157,23 +144,23 @@ const AddressManager: React.FC = () => {
                      address.type === "work" ? <Building className="h-5 w-5 text-indigo-600" /> : 
                      <MapPin className="h-5 w-5 text-indigo-600" />}
                   </div>
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="font-semibold text-gray-800">
+                      <p className="font-semibold text-gray-800 truncate">
                         {address.street}, {address.number}
                       </p>
                       {selectedAddress?.id === address.id && <Check className="h-4 w-4 text-brand-accent" />}
                     </div>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-xs text-gray-600 truncate">
                       {address.neighborhood} - {address.city}/{address.state}
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400" onClick={(e) => handleEdit(e, address)}>
+                <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400" onClick={(e) => { e.stopPropagation(); setCurrentAddress(address); setEditingId(address.id); setIsDialogOpen(true); }}>
                     ✏️
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400" onClick={(e) => handleDelete(e, address.id)}>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400" onClick={(e) => { e.stopPropagation(); removeAddress(address.id); showSuccess("Endereço removido!"); }}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -189,7 +176,7 @@ const AddressManager: React.FC = () => {
             <Plus className="h-5 w-5 mr-2" /> Adicionar novo endereço
           </Button>
         </DialogTrigger>
-        <DialogContent className="sm:max-w-[500px] rounded-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[500px] rounded-2xl max-h-[90vh] overflow-visible">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-indigo-900">
               {editingId ? "Editar endereço" : "Novo endereço"}
@@ -228,20 +215,33 @@ const AddressManager: React.FC = () => {
 
             <div className="space-y-2 relative">
               <Label>Rua</Label>
-              <Input 
-                name="street" 
-                placeholder="Nome da rua" 
-                value={currentAddress.street || ""} 
-                onChange={handleInputChange}
-                onFocus={() => setShowSuggestions(true)}
-                autoComplete="off"
-                className="rounded-lg" 
-              />
+              <div className="relative">
+                <Input 
+                  name="street" 
+                  placeholder="Nome da rua" 
+                  value={currentAddress.street || ""} 
+                  onChange={handleInputChange}
+                  onFocus={() => setShowSuggestions(true)}
+                  autoComplete="off"
+                  className="rounded-lg" 
+                />
+                {showSuggestions && currentAddress.street && currentAddress.street.length >= 3 && (
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-gray-400"
+                    onClick={() => { setShowSuggestions(false); setStreetSuggestions([]); }}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
               {showSuggestions && streetSuggestions.length > 0 && (
-                <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-xl mt-1 overflow-hidden">
+                <div className="absolute z-[100] w-full bg-white border border-gray-200 rounded-lg shadow-2xl mt-1 overflow-hidden max-h-48 overflow-y-auto">
                   {streetSuggestions.map((s, i) => (
                     <button
                       key={i}
+                      type="button"
                       className="w-full text-left p-3 hover:bg-indigo-50 text-sm border-b last:border-0 border-gray-100 transition-colors"
                       onClick={() => selectSuggestion(s)}
                     >
@@ -274,19 +274,8 @@ const AddressManager: React.FC = () => {
                 <Input name="state" placeholder="UF" value={currentAddress.state || ""} onChange={handleInputChange} className="rounded-lg" />
               </div>
             </div>
-            
-            <div className="flex items-center space-x-2 pt-2">
-              <input 
-                type="checkbox" 
-                id="def" 
-                className="rounded border-gray-300 text-brand-accent focus:ring-brand-accent"
-                checked={currentAddress.isDefault || false}
-                onChange={(e) => setCurrentAddress(p => ({ ...p, isDefault: e.target.checked }))}
-              />
-              <Label htmlFor="def" className="text-sm font-medium leading-none cursor-pointer">Definir como endereço padrão</Label>
-            </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-3 mt-2">
             <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
             <Button className="flex-1 rounded-xl bg-brand-accent hover:bg-brand-accent/90" onClick={handleSaveAddress}>Salvar</Button>
           </div>
