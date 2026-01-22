@@ -1,5 +1,5 @@
 import React from "react";
-import { createRoot } from "react-dom/client";
+import * as ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import "./globals.css";
 import { NotificationProvider } from "./context/NotificationContext";
@@ -7,7 +7,7 @@ import { NotificationProvider } from "./context/NotificationContext";
 const rootElement = document.getElementById("root");
 
 if (rootElement) {
-  const root = createRoot(rootElement);
+  const root = ReactDOM.createRoot(rootElement);
   root.render(
     <React.StrictMode>
       <NotificationProvider>
