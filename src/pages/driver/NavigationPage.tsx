@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { 
   ArrowLeft, 
   MapPin, 
@@ -78,9 +79,11 @@ const NavigationPage = () => {
             </h3>
             <p className="text-gray-500 text-sm">{step === "to_store" ? "Rua das Laranjeiras, 400" : "Av. Paulista, 1000"}</p>
           </div>
-          <Button variant="outline" size="icon" className="rounded-full h-12 w-12 border-gray-100 shadow-sm">
-            <Phone className="h-5 w-5 text-indigo-600" />
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="icon" className="rounded-full h-12 w-12 border-gray-100 shadow-sm">
+              <Phone className="h-5 w-5 text-indigo-600" />
+            </Button>
+          </div>
         </div>
 
         <Button 
