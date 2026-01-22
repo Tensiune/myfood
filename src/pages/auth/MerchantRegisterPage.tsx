@@ -65,8 +65,8 @@ const MerchantRegisterPage = () => {
       
       if (error) throw error;
       
-      showSuccess("Cadastro realizado com sucesso! Aguarde a análise do administrador para ativar sua loja.");
-      navigate("/login");
+      showSuccess("Cadastro realizado com sucesso! Agora complete a configuração da sua loja.");
+      navigate("/merchant/setup"); // Redirect to setup page
     } catch (error: any) {
       showError(error.message || "Erro ao cadastrar lojista.");
     } finally {
@@ -157,6 +157,11 @@ const MerchantRegisterPage = () => {
           Já tem uma conta de parceiro?{" "}
           <Link to="/login" className="font-bold text-indigo-600 hover:underline">
             Entrar agora
+          </Link>
+        </p>
+        <p className="mt-2">
+          <Link to="/register" className="text-xs text-gray-500 hover:underline">
+            Voltar para seleção de perfil
           </Link>
         </p>
       </div>

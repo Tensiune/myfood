@@ -135,6 +135,11 @@ const ConsumerRegisterPage = () => {
             <Link to="/login" className="underline text-indigo-600 hover:text-indigo-800">
               Entrar
             </Link>
+            <p className="mt-2">
+              <Link to="/register" className="text-xs text-gray-500 hover:underline">
+                Voltar para seleção de perfil
+              </Link>
+            </p>
           </div>
         </CardContent>
       </Card>

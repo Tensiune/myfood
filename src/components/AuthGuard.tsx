@@ -21,19 +21,38 @@ const AuthGuard = () => {
       }
 
       const role = session.user.user_metadata?.role || "CONSUMER";
+      const status = session.user.user_metadata?.status; // Get merchant status
       setUserRole(role);
       setLoading(false);
 
-      // Redirecionamento automático baseado no Role
-      // Se o usuário está na raiz ou em rotas que não pertencem ao seu Role, redireciona para sua Home específica
       const path = location.pathname;
+      
+      // --- Merchant Specific Logic ---
+      if (role === "MERCHANT") {
+        // If PENDING, force redirect to setup page unless already there
+        if (status === "PENDING" && path !== "/merchant/setup") {
+          navigate("/merchant/setup");
+          return;
+        }
+        // If APPROVED, prevent access to setup page
+        if (status === "APPROVED" && path === "/merchant/setup") {
+          navigate("/merchant/dashboard");
+          return;
+        }
+      }
+      // -------------------------------
 
-      if (path === "/" || path === "/login" || path === "/register") {
-        if (role === "MERCHANT") navigate("/merchant/dashboard");
+      // General redirection logic for root/login/register pages
+      if (path === "/" || path === "/login" || path === "/register" || path === "/merchant-register") {
+        if (role === "MERCHANT") {
+          // If merchant is approved, go to dashboard, otherwise setup (handled above)
+          if (status === "APPROVED") navigate("/merchant/dashboard");
+          else if (status === "PENDING") navigate("/merchant/setup");
+        }
         else if (role === "ADMIN") navigate("/admin/dashboard");
         else if (role === "DRIVER") navigate("/driver/orders");
       } else {
-        // Proteção extra: impede que lojista acesse rotas de consumidor e vice-versa
+        // Protection extra: prevents cross-role access
         if (role === "MERCHANT" && !path.startsWith("/merchant") && !path.startsWith("/chat")) {
           navigate("/merchant/dashboard");
         } else if (role === "CONSUMER" && (path.startsWith("/merchant") || path.startsWith("/admin") || path.startsWith("/driver"))) {
@@ -49,7 +68,12 @@ const AuthGuard = () => {
         navigate("/login");
       } else if (event === "SIGNED_IN" && session) {
         const role = session.user.user_metadata?.role || "CONSUMER";
-        if (role === "MERCHANT") navigate("/merchant/dashboard");
+        const status = session.user.user_metadata?.status;
+        
+        if (role === "MERCHANT") {
+          if (status === "PENDING") navigate("/merchant/setup");
+          else navigate("/merchant/dashboard");
+        }
         else if (role === "DRIVER") navigate("/driver/orders");
         else navigate("/");
       }

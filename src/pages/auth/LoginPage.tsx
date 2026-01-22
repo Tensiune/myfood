@@ -21,7 +21,7 @@ const LoginPage = () => {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       showSuccess("Login realizado com sucesso!");
-      navigate("/"); // Redirect to home page after successful login
+      // AuthGuard handles redirection based on role/status
     } catch (error: any) {
       showError(error.message || "Erro ao fazer login.");
     } finally {

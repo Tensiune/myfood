@@ -9,6 +9,8 @@ import { PaymentProvider } from "./context/PaymentContext";
 import NotFound from "./pages/NotFound";
 import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
+import ConsumerRegisterPage from "./pages/auth/ConsumerRegisterPage";
+import DriverRegisterPage from "./pages/auth/DriverRegisterPage";
 import MerchantRegisterPage from "./pages/auth/MerchantRegisterPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import AuthGuard from "./components/AuthGuard";
@@ -32,6 +34,7 @@ import AvailableOrdersPage from "./pages/driver/AvailableOrdersPage";
 import NavigationPage from "./pages/driver/NavigationPage";
 import MerchantMenuPage from "./pages/merchant/MerchantMenuPage";
 import MerchantReportsPage from "./pages/merchant/MerchantReportsPage";
+import MerchantSetupPage from "./pages/merchant/MerchantSetupPage";
 
 const queryClient = new QueryClient();
 
@@ -48,6 +51,8 @@ const App = () => (
                 {/* Public Routes */}
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/register" element={<RegisterPage />} />
+                <Route path="/consumer-register" element={<ConsumerRegisterPage />} />
+                <Route path="/driver-register" element={<DriverRegisterPage />} />
                 <Route path="/merchant-register" element={<MerchantRegisterPage />} />
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
@@ -79,6 +84,7 @@ const App = () => (
                     <Route path="/merchant/menu" element={<MerchantMenuPage />} />
                     <Route path="/merchant/reports" element={<MerchantReportsPage />} />
                     <Route path="/merchant/settings" element={<PlaceholderPage title="Configurações da Loja" />} />
+                    <Route path="/merchant/setup" element={<MerchantSetupPage />} />
                     
                     {/* Admin Routes */}
                     <Route path="/admin/dashboard" element={<PlaceholderPage title="Painel Admin" message="Visão global." />} />
