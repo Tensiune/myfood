@@ -29,6 +29,7 @@ import ValidateMerchantsPage from "./pages/admin/ValidateMerchantsPage";
 import MerchantOrdersPage from "./pages/merchant/MerchantOrdersPage";
 import AvailableOrdersPage from "./pages/driver/AvailableOrdersPage";
 import MerchantMenuPage from "./pages/merchant/MerchantMenuPage";
+import MerchantReportsPage from "./pages/merchant/MerchantReportsPage";
 
 const queryClient = new QueryClient();
 
@@ -73,6 +74,7 @@ const App = () => (
                     {/* Merchant Routes */}
                     <Route path="/merchant/dashboard" element={<MerchantOrdersPage />} />
                     <Route path="/merchant/menu" element={<MerchantMenuPage />} />
+                    <Route path="/merchant/reports" element={<MerchantReportsPage />} />
                     <Route path="/merchant/settings" element={<PlaceholderPage title="Configurações da Loja" />} />
                     
                     {/* Admin Routes */}

@@ -12,7 +12,8 @@ import {
   Menu, 
   X,
   ShieldCheck,
-  Bell
+  Bell,
+  BarChart3
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
@@ -31,7 +32,6 @@ const DashboardLayout = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setUser(user);
-        // Simulando a busca da role do metadados ou de uma tabela profiles
         setRole(user.user_metadata?.role || "MERCHANT");
       }
     };
@@ -46,6 +46,7 @@ const DashboardLayout = () => {
   const merchantLinks = [
     { label: "Dashboard", path: "/merchant/dashboard", icon: LayoutDashboard },
     { label: "Meu Cardápio", path: "/merchant/menu", icon: Package },
+    { label: "Relatórios", path: "/merchant/reports", icon: BarChart3 },
     { label: "Configurações", path: "/merchant/settings", icon: Settings },
   ];
 
