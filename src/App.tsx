@@ -28,6 +28,7 @@ import ChatPage from "./pages/consumer/ChatPage";
 import ValidateMerchantsPage from "./pages/admin/ValidateMerchantsPage";
 import MerchantOrdersPage from "./pages/merchant/MerchantOrdersPage";
 import AvailableOrdersPage from "./pages/driver/AvailableOrdersPage";
+import MerchantMenuPage from "./pages/merchant/MerchantMenuPage";
 
 const queryClient = new QueryClient();
 
@@ -71,7 +72,7 @@ const App = () => (
                   <Route element={<DashboardLayout />}>
                     {/* Merchant Routes */}
                     <Route path="/merchant/dashboard" element={<MerchantOrdersPage />} />
-                    <Route path="/merchant/menu" element={<PlaceholderPage title="Gestão de Cardápio" message="Gerencie seus pratos." />} />
+                    <Route path="/merchant/menu" element={<MerchantMenuPage />} />
                     <Route path="/merchant/settings" element={<PlaceholderPage title="Configurações da Loja" />} />
                     
                     {/* Admin Routes */}
