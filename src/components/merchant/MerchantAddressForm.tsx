@@ -4,18 +4,23 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MapPin, Loader2, X } from "lucide-react";
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { showError } from "@/utils/toast";
 
-// Configuração de ícones Leaflet
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+// Criando um ícone customizado para o marcador usando DivIcon para evitar problemas de carregamento de imagem
+const customMarkerIcon = L.divIcon({
+  html: `<div class="bg-brand-accent p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+        </div>`,
+  className: "custom-div-icon",
+  iconSize: [40, 40],
+  iconAnchor: [20, 40],
 });
 
 interface AddressData {
@@ -35,11 +40,10 @@ interface MerchantAddressFormProps {
   onChange: (address: AddressData) => void;
 }
 
-// Componente para recentralizar o mapa quando as coordenadas mudarem
 const RecenterMap = ({ position }: { position: [number, number] }) => {
   const map = useMap();
   useEffect(() => {
-    if (position) {
+    if (position && position[0] !== 0) {
       map.flyTo(position, 16);
     }
   }, [position, map]);
@@ -56,6 +60,7 @@ const LocationMarker = ({ position, onPositionChange }: { position: [number, num
   return position ? (
     <Marker 
       position={position} 
+      icon={customMarkerIcon}
       draggable={true}
       eventHandlers={{
         dragend: (e) => {
