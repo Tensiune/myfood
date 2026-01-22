@@ -14,6 +14,7 @@ import {
   MessageCircle
 } from "lucide-react";
 import { showSuccess } from "@/utils/toast";
+import { cn } from "@/lib/utils";
 
 const MerchantOrdersPage = () => {
   const [orders, setOrders] = useState([
