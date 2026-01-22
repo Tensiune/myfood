@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { OtpInput } from "@/components/shared/OtpInput";
 import { showError, showSuccess } from "@/utils/toast";
+import { supabase } from "@/lib/supabase";
 
 interface EmailVerificationStepProps {
   email: string;
@@ -21,6 +22,16 @@ const EmailVerificationStep: React.FC<EmailVerificationStepProps> = ({
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+
+  // Countdown timer for resend button
+  React.useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (countdown > 0) {
+      timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
   const handleSendOtp = async () => {
     if (!email) {
@@ -30,9 +41,19 @@ const EmailVerificationStep: React.FC<EmailVerificationStepProps> = ({
     
     setLoading(true);
     try {
-      // In a real app, you would send OTP via email/SMS
-      // For demo purposes, we'll just simulate it
+      // Send OTP via Supabase
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: false, // We don't want to create a user yet
+          emailRedirectTo: `${window.location.origin}/merchant-register`
+        }
+      });
+      
+      if (error) throw error;
+      
       setOtpSent(true);
+      setCountdown(60); // 60 second cooldown
       showSuccess("Código de verificação enviado para seu e-mail!");
     } catch (error: any) {
       showError(error.message || "Erro ao enviar código de verificação.");
@@ -41,13 +62,33 @@ const EmailVerificationStep: React.FC<EmailVerificationStepProps> = ({
     }
   };
 
-  const handleVerifyOtp = () => {
-    // In a real app, you would verify the OTP with backend
-    // For demo, we'll just proceed to next step
-    if (otp.length === 6) {
-      onNext();
-    } else {
+  const handleVerifyOtp = async () => {
+    if (otp.length !== 6) {
       showError("Por favor, informe o código de verificação completo.");
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      // Verify OTP with Supabase
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: otp,
+        type: 'signup'
+      });
+      
+      if (error) throw error;
+      
+      if (data.user) {
+        // Email verified successfully
+        onNext();
+      } else {
+        showError("Código de verificação inválido.");
+      }
+    } catch (error: any) {
+      showError(error.message || "Erro ao verificar código.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -94,6 +135,19 @@ const EmailVerificationStep: React.FC<EmailVerificationStepProps> = ({
               disabled={otp.length !== 6 || loading}
             >
               {loading ? "Verificando..." : "Verificar"}
+            </Button>
+          </div>
+          
+          <div className="text-center">
+            <Button 
+              variant="link" 
+              className="text-sm text-indigo-600"
+              onClick={handleSendOtp}
+              disabled={countdown > 0 || loading}
+            >
+              {countdown > 0 
+                ? `Reenviar código em ${countdown}s` 
+                : "Não recebeu o código? Reenviar"}
             </Button>
           </div>
         </div>
