@@ -25,9 +25,11 @@ import CartPage from "./pages/consumer/CartPage";
 import CheckoutPage from "./pages/consumer/CheckoutPage";
 import InboxPage from "./pages/consumer/InboxPage";
 import ChatPage from "./pages/consumer/ChatPage";
+import OrderTrackingPage from "./pages/consumer/OrderTrackingPage";
 import ValidateMerchantsPage from "./pages/admin/ValidateMerchantsPage";
 import MerchantOrdersPage from "./pages/merchant/MerchantOrdersPage";
 import AvailableOrdersPage from "./pages/driver/AvailableOrdersPage";
+import NavigationPage from "./pages/driver/NavigationPage";
 import MerchantMenuPage from "./pages/merchant/MerchantMenuPage";
 import MerchantReportsPage from "./pages/merchant/MerchantReportsPage";
 
@@ -60,6 +62,7 @@ const App = () => (
                     <Route path="/inbox" element={<InboxPage />} />
                     <Route path="/restaurant/:id" element={<RestaurantDetailPage />} />
                     <Route path="/cart" element={<CartPage />} />
+                    <Route path="/track/:id" element={<OrderTrackingPage />} />
                     {/* Placeholders */}
                     <Route path="/invite-friends" element={<PlaceholderPage title="Indicar Amigos" />} />
                     <Route path="/share-app" element={<PlaceholderPage title="Compartilhar App" />} />
@@ -86,7 +89,7 @@ const App = () => (
                   {/* APP ENTREGADOR */}
                   <Route element={<DriverLayout />}>
                     <Route path="/driver/orders" element={<AvailableOrdersPage />} />
-                    <Route path="/driver/map" element={<PlaceholderPage title="Mapa de Entregas" message="Navegação em tempo real." />} />
+                    <Route path="/driver/map" element={<NavigationPage />} />
                     <Route path="/driver/profile" element={<PlaceholderPage title="Meu Perfil Driver" />} />
                   </Route>
 
