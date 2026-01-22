@@ -65,7 +65,7 @@ const AuthGuard = () => {
       
       // 2. Enforce Role Path and Merchant Status
       const expectedPrefix = getRolePrefix(activeRole);
-      const isMerchantSetupRequired = activeRole === 'MERCHANT' && user.user_metadata?.status === 'PENDING';
+      const isMerchantSetupRequired = activeRole === 'MERCHANT' && user.user_metadata?.status === 'NEEDS_SETUP';
       
       if (isMerchantSetupRequired && path !== "/merchant/setup") {
           navigate("/merchant/setup");
@@ -124,7 +124,7 @@ const AuthGuard = () => {
   const getRolePath = (role: UserRole, user: User) => {
     switch (role) {
       case 'CONSUMER': return '/';
-      case 'MERCHANT': return user.user_metadata?.status === 'PENDING' ? '/merchant/setup' : '/merchant/dashboard';
+      case 'MERCHANT': return user.user_metadata?.status === 'NEEDS_SETUP' ? '/merchant/setup' : '/merchant/dashboard';
       case 'DRIVER': return '/driver/orders';
       case 'ADMIN': return '/admin/dashboard';
       default: return '/';

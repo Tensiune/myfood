@@ -53,7 +53,7 @@ const MerchantRegisterPage = () => {
           data: {
             role: 'MERCHANT',
             store_name: businessInfo.street, // Using street as store name for demo
-            status: 'PENDING',
+            status: 'NEEDS_SETUP', // New status for initial setup phase
             cnpj: businessInfo.cnpj,
             phone: businessInfo.phone,
             address: businessInfo,
@@ -66,7 +66,7 @@ const MerchantRegisterPage = () => {
       if (error) throw error;
       
       showSuccess("Cadastro realizado com sucesso! Agora complete a configuração da sua loja.");
-      navigate("/merchant/setup"); // Redirect to setup page
+      navigate("/login"); // After signup, user needs to login to start session
     } catch (error: any) {
       showError(error.message || "Erro ao cadastrar lojista.");
     } finally {

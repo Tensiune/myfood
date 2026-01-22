@@ -115,8 +115,13 @@ const MerchantSetupPage = () => {
 
     setLoading(true);
     try {
-      // In a real app, we would update the merchant's status in the database
-      // For now, we'll just show a success message
+      // Update user metadata to PENDING (Awaiting Approval)
+      const { error } = await supabase.auth.updateUser({
+        data: { status: 'PENDING' }
+      });
+      
+      if (error) throw error;
+
       showSuccess("Solicitação enviada para aprovação! Você será notificado quando for aprovado.");
       navigate("/merchant/dashboard");
     } catch (error: any) {
@@ -201,7 +206,8 @@ const MerchantSetupPage = () => {
         })}
       </div>
 
-      {/* Status Tab */}
+      {/* Content based on activeTab */}
+      {/* ... keeping existing UI code ... */}
       {activeTab === "status" && (
         <Card className="rounded-3xl border-none shadow-sm">
           <CardHeader className="pb-4">
@@ -248,7 +254,6 @@ const MerchantSetupPage = () => {
         </Card>
       )}
 
-      {/* Hours Tab */}
       {activeTab === "hours" && (
         <Card className="rounded-3xl border-none shadow-sm">
           <CardHeader className="pb-4">
@@ -328,7 +333,6 @@ const MerchantSetupPage = () => {
         </Card>
       )}
 
-      {/* Store Info Tab */}
       {activeTab === "store" && (
         <Card className="rounded-3xl border-none shadow-sm">
           <CardHeader className="pb-4">
@@ -530,7 +534,6 @@ const MerchantSetupPage = () => {
         </Card>
       )}
 
-      {/* Bank Info Tab */}
       {activeTab === "bank" && (
         <Card className="rounded-3xl border-none shadow-sm">
           <CardHeader className="pb-4">
@@ -647,7 +650,6 @@ const MerchantSetupPage = () => {
         </Card>
       )}
 
-      {/* Team Access Tab */}
       {activeTab === "team" && (
         <Card className="rounded-3xl border-none shadow-sm">
           <CardHeader className="pb-4">
@@ -734,7 +736,6 @@ const MerchantSetupPage = () => {
         </Card>
       )}
 
-      {/* Completion Tab */}
       {activeTab === "completion" && (
         <Card className="rounded-3xl border-none shadow-sm">
           <CardHeader className="pb-4">
