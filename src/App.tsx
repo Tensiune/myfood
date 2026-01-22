@@ -13,6 +13,7 @@ import ConsumerRegisterPage from "./pages/auth/ConsumerRegisterPage";
 import DriverRegisterPage from "./pages/auth/DriverRegisterPage";
 import MerchantRegisterPage from "./pages/auth/MerchantRegisterPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
+import RoleSelectionPage from "./pages/auth/RoleSelectionPage";
 import AuthGuard from "./components/AuthGuard";
 import ConsumerLayout from "./components/layout/ConsumerLayout";
 import DashboardLayout from "./components/layout/DashboardLayout";
@@ -58,6 +59,8 @@ const App = () => (
 
                 {/* Protected Routes */}
                 <Route element={<AuthGuard />}>
+                  <Route path="/select-role" element={<RoleSelectionPage />} />
+                  
                   {/* APP CONSUMIDOR */}
                   <Route element={<ConsumerLayout />}>
                     <Route path="/" element={<HomePage />} />

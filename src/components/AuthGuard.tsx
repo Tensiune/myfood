@@ -1,12 +1,30 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, Outlet, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import { showLoading, dismissToast } from "@/utils/toast";
 import { Skeleton } from "@/components/ui/skeleton";
+import { User } from "@supabase/supabase-js";
+import { UserRole } from "@/types/auth";
+
+// Helper function to determine available roles based on user metadata
+const getAvailableRoles = (user: User): UserRole[] => {
+    const roles: UserRole[] = ['CONSUMER'];
+
+    if (user.user_metadata?.role === 'ADMIN') {
+        roles.push('ADMIN');
+    }
+    // Assuming Merchant status is set during merchant registration
+    if (user.user_metadata?.status) {
+        roles.push('MERCHANT');
+    }
+    // Assuming CPF is set during driver registration
+    if (user.user_metadata?.cpf) {
+        roles.push('DRIVER');
+    }
+    return Array.from(new Set(roles));
+};
 
 const AuthGuard = () => {
   const [loading, setLoading] = useState(true);
-  const [userRole, setUserRole] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -15,67 +33,76 @@ const AuthGuard = () => {
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session) {
-        navigate("/login");
+        // If not logged in, redirect to login
+        if (!location.pathname.startsWith("/login") && !location.pathname.includes("-register") && location.pathname !== "/forgot-password") {
+            navigate("/login");
+        }
         setLoading(false);
         return;
       }
 
-      const role = session.user.user_metadata?.role || "CONSUMER";
-      const status = session.user.user_metadata?.status; // Get merchant status
-      setUserRole(role);
-      setLoading(false);
-
+      const user = session.user;
+      const availableRoles = getAvailableRoles(user);
+      const activeRole = localStorage.getItem('active_role') as UserRole | null;
       const path = location.pathname;
       
-      // --- Merchant Specific Logic ---
-      if (role === "MERCHANT") {
-        // If PENDING, force redirect to setup page unless already there
-        if (status === "PENDING" && path !== "/merchant/setup") {
+      // 1. Handle Role Selection Requirement
+      if (!activeRole || !availableRoles.includes(activeRole)) {
+        if (path !== "/select-role") {
+            // If multiple roles are available, force selection
+            if (availableRoles.length > 1) {
+                navigate("/select-role");
+            } else {
+                // If only one role, set it as active and redirect
+                localStorage.setItem('active_role', availableRoles[0]);
+                const targetPath = getRolePath(availableRoles[0], user);
+                navigate(targetPath);
+            }
+        }
+        setLoading(false);
+        return;
+      }
+      
+      // 2. Enforce Role Path and Merchant Status
+      const expectedPrefix = getRolePrefix(activeRole);
+      const isMerchantSetupRequired = activeRole === 'MERCHANT' && user.user_metadata?.status === 'PENDING';
+      
+      if (isMerchantSetupRequired && path !== "/merchant/setup") {
           navigate("/merchant/setup");
+          setLoading(false);
           return;
-        }
-        // If APPROVED, prevent access to setup page
-        if (status === "APPROVED" && path === "/merchant/setup") {
-          navigate("/merchant/dashboard");
+      }
+      
+      if (!path.startsWith(expectedPrefix) && path !== "/select-role" && path !== "/checkout" && path !== "/chat") {
+          // If trying to access a path outside the active role's domain, redirect to the role's dashboard
+          const targetPath = getRolePath(activeRole, user);
+          navigate(targetPath);
+          setLoading(false);
           return;
-        }
       }
-      // -------------------------------
-
-      // General redirection logic for root/login/register pages
-      if (path === "/" || path === "/login" || path === "/register" || path === "/merchant-register") {
-        if (role === "MERCHANT") {
-          // If merchant is approved, go to dashboard, otherwise setup (handled above)
-          if (status === "APPROVED") navigate("/merchant/dashboard");
-          else if (status === "PENDING") navigate("/merchant/setup");
-        }
-        else if (role === "ADMIN") navigate("/admin/dashboard");
-        else if (role === "DRIVER") navigate("/driver/orders");
-      } else {
-        // Protection extra: prevents cross-role access
-        if (role === "MERCHANT" && !path.startsWith("/merchant") && !path.startsWith("/chat")) {
-          navigate("/merchant/dashboard");
-        } else if (role === "CONSUMER" && (path.startsWith("/merchant") || path.startsWith("/admin") || path.startsWith("/driver"))) {
-          navigate("/");
-        }
+      
+      // 3. Handle root path redirection
+      if (path === "/") {
+          const targetPath = getRolePath(activeRole, user);
+          if (targetPath !== "/") {
+              navigate(targetPath);
+              setLoading(false);
+              return;
+          }
       }
+      
+      setLoading(false);
     };
 
     checkUser();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT") {
+        localStorage.removeItem('active_role');
         navigate("/login");
       } else if (event === "SIGNED_IN" && session) {
-        const role = session.user.user_metadata?.role || "CONSUMER";
-        const status = session.user.user_metadata?.status;
-        
-        if (role === "MERCHANT") {
-          if (status === "PENDING") navigate("/merchant/setup");
-          else navigate("/merchant/dashboard");
-        }
-        else if (role === "DRIVER") navigate("/driver/orders");
-        else navigate("/");
+        // On sign in, force role selection check
+        checkUser();
       }
     });
 
@@ -83,6 +110,26 @@ const AuthGuard = () => {
       authListener.subscription.unsubscribe();
     };
   }, [navigate, location.pathname]);
+
+  const getRolePrefix = (role: UserRole) => {
+    switch (role) {
+      case 'MERCHANT': return '/merchant';
+      case 'DRIVER': return '/driver';
+      case 'ADMIN': return '/admin';
+      case 'CONSUMER': return '/';
+      default: return '/';
+    }
+  };
+  
+  const getRolePath = (role: UserRole, user: User) => {
+    switch (role) {
+      case 'CONSUMER': return '/';
+      case 'MERCHANT': return user.user_metadata?.status === 'PENDING' ? '/merchant/setup' : '/merchant/dashboard';
+      case 'DRIVER': return '/driver/orders';
+      case 'ADMIN': return '/admin/dashboard';
+      default: return '/';
+    }
+  };
 
   if (loading) {
     return (
