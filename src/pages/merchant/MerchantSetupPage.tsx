@@ -16,18 +16,16 @@ import {
   CreditCard, 
   CheckCircle2, 
   AlertCircle,
-  UserPlus,
   Building2,
   MapPin,
-  ShieldCheck,
-  X
+  Map
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
-import { cn } from "@/lib/utils";
 import BusinessHoursManager, { DayHours } from "@/components/merchant/BusinessHoursManager";
 import MerchantAddressForm from "@/components/merchant/MerchantAddressForm";
+import DeliveryAreaManager from "@/components/merchant/DeliveryAreaManager";
 
 const BRAZILIAN_BANKS = [
   { code: "001", name: "Banco do Brasil" },
@@ -35,20 +33,8 @@ const BRAZILIAN_BANKS = [
   { code: "104", name: "Caixa Econômica Federal" },
   { code: "237", name: "Bradesco" },
   { code: "341", name: "Itaú Unibanco" },
+  { code: "260", name: "Nubank" },
   { code: "077", name: "Banco Inter" },
-  { code: "260", name: "Nubank (Nu Pagamentos)" },
-  { code: "422", name: "Banco Safra" },
-  { code: "745", name: "Citibank" },
-  { code: "041", name: "Banrisul" },
-  { code: "212", name: "Banco Original" },
-  { code: "633", name: "Banco Rendimento" },
-  { code: "707", name: "Banco Daycoval" },
-  { code: "070", name: "Banco BRB" },
-  { code: "197", name: "Stone Pagamentos" },
-  { code: "290", name: "PagSeguro" },
-  { code: "323", name: "Mercado Pago" },
-  { code: "004", name: "Banco do Nordeste" },
-  { code: "003", name: "Banco da Amazônia" },
 ];
 
 const PERMISSIONS = [
@@ -63,10 +49,8 @@ const MerchantSetupPage = () => {
   const [activeTab, setActiveTab] = useState("status");
   const [loading, setLoading] = useState(false);
   
-  // Status states
   const [isOpen, setIsOpen] = useState(false);
   
-  // Hours states
   const [hours, setHours] = useState<Record<string, DayHours>>({
     monday: { closed: false, windows: [{ id: "1", open: "08:00", close: "18:00" }] },
     tuesday: { closed: false, windows: [{ id: "2", open: "08:00", close: "18:00" }] },
@@ -77,7 +61,6 @@ const MerchantSetupPage = () => {
     sunday: { closed: true, windows: [] }
   });
   
-  // Store info states
   const [storeInfo, setStoreInfo] = useState({
     name: "",
     description: "",
@@ -94,8 +77,12 @@ const MerchantSetupPage = () => {
       lng: -46.6333
     }
   });
+
+  const [deliveryArea, setDeliveryArea] = useState<{ radius: number; exclusionZones: [number, number][][] }>({
+    radius: 5,
+    exclusionZones: []
+  });
   
-  // Bank info states
   const [bankInfo, setBankInfo] = useState({
     bank: "",
     accountType: "checking",
@@ -105,118 +92,44 @@ const MerchantSetupPage = () => {
     accountDigit: ""
   });
   
-  // Team states
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("employee");
-  const [invitePermissions, setInvitePermissions] = useState<string[]>(["orders"]);
-  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState([
     { id: "1", email: "gerente@loja.com", role: "manager", status: "active", permissions: ["orders", "menu", "reports", "settings"] }
   ]);
 
-  const handleInviteSubmit = () => {
-    if (!inviteEmail || !inviteEmail.includes("@")) {
-      showError("Informe um e-mail válido para o convite.");
-      return;
-    }
-    
-    if (editingMemberId) {
-      // Update existing member
-      setTeamMembers(prev => prev.map(m => 
-        m.id === editingMemberId 
-          ? { ...m, email: inviteEmail, role: inviteRole, permissions: [...invitePermissions] } 
-          : m
-      ));
-      showSuccess("Colaborador atualizado com sucesso!");
-      setEditingMemberId(null);
-    } else {
-      // Add new member
-      if (teamMembers.some(m => m.email === inviteEmail)) {
-        showError("Este e-mail já possui um convite ou acesso.");
-        return;
-      }
-
-      const newMember = {
-        id: Date.now().toString(),
-        email: inviteEmail,
-        role: inviteRole,
-        status: "pending",
-        permissions: [...invitePermissions]
-      };
-      
-      setTeamMembers(prev => [newMember, ...prev]);
-      showSuccess("Convite enviado com sucesso!");
-    }
-    
-    setInviteEmail("");
-    setInviteRole("employee");
-    setInvitePermissions(["orders"]);
-  };
-
-  const handleEditMember = (member: any) => {
-    setInviteEmail(member.email);
-    setInviteRole(member.role);
-    setInvitePermissions(member.permissions);
-    setEditingMemberId(member.id);
-    // Scroll smoothly to form
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleRemoveMember = (id: string) => {
-    setTeamMembers(prev => prev.filter(m => m.id !== id));
-    showSuccess("Acesso removido.");
-    if (editingMemberId === id) {
-      setEditingMemberId(null);
-      setInviteEmail("");
-      setInviteRole("employee");
-      setInvitePermissions(["orders"]);
-    }
-  };
-
-  const togglePermission = (permId: string) => {
-    setInvitePermissions(prev => 
-      prev.includes(permId) ? prev.filter(id => id !== permId) : [...prev, permId]
-    );
-  };
-  
-  // Completion states
   const [completedSteps, setCompletedSteps] = useState({
     status: false,
     hours: false,
     store: false,
-    bank: false,
-    menu: false
+    delivery: false,
+    bank: false
   });
 
   const handleSaveHours = () => {
-    const invalidDays = Object.entries(hours).filter(([_, h]) => !h.closed && h.windows.length === 0);
-    if (invalidDays.length > 0) {
-      showError("Dias marcados como abertos devem ter pelo menos um horário de funcionamento.");
-      return;
-    }
     setCompletedSteps(prev => ({ ...prev, hours: true }));
-    showSuccess("Horário de funcionamento salvo!");
+    showSuccess("Horário salvo!");
     setActiveTab("store");
   };
 
   const handleSaveStoreInfo = () => {
-    if (!storeInfo.name || !storeInfo.phone || !storeInfo.address.street) {
-      showError("Preencha todos os campos obrigatórios.");
+    if (!storeInfo.name || !storeInfo.address.street) {
+      showError("Preencha os campos obrigatórios.");
       return;
     }
     setCompletedSteps(prev => ({ ...prev, store: true }));
-    showSuccess("Informações da loja salvas!");
+    showSuccess("Dados da loja salvos!");
+    setActiveTab("delivery");
+  };
+
+  const handleSaveDeliveryArea = () => {
+    setCompletedSteps(prev => ({ ...prev, delivery: true }));
+    showSuccess("Área de entrega configurada!");
     setActiveTab("bank");
   };
 
   const handleSaveBankInfo = () => {
-    if (!bankInfo.bank || !bankInfo.agency || !bankInfo.account) {
-      showError("Preencha todos os campos bancários.");
-      return;
-    }
     setCompletedSteps(prev => ({ ...prev, bank: true }));
-    showSuccess("Informações bancárias salvas!");
-    setActiveTab("team");
+    showSuccess("Dados bancários salvos!");
+    setActiveTab("completion");
   };
 
   const handleSubmitForApproval = async () => {
@@ -228,15 +141,16 @@ const MerchantSetupPage = () => {
           business_hours: hours,
           bank_info: bankInfo,
           store_details: storeInfo,
+          delivery_area: deliveryArea,
           team: teamMembers
         }
       });
       
       if (error) throw error;
-      showSuccess("Solicitação enviada para aprovação!");
+      showSuccess("Cadastro enviado para análise!");
       navigate("/merchant/dashboard");
     } catch (error: any) {
-      showError(error.message || "Erro ao enviar para aprovação.");
+      showError(error.message || "Erro ao salvar.");
     } finally {
       setLoading(false);
     }
@@ -246,16 +160,16 @@ const MerchantSetupPage = () => {
     { id: "status", label: "Status", icon: Store },
     { id: "hours", label: "Horário", icon: Clock },
     { id: "store", label: "Minha Loja", icon: Building2 },
+    { id: "delivery", label: "Área de Entrega", icon: Map },
     { id: "bank", label: "Financeiro", icon: CreditCard },
-    { id: "team", label: "Acessos", icon: Users },
     { id: "completion", label: "Conclusão", icon: CheckCircle2 }
   ];
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-black text-indigo-900 mb-2 tracking-tight">Configuração Inicial</h1>
-        <p className="text-gray-500">Complete as etapas para liberar seu estabelecimento.</p>
+        <h1 className="text-3xl font-black text-indigo-900 mb-2 tracking-tight">Configuração da Loja</h1>
+        <p className="text-gray-500">Defina onde e como você vai vender.</p>
       </div>
 
       <div className="flex flex-wrap gap-2 mb-8 bg-white p-2 rounded-2xl shadow-sm">
@@ -266,232 +180,99 @@ const MerchantSetupPage = () => {
             <Button
               key={tab.id}
               variant={activeTab === tab.id ? "default" : "ghost"}
-              className={`flex items-center gap-2 rounded-xl h-12 px-4 transition-all ${
-                activeTab === tab.id ? "bg-indigo-600 text-white shadow-md" : isCompleted ? "text-green-600" : "text-gray-400"
+              className={`flex items-center gap-2 rounded-xl h-12 px-4 ${
+                activeTab === tab.id ? "bg-indigo-600 text-white" : isCompleted ? "text-green-600" : "text-gray-400"
               }`}
               onClick={() => setActiveTab(tab.id)}
             >
               <Icon className="h-4 w-4" />
               <span className="font-bold text-xs">{tab.label}</span>
-              {isCompleted && activeTab !== tab.id && <CheckCircle2 className="h-3 w-3 text-green-500" />}
             </Button>
           );
         })}
       </div>
 
       {activeTab === "status" && (
-        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden">
-          <CardHeader className="pb-4 bg-white"><CardTitle className="flex items-center gap-2 text-2xl font-black text-indigo-900"><Store className="h-6 w-6 text-brand-accent" />Status da Loja</CardTitle></CardHeader>
-          <CardContent className="space-y-6 pt-4">
+        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden bg-white">
+          <CardContent className="space-y-6 p-8">
             <div className="bg-yellow-50 border border-yellow-100 rounded-3xl p-6 text-center">
               <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto mb-3" />
-              <h3 className="font-bold text-lg text-yellow-800 mb-2">Loja em Configuração</h3>
-              <p className="text-yellow-700 text-sm">Sua loja está atualmente fechada. Complete todas as etapas para solicitar a abertura.</p>
+              <h3 className="font-bold text-lg text-yellow-800">Loja em Configuração</h3>
+              <p className="text-yellow-700 text-sm">Sua loja será liberada após o envio para análise.</p>
             </div>
-            <div className="flex items-center justify-between p-6 bg-indigo-50/50 rounded-3xl border border-indigo-100">
-              <div><h3 className="font-bold text-lg text-indigo-900">Status Atual</h3><p className="text-indigo-700 font-medium">Loja Fechada (Em Configuração)</p></div>
-              <Switch checked={isOpen} onCheckedChange={setIsOpen} disabled className="data-[state=checked]:bg-green-500" />
-            </div>
-            <div className="flex justify-end"><Button className="rounded-2xl bg-indigo-600 text-white font-black py-6 px-8 h-auto shadow-lg shadow-indigo-100" onClick={() => setActiveTab("hours")}>Continuar</Button></div>
+            <div className="flex justify-end"><Button className="rounded-2xl bg-indigo-600 px-8 py-6 h-auto" onClick={() => setActiveTab("hours")}>Começar</Button></div>
           </CardContent>
         </Card>
       )}
 
       {activeTab === "hours" && (
-        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden">
-          <CardHeader className="pb-4 bg-white"><CardTitle className="flex items-center gap-2 text-2xl font-black text-indigo-900"><Clock className="h-6 w-6 text-brand-accent" />Horário de Funcionamento</CardTitle></CardHeader>
-          <CardContent className="space-y-6 pt-4">
+        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden bg-white">
+          <CardHeader className="p-8 pb-0"><CardTitle className="text-2xl font-black text-indigo-900">Horário de Funcionamento</CardTitle></CardHeader>
+          <CardContent className="space-y-6 p-8">
             <BusinessHoursManager hours={hours} onChange={setHours} />
-            <div className="flex justify-between pt-4"><Button variant="ghost" className="rounded-xl font-bold text-gray-400" onClick={() => setActiveTab("status")}>Voltar</Button><Button className="rounded-2xl bg-indigo-600 text-white font-black py-6 px-8 h-auto shadow-lg shadow-indigo-100" onClick={handleSaveHours}>Salvar e Continuar</Button></div>
+            <div className="flex justify-between pt-4"><Button variant="ghost" onClick={() => setActiveTab("status")}>Voltar</Button><Button className="rounded-2xl bg-indigo-600 px-8 py-6 h-auto" onClick={handleSaveHours}>Continuar</Button></div>
           </CardContent>
         </Card>
       )}
 
       {activeTab === "store" && (
-        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden">
-          <CardHeader className="pb-4 bg-white"><CardTitle className="flex items-center gap-2 text-2xl font-black text-indigo-900"><Building2 className="h-6 w-6 text-brand-accent" />Informações da Loja</CardTitle></CardHeader>
-          <CardContent className="space-y-6 pt-4">
+        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden bg-white">
+          <CardHeader className="p-8 pb-0"><CardTitle className="text-2xl font-black text-indigo-900">Dados da Loja</CardTitle></CardHeader>
+          <CardContent className="space-y-6 p-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2"><Label className="font-bold text-gray-700">Nome da Loja *</Label><Input placeholder="Ex: Hamburgueria do Zé" value={storeInfo.name} onChange={(e) => setStoreInfo({...storeInfo, name: e.target.value})} className="rounded-xl h-12 border-gray-100" /></div>
-              <div className="space-y-2"><Label className="font-bold text-gray-700">Telefone Comercial *</Label><Input placeholder="(00) 00000-0000" value={storeInfo.phone} onChange={(e) => setStoreInfo({...storeInfo, phone: e.target.value})} className="rounded-xl h-12 border-gray-100" /></div>
+              <div className="space-y-2"><Label>Nome da Loja *</Label><Input value={storeInfo.name} onChange={(e) => setStoreInfo({...storeInfo, name: e.target.value})} className="rounded-xl" /></div>
+              <div className="space-y-2"><Label>Telefone *</Label><Input value={storeInfo.phone} onChange={(e) => setStoreInfo({...storeInfo, phone: e.target.value})} className="rounded-xl" /></div>
             </div>
-            <div className="space-y-2"><Label className="font-bold text-gray-700">Descrição</Label><textarea placeholder="Conte um pouco sobre sua loja..." value={storeInfo.description} onChange={(e) => setStoreInfo({...storeInfo, description: e.target.value})} className="w-full rounded-2xl border border-gray-100 p-4 h-28 resize-none focus:ring-2 focus:ring-indigo-100 transition-all" /></div>
-            <div className="pt-4 border-t border-gray-50"><h3 className="font-black text-lg text-indigo-900 mb-6 flex items-center gap-2"><MapPin className="h-5 w-5 text-brand-accent" />Endereço Comercial</h3><MerchantAddressForm address={storeInfo.address} onChange={(address) => setStoreInfo({ ...storeInfo, address })} /></div>
-            <div className="flex justify-between pt-8"><Button variant="ghost" className="rounded-xl font-bold text-gray-400" onClick={() => setActiveTab("hours")}>Voltar</Button><Button className="rounded-2xl bg-indigo-600 text-white font-black py-6 px-8 h-auto shadow-lg shadow-indigo-100" onClick={handleSaveStoreInfo}>Salvar e Continuar</Button></div>
+            <MerchantAddressForm address={storeInfo.address} onChange={(address) => setStoreInfo({ ...storeInfo, address })} />
+            <div className="flex justify-between pt-4"><Button variant="ghost" onClick={() => setActiveTab("hours")}>Voltar</Button><Button className="rounded-2xl bg-indigo-600 px-8 py-6 h-auto" onClick={handleSaveStoreInfo}>Continuar</Button></div>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === "delivery" && (
+        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden bg-white">
+          <CardHeader className="p-8 pb-0"><CardTitle className="text-2xl font-black text-indigo-900">Área de Entrega</CardTitle></CardHeader>
+          <CardContent className="space-y-6 p-8">
+            <DeliveryAreaManager 
+              center={[storeInfo.address.lat || -23.5505, storeInfo.address.lng || -46.6333]}
+              radius={deliveryArea.radius}
+              exclusionZones={deliveryArea.exclusionZones}
+              onChange={(radius, zones) => setDeliveryArea({ radius, exclusionZones: zones })}
+            />
+            <div className="flex justify-between pt-4"><Button variant="ghost" onClick={() => setActiveTab("store")}>Voltar</Button><Button className="rounded-2xl bg-indigo-600 px-8 py-6 h-auto" onClick={handleSaveDeliveryArea}>Continuar</Button></div>
           </CardContent>
         </Card>
       )}
 
       {activeTab === "bank" && (
-        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden">
-          <CardHeader className="pb-4 bg-white"><CardTitle className="flex items-center gap-2 text-2xl font-black text-indigo-900"><CreditCard className="h-6 w-6 text-brand-accent" />Informações Bancárias</CardTitle></CardHeader>
-          <CardContent className="space-y-6 pt-4">
+        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden bg-white">
+          <CardHeader className="p-8 pb-0"><CardTitle className="text-2xl font-black text-indigo-900">Dados Bancários</CardTitle></CardHeader>
+          <CardContent className="space-y-6 p-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="font-bold text-gray-700">Banco *</Label>
+                <Label>Banco</Label>
                 <Select value={bankInfo.bank} onValueChange={(v) => setBankInfo({...bankInfo, bank: v})}>
-                  <SelectTrigger className="rounded-xl h-12 border-gray-100">
-                    <SelectValue placeholder="Selecione o banco" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl max-h-60">
-                    {BRAZILIAN_BANKS.map(bank => (
-                      <SelectItem key={bank.code} value={bank.code}>{bank.code} - {bank.name}</SelectItem>
-                    ))}
-                  </SelectContent>
+                  <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione o banco" /></SelectTrigger>
+                  <SelectContent>{BRAZILIAN_BANKS.map(b => <SelectItem key={b.code} value={b.code}>{b.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2"><Label className="font-bold text-gray-700">Tipo de Conta *</Label><Select value={bankInfo.accountType} onValueChange={(v) => setBankInfo({...bankInfo, accountType: v})}><SelectTrigger className="rounded-xl h-12 border-gray-100"><SelectValue /></SelectTrigger><SelectContent className="rounded-xl"><SelectItem value="checking">Conta Corrente</SelectItem><SelectItem value="savings">Conta Poupança</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2"><Label>Conta</Label><Input value={bankInfo.account} onChange={(e) => setBankInfo({...bankInfo, account: e.target.value})} className="rounded-xl" /></div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="md:col-span-3 grid grid-cols-3 gap-2">
-                <div className="col-span-2 space-y-2"><Label className="font-bold text-gray-700">Agência *</Label><Input placeholder="0000" value={bankInfo.agency} onChange={(e) => setBankInfo({...bankInfo, agency: e.target.value})} className="rounded-xl h-12 border-gray-100" /></div>
-                <div className="space-y-2"><Label className="font-bold text-gray-700">Dígito</Label><Input placeholder="0" value={bankInfo.agencyDigit} onChange={(e) => setBankInfo({...bankInfo, agencyDigit: e.target.value})} className="rounded-xl h-12 border-gray-100" /></div>
-              </div>
-              <div className="grid grid-cols-3 gap-2 col-span-1 md:col-span-4 mt-4 md:mt-0">
-                <div className="col-span-2 space-y-2"><Label className="font-bold text-gray-700">Conta *</Label><Input placeholder="00000" value={bankInfo.account} onChange={(e) => setBankInfo({...bankInfo, account: e.target.value})} className="rounded-xl h-12 border-gray-100" /></div>
-                <div className="space-y-2"><Label className="font-bold text-gray-700">Dígito</Label><Input placeholder="0" value={bankInfo.accountDigit} onChange={(e) => setBankInfo({...bankInfo, accountDigit: e.target.value})} className="rounded-xl h-12 border-gray-100" /></div>
-              </div>
-            </div>
-            <div className="flex justify-between pt-4"><Button variant="ghost" className="rounded-xl font-bold text-gray-400" onClick={() => setActiveTab("store")}>Voltar</Button><Button className="rounded-2xl bg-indigo-600 text-white font-black py-6 px-8 h-auto shadow-lg shadow-indigo-100" onClick={handleSaveBankInfo}>Salvar e Continuar</Button></div>
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTab === "team" && (
-        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden">
-          <CardHeader className="pb-4 bg-white">
-            <CardTitle className="flex items-center gap-2 text-2xl font-black text-indigo-900"><Users className="h-6 w-6 text-brand-accent" />Gestão de Equipe</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6 pt-4">
-            <div className="bg-indigo-50/50 rounded-3xl p-6 border border-indigo-100 space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="font-black text-indigo-900 flex items-center gap-2">
-                  <UserPlus className="h-5 w-5" />
-                  {editingMemberId ? "Editar Colaborador" : "Convidar Novo Integrante"}
-                </h3>
-                {editingMemberId && (
-                  <Button variant="ghost" size="sm" className="h-8 rounded-lg text-gray-400" onClick={() => { setEditingMemberId(null); setInviteEmail(""); }}>
-                    Cancelar Edição
-                  </Button>
-                )}
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="font-bold text-gray-700">E-mail</Label>
-                  <Input 
-                    placeholder="colaborador@loja.com" 
-                    value={inviteEmail} 
-                    onChange={(e) => setInviteEmail(e.target.value)} 
-                    className="rounded-xl h-12 bg-white" 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-bold text-gray-700">Perfil de Acesso</Label>
-                  <Select value={inviteRole} onValueChange={setInviteRole}>
-                    <SelectTrigger className="rounded-xl h-12 bg-white"><SelectValue /></SelectTrigger>
-                    <SelectContent className="rounded-xl">
-                      <SelectItem value="manager">Gerente (Acesso Total)</SelectItem>
-                      <SelectItem value="employee">Operador (Acesso Limitado)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              
-              <div className="space-y-3">
-                <Label className="font-black text-indigo-900 text-xs uppercase tracking-widest">Permissões de Acesso</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  {PERMISSIONS.map(perm => (
-                    <div key={perm.id} className="flex items-center space-x-3 bg-white p-3 rounded-xl border border-indigo-100 shadow-sm">
-                      <Checkbox id={perm.id} checked={invitePermissions.includes(perm.id)} onCheckedChange={() => togglePermission(perm.id)} />
-                      <label htmlFor={perm.id} className="text-sm font-bold text-gray-700 cursor-pointer">{perm.label}</label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              
-              <Button onClick={handleInviteSubmit} className="w-full md:w-auto rounded-xl bg-indigo-600 font-bold px-8 h-12">
-                {editingMemberId ? "Salvar Alterações" : "Enviar Convite"}
-              </Button>
-            </div>
-            
-            <div className="space-y-3">
-              <Label className="font-black text-indigo-900 text-xs uppercase tracking-widest ml-1">Integrantes da Equipe</Label>
-              {teamMembers.map((member) => (
-                <div key={member.id} className={cn(
-                  "flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white rounded-2xl border transition-all gap-4",
-                  editingMemberId === member.id ? "border-indigo-600 ring-2 ring-indigo-100" : "border-gray-100 shadow-sm"
-                )}>
-                  <div className="flex items-center gap-4">
-                    <div className="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center font-black text-indigo-600 shrink-0">
-                      {member.email.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-bold text-gray-900 truncate">{member.email}</p>
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        <Badge variant="secondary" className="text-[9px] font-black uppercase bg-indigo-50 text-indigo-500">
-                          {member.role === "manager" ? "Gerente" : "Operador"}
-                        </Badge>
-                        <Badge variant="outline" className={cn(
-                          "text-[9px] font-black uppercase",
-                          member.status === "active" ? "text-green-600 border-green-200 bg-green-50" : "text-orange-500 border-orange-200 bg-orange-50"
-                        )}>
-                          {member.status === "active" ? "Ativo" : "Aguardando Aceite"}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="flex-1 sm:flex-none text-indigo-600 hover:bg-indigo-50 rounded-xl font-bold"
-                      onClick={() => handleEditMember(member)}
-                    >
-                      Gerenciar
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="flex-1 sm:flex-none text-red-400 hover:text-red-500 hover:bg-red-50 rounded-xl font-bold"
-                      onClick={() => handleRemoveMember(member.id)}
-                    >
-                      Remover
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              {teamMembers.length === 0 && (
-                <div className="text-center py-10 border-2 border-dashed border-gray-100 rounded-3xl">
-                  <p className="text-gray-400 text-sm font-medium">Nenhum integrante na equipe ainda.</p>
-                </div>
-              )}
-            </div>
-            
-            <div className="flex justify-between pt-4"><Button variant="ghost" className="rounded-xl font-bold text-gray-400" onClick={() => setActiveTab("bank")}>Voltar</Button><Button className="rounded-2xl bg-indigo-600 text-white font-black py-6 px-8 h-auto shadow-lg shadow-indigo-100" onClick={() => setActiveTab("completion")}>Continuar</Button></div>
+            <div className="flex justify-between pt-4"><Button variant="ghost" onClick={() => setActiveTab("delivery")}>Voltar</Button><Button className="rounded-2xl bg-indigo-600 px-8 py-6 h-auto" onClick={handleSaveBankInfo}>Continuar</Button></div>
           </CardContent>
         </Card>
       )}
 
       {activeTab === "completion" && (
-        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden">
-          <CardHeader className="pb-4 bg-white"><CardTitle className="flex items-center gap-2 text-2xl font-black text-indigo-900"><CheckCircle2 className="h-6 w-6 text-brand-accent" />Conclusão</CardTitle></CardHeader>
-          <CardContent className="space-y-6 pt-4">
-            <div className="bg-indigo-50/50 rounded-3xl p-8 border border-indigo-100">
-              <h3 className="font-black text-xl text-indigo-900 mb-6">Resumo das Etapas</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[{ label: "Horários", step: "hours" }, { label: "Dados da Loja", step: "store" }, { label: "Financeiro", step: "bank" }].map((item) => (
-                  <div key={item.step} className="flex items-center p-4 bg-white rounded-2xl shadow-sm">
-                    <div className={`h-8 w-8 rounded-full flex items-center justify-center mr-4 ${completedSteps[item.step as keyof typeof completedSteps] ? 'bg-green-500' : 'bg-gray-100'}`}>
-                      {completedSteps[item.step as keyof typeof completedSteps] ? <CheckCircle2 className="h-5 w-5 text-white" /> : <AlertCircle className="h-5 w-5 text-gray-300" />}
-                    </div>
-                    <span className={`font-bold ${completedSteps[item.step as keyof typeof completedSteps] ? 'text-gray-900' : 'text-gray-400'}`}>{item.label}</span>
-                  </div>
-                ))}
-              </div>
+        <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden bg-white">
+          <CardHeader className="p-8 pb-0"><CardTitle className="text-2xl font-black text-indigo-900">Finalizar</CardTitle></CardHeader>
+          <CardContent className="space-y-6 p-8">
+            <div className="bg-indigo-50 p-8 rounded-3xl text-center">
+              <CheckCircle2 className="h-16 w-16 text-indigo-600 mx-auto mb-4" />
+              <h2 className="text-xl font-bold mb-2">Tudo Pronto!</h2>
+              <p className="text-gray-600">Sua loja será avaliada pela nossa equipe antes de ficar visível para os clientes.</p>
             </div>
-            <div className="bg-blue-50 border border-blue-100 rounded-3xl p-6 flex gap-4"><AlertCircle className="h-6 w-6 text-blue-500 shrink-0" /><p className="text-blue-700 text-sm font-medium">Após o envio, nossa equipe analisará seus dados em até 48 horas. Você será notificado via e-mail sobre a aprovação.</p></div>
-            <div className="flex justify-between pt-4"><Button variant="ghost" className="rounded-xl font-bold text-gray-400" onClick={() => setActiveTab("team")}>Voltar</Button><Button className="rounded-2xl bg-brand-accent text-white font-black py-6 px-10 h-auto shadow-xl shadow-brand-accent/20" onClick={handleSubmitForApproval} disabled={loading}>{loading ? "Processando..." : "Enviar para Aprovação"}</Button></div>
+            <div className="flex justify-between pt-4"><Button variant="ghost" onClick={() => setActiveTab("bank")}>Voltar</Button><Button className="rounded-2xl bg-brand-accent text-white px-8 py-6 h-auto shadow-xl" onClick={handleSubmitForApproval} disabled={loading}>{loading ? "Processando..." : "Enviar para Aprovação"}</Button></div>
           </CardContent>
         </Card>
       )}

@@ -14,6 +14,8 @@ export interface Address {
   zipCode: string;
   type: "home" | "work" | "other";
   isDefault: boolean;
+  lat?: number;
+  lng?: number;
 }
 
 interface AddressContextType {
@@ -66,7 +68,8 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const addAddress = (addr: Omit<Address, "id">) => {
     const newAddr = { ...addr, id: Date.now().toString() };
     if (newAddr.isDefault) {
-      setAddresses(prev => prev.map(a => ({ ...a, isDefault: false })).concat(newAddr));
+      const updated = addresses.map(a => ({ ...a, isDefault: false })).concat(newAddr);
+      setAddresses(updated);
       setSelectedAddress(newAddr);
     } else {
       setAddresses(prev => [...prev, newAddr]);
