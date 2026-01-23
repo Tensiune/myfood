@@ -47,6 +47,7 @@ const ConsumerRegisterPage = () => {
       
       if (error) throw error;
       
+      localStorage.removeItem('active_role'); // Clear active role to ensure correct selection on next login
       showSuccess("Cadastro realizado com sucesso! Verifique seu e-mail para confirmar a conta.");
       navigate("/login");
     } catch (error: any) {

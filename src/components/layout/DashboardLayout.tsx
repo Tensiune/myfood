@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import RoleSwitcher from "../shared/RoleSwitcher";
 
 const DashboardLayout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -32,7 +33,9 @@ const DashboardLayout = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setUser(user);
-        setRole(user.user_metadata?.role || "MERCHANT");
+        // Use active_role from localStorage if available, otherwise fallback to metadata role
+        const activeRole = localStorage.getItem('active_role') || user.user_metadata?.role;
+        setRole(activeRole);
       }
     };
     fetchUser();
@@ -130,6 +133,7 @@ const DashboardLayout = () => {
           </Button>
 
           <div className="ml-auto flex items-center gap-4">
+            <RoleSwitcher className="hidden sm:flex" />
             <Button variant="ghost" size="icon" className="rounded-full text-gray-500">
               <Bell className="h-5 w-5" />
             </Button>

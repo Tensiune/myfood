@@ -37,6 +37,7 @@ import MerchantMenuPage from "./pages/merchant/MerchantMenuPage";
 import MerchantReportsPage from "./pages/merchant/MerchantReportsPage";
 import MerchantSetupPage from "./pages/merchant/MerchantSetupPage";
 import DriverSetupPage from "./pages/driver/DriverSetupPage";
+import DriverProfilePage from "./pages/driver/DriverProfilePage";
 
 const queryClient = new QueryClient();
 
@@ -100,7 +101,7 @@ const App = () => (
                   <Route element={<DriverLayout />}>
                     <Route path="/driver/orders" element={<AvailableOrdersPage />} />
                     <Route path="/driver/map" element={<NavigationPage />} />
-                    <Route path="/driver/profile" element={<PlaceholderPage title="Meu Perfil Driver" />} />
+                    <Route path="/driver/profile" element={<DriverProfilePage />} />
                     <Route path="/driver/setup" element={<DriverSetupPage />} />
                   </Route>
 

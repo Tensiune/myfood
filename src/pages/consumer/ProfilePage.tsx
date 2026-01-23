@@ -5,11 +5,12 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { User, Share2, Star, Mail, Settings, LogOut, MapPin } from "lucide-react";
+import { User, Share2, Star, Mail, Settings, LogOut, MapPin, ArrowRight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
 import { useNavigate } from "react-router-dom";
 import AddressManager from "@/components/consumer/AddressManager";
+import RoleSwitcher from "@/components/shared/RoleSwitcher";
 
 const ProfilePage = () => {
   const navigate = useNavigate();
@@ -52,6 +53,9 @@ const ProfilePage = () => {
           </Button>
         </CardContent>
       </Card>
+      
+      {/* Role Switcher Section */}
+      <RoleSwitcher variant="button" className="w-full" />
 
       {/* Gerenciamento de Endereços */}
       <section className="space-y-4">
@@ -74,18 +78,22 @@ const ProfilePage = () => {
             <Link to="/invite-friends" className="flex items-center p-2 rounded-lg hover:bg-gray-50 transition-colors">
               <Share2 className="h-5 w-5 mr-3 text-indigo-600" />
               <span className="text-gray-700 font-medium">Indicar o app para amigos</span>
+              <ArrowRight className="h-4 w-4 ml-auto text-gray-400" />
             </Link>
             <Link to="/share-app" className="flex items-center p-2 rounded-lg hover:bg-gray-50 transition-colors">
               <Share2 className="h-5 w-5 mr-3 text-indigo-600" />
               <span className="text-gray-700 font-medium">Compartilhar o app nas redes sociais</span>
+              <ArrowRight className="h-4 w-4 ml-auto text-gray-400" />
             </Link>
             <Link to="/rate-app" className="flex items-center p-2 rounded-lg hover:bg-gray-50 transition-colors">
               <Star className="h-5 w-5 mr-3 text-indigo-600" />
               <span className="text-gray-700 font-medium">Avaliar o app</span>
+              <ArrowRight className="h-4 w-4 ml-auto text-gray-400" />
             </Link>
             <Link to="/inbox" className="flex items-center p-2 rounded-lg hover:bg-gray-50 transition-colors">
               <Mail className="h-5 w-5 mr-3 text-indigo-600" />
               <span className="text-gray-700 font-medium">Caixa de entrada</span>
+              <ArrowRight className="h-4 w-4 ml-auto text-gray-400" />
             </Link>
           </CardContent>
         </Card>
@@ -95,12 +103,15 @@ const ProfilePage = () => {
             <Link to="/settings" className="flex items-center p-2 rounded-lg hover:bg-gray-50 transition-colors">
               <Settings className="h-5 w-5 mr-3 text-indigo-600" />
               <span className="text-gray-700 font-medium">Configurações de privacidade</span>
+              <ArrowRight className="h-4 w-4 ml-auto text-gray-400" />
             </Link>
             <Link to="/terms" className="flex items-center p-2 rounded-lg hover:bg-gray-50 transition-colors">
               <span className="text-gray-700 font-medium ml-8">Termos de uso</span>
+              <ArrowRight className="h-4 w-4 ml-auto text-gray-400" />
             </Link>
             <Link to="/privacy-policy" className="flex items-center p-2 rounded-lg hover:bg-gray-50 transition-colors">
               <span className="text-gray-700 font-medium ml-8">Política de privacidade</span>
+              <ArrowRight className="h-4 w-4 ml-auto text-gray-400" />
             </Link>
           </CardContent>
         </Card>
