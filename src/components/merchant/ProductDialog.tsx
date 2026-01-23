@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { showSuccess, showError } from "@/utils/toast";
 import { uploadImage } from "@/lib/storage";
+import { supabase } from "@/lib/supabase";
 
 interface Option {
   id: string;
@@ -94,16 +95,21 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
     if (!file) return;
 
     setIsUploading(true);
-    
-    // Using a placeholder path for the merchant ID. In a real app, this should be the actual merchant ID.
-    const merchantId = "merchant_123"; 
-    const imageUrl = await uploadImage(file, merchantId);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado.");
 
-    if (imageUrl) {
-      setFormData(prev => ({ ...prev, imageUrl }));
+      const imageUrl = await uploadImage(file, `merchants/${user.id}/products`);
+
+      if (imageUrl) {
+        setFormData(prev => ({ ...prev, imageUrl }));
+        showSuccess("Imagem pronta!");
+      }
+    } catch (err: any) {
+      showError(err.message || "Erro ao processar imagem.");
+    } finally {
+      setIsUploading(false);
     }
-    
-    setIsUploading(false);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -126,18 +132,25 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
       <ScrollArea className="flex-1 w-full bg-white">
         <div className="p-6">
           <form id="product-form" onSubmit={handleSubmit} className="space-y-8">
-            {/* Informações Básicas */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-4">
                 <div className="w-full h-48 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center relative overflow-hidden group hover:border-brand-accent transition-all">
                   {isUploading ? (
-                    <Loader2 className="h-10 w-10 text-brand-accent animate-spin" />
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-10 w-10 text-brand-accent animate-spin" />
+                      <span className="text-[10px] font-bold text-brand-accent">Enviando...</span>
+                    </div>
                   ) : formData.imageUrl ? (
-                    <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                    <>
+                      <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <span className="text-white text-xs font-bold bg-black/50 px-3 py-1 rounded-full">Trocar Imagem</span>
+                      </div>
+                    </>
                   ) : (
                     <>
                       <ImagePlus className="h-10 w-10 text-gray-300 mb-2" />
-                      <span className="text-xs font-bold text-gray-400">Capa do Produto</span>
+                      <span className="text-xs font-bold text-gray-400">Adicionar Foto</span>
                     </>
                   )}
                   <input 
@@ -151,8 +164,8 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
 
                 <div className="flex items-center justify-between p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100">
                   <div className="flex flex-col">
-                    <Label className="text-indigo-900 font-bold cursor-pointer" htmlFor="available-switch">Disponível</Label>
-                    <span className="text-[10px] text-gray-500 uppercase font-bold">Visível para clientes</span>
+                    <Label className="text-indigo-900 font-bold cursor-pointer" htmlFor="available-switch">Ativar Produto</Label>
+                    <span className="text-[10px] text-gray-500 uppercase font-bold">Clientes podem ver</span>
                   </div>
                   <Switch 
                     id="available-switch"
@@ -164,17 +177,17 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label className="font-bold text-gray-700">Nome do Prato</Label>
+                  <Label className="font-bold text-gray-700">Nome do Item *</Label>
                   <Input 
                     value={formData.name} 
                     onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    placeholder="Ex: Pizza de Calabresa" 
+                    placeholder="Ex: Hambúrguer Artesanal" 
                     className="rounded-xl border-gray-200 h-12 focus:ring-brand-accent" required
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label className="font-bold text-gray-700">Preço (R$)</Label>
+                    <Label className="font-bold text-gray-700">Preço (R$) *</Label>
                     <Input 
                       type="number" step="0.01" value={formData.price} 
                       onChange={(e) => setFormData({...formData, price: e.target.value})}
@@ -182,16 +195,16 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="font-bold text-gray-700">Estoque</Label>
+                    <Label className="font-bold text-gray-700">Quantidade</Label>
                     <Input 
                       type="number" value={formData.stock} 
                       onChange={(e) => setFormData({...formData, stock: e.target.value})}
-                      placeholder="Ilimitado" className="rounded-xl border-gray-200 h-12"
+                      placeholder="Ex: 10" className="rounded-xl border-gray-200 h-12"
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="font-bold text-gray-700">Categoria</Label>
+                  <Label className="font-bold text-gray-700">Categoria *</Label>
                   <Select value={formData.category} onValueChange={(v) => setFormData({...formData, category: v})}>
                     <SelectTrigger className="rounded-xl border-gray-200 h-12">
                       <SelectValue />
@@ -209,24 +222,23 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
               <Textarea 
                 value={formData.description} 
                 onChange={(e) => setFormData({...formData, description: e.target.value})}
-                placeholder="Ingredientes e detalhes do prato..." 
+                placeholder="Ex: Pão, carne de 180g, queijo e molho especial." 
                 className="rounded-xl resize-none h-24 border-gray-200 focus:ring-brand-accent" 
               />
             </div>
 
             <Separator className="bg-gray-100" />
 
-            {/* Complementos e Opções */}
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="bg-indigo-100 p-2 rounded-lg">
                     <Settings2 className="h-5 w-5 text-indigo-600" />
                   </div>
-                  <h3 className="font-black text-lg text-indigo-900">Complementos / Sabores</h3>
+                  <h3 className="font-black text-lg text-indigo-900">Complementos</h3>
                 </div>
                 <Button type="button" variant="outline" size="sm" onClick={addOptionGroup} className="rounded-xl border-indigo-200 text-indigo-600 font-bold hover:bg-indigo-50">
-                  <Plus className="h-4 w-4 mr-1" /> Adicionar Grupo
+                  <Plus className="h-4 w-4 mr-1" /> Novo Grupo
                 </Button>
               </div>
 
@@ -235,9 +247,9 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
                   <div key={group.id} className="p-5 border-2 border-indigo-50 rounded-[2rem] bg-indigo-50/20 space-y-4 shadow-sm relative overflow-hidden">
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
                       <div className="sm:col-span-6 space-y-2">
-                        <Label className="text-[10px] uppercase text-gray-400 font-black tracking-widest">Nome do Grupo</Label>
+                        <Label className="text-[10px] uppercase text-gray-400 font-black tracking-widest">Nome (ex: Escolha o Pão)</Label>
                         <Input 
-                          placeholder="Ex: Escolha os sabores" 
+                          placeholder="Ex: Adicionais" 
                           value={group.name} 
                           onChange={(e) => setFormData({
                             ...formData,
@@ -265,7 +277,7 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
                       {group.options.map((opt) => (
                         <div key={opt.id} className="flex items-end gap-3 animate-in fade-in slide-in-from-left-2">
                           <Input 
-                            placeholder="Nome do item (ex: Muçarela)" 
+                            placeholder="Nome (ex: Bacon)" 
                             value={opt.name} 
                             onChange={(e) => updateOption(group.id, opt.id, "name", e.target.value)}
                             className="flex-1 rounded-xl h-11 text-sm bg-white"
@@ -300,12 +312,6 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
                     </div>
                   </div>
                 ))}
-
-                {formData.optionGroups.length === 0 && (
-                  <div className="text-center py-8 bg-gray-50 rounded-[2rem] border-2 border-dashed border-gray-200">
-                    <p className="text-sm font-bold text-gray-400">Nenhum grupo de complementos criado.</p>
-                  </div>
-                )}
               </div>
             </div>
           </form>
@@ -314,7 +320,7 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
 
       <div className="p-6 bg-white border-t border-gray-100 shrink-0">
         <Button form="product-form" type="submit" className="w-full rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black h-16 text-lg shadow-xl shadow-indigo-100 transition-all active:scale-[0.98]">
-          {product ? "Salvar Alterações" : "Adicionar ao Cardápio"}
+          {product ? "Salvar Alterações" : "Adicionar Produto"}
         </Button>
       </div>
     </DialogContent>

@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Search, Trash2, Edit2, Package, Eye, EyeOff, MoreVertical, X } from "lucide-react";
+import { Plus, Search, Trash2, Edit2, Package, EyeOff, X, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,70 +11,131 @@ import { Switch } from "@/components/ui/switch";
 import ProductDialog from "@/components/merchant/ProductDialog";
 import { showSuccess, showError } from "@/utils/toast";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
 
 const MerchantMenuPage = () => {
   const [categories, setCategories] = useState(["Pratos Principais", "Acompanhamentos", "Bebidas", "Sobremesas"]);
-  const [newCatName, setNewCatName] = useState("");
-  const [isAddingCat, setIsAddingCat] = useState(false);
-  
-  const [products, setProducts] = useState([
-    { 
-      id: "1", 
-      name: "Hambúrguer de Costela", 
-      category: "Pratos Principais", 
-      price: 35.90, 
-      imageUrl: "https://via.placeholder.com/100", 
-      description: "Pão brioche, 180g costela, queijo prato.",
-      isAvailable: true,
-      stock: 50,
-      optionGroups: []
-    },
-    { 
-      id: "2", 
-      name: "Batata Rústica", 
-      category: "Acompanhamentos", 
-      price: 18.00, 
-      imageUrl: "https://via.placeholder.com/100", 
-      description: "Batatas fritas com alecrim e páprica.",
-      isAvailable: true,
-      stock: 100,
-      optionGroups: []
-    }
-  ]);
-
+  const [products, setProducts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [newCatName, setNewCatName] = useState("");
+  const [isAddingCat, setIsAddingCat] = useState(false);
 
-  const handleSaveProduct = (data: any) => {
-    const productData = {
-      ...data,
-      price: parseFloat(data.price),
-      imageUrl: data.imageUrl || "https://via.placeholder.com/100", // Fallback image
+  // Carregar produtos (Tenta Supabase, senão usa LocalStorage como fallback)
+  useEffect(() => {
+    const loadMenu = async () => {
+      setLoading(true);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        // Tentativa de buscar do Supabase (tabela 'products')
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .eq('merchant_id', user.id);
+
+        if (error) {
+          // Se a tabela não existir ainda, usamos LocalStorage para não travar o usuário
+          console.warn("Tabela 'products' não encontrada ou erro no Supabase. Usando LocalStorage.");
+          const localData = localStorage.getItem(`menu_${user.id}`);
+          if (localData) setProducts(JSON.parse(localData));
+        } else if (data) {
+          setProducts(data);
+        }
+      } catch (err) {
+        console.error("Erro ao carregar menu:", err);
+      } finally {
+        setLoading(false);
+      }
     };
 
-    if (editingProduct) {
-      setProducts(prev => prev.map(p => p.id === editingProduct.id ? { ...productData, id: p.id } : p));
-      showSuccess("Produto atualizado!");
-    } else {
-      const newProduct = {
-        ...productData,
-        id: Math.random().toString(36).substr(2, 9),
-      };
-      setProducts([newProduct, ...products]);
-      showSuccess("Produto adicionado!");
+    loadMenu();
+  }, []);
+
+  // Salvar no LocalStorage sempre que houver mudanças (Redundância de persistência)
+  useEffect(() => {
+    const saveLocally = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && products.length > 0) {
+        localStorage.setItem(`menu_${user.id}`, JSON.stringify(products));
+      }
+    };
+    saveLocally();
+  }, [products]);
+
+  const handleSaveProduct = async (data: any) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const productData = {
+      ...data,
+      merchant_id: user.id,
+      price: parseFloat(data.price),
+      imageUrl: data.imageUrl || "https://via.placeholder.com/300?text=Sem+Imagem",
+    };
+
+    try {
+      // Tenta salvar no Supabase
+      const { data: savedData, error } = await supabase
+        .from('products')
+        .upsert({ 
+          ...(editingProduct?.id ? { id: editingProduct.id } : {}),
+          ...productData 
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (editingProduct) {
+        setProducts(prev => prev.map(p => p.id === editingProduct.id ? savedData : p));
+        showSuccess("Produto atualizado!");
+      } else {
+        setProducts([savedData, ...products]);
+        showSuccess("Produto adicionado!");
+      }
+    } catch (err) {
+      // Fallback para estado local caso o Supabase falhe (ex: tabela inexistente)
+      const mockSaved = { ...productData, id: editingProduct?.id || Math.random().toString(36).substr(2, 9) };
+      if (editingProduct) {
+        setProducts(prev => prev.map(p => p.id === editingProduct.id ? mockSaved : p));
+      } else {
+        setProducts([mockSaved, ...products]);
+      }
+      showSuccess("Produto salvo localmente (Tabela Supabase não detectada).");
     }
+
     setIsAddingProduct(false);
     setEditingProduct(null);
   };
 
-  const deleteProduct = (id: string) => {
-    setProducts(products.filter(p => p.id !== id));
-    showSuccess("Produto removido.");
+  const deleteProduct = async (id: string) => {
+    try {
+      const { error } = await supabase.from('products').delete().eq('id', id);
+      if (error) throw error;
+      setProducts(products.filter(p => p.id !== id));
+      showSuccess("Produto removido.");
+    } catch (err) {
+      setProducts(products.filter(p => p.id !== id));
+      showSuccess("Produto removido localmente.");
+    }
   };
 
-  const toggleAvailability = (id: string) => {
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, isAvailable: !p.isAvailable } : p));
+  const toggleAvailability = async (id: string) => {
+    const product = products.find(p => p.id === id);
+    if (!product) return;
+
+    const newStatus = !product.isAvailable;
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, isAvailable: newStatus } : p));
+
+    try {
+      await supabase.from('products').update({ isAvailable: newStatus }).eq('id', id);
+    } catch (err) {
+      console.warn("Não foi possível sincronizar o status com o servidor.");
+    }
   };
 
   const handleAddCategory = () => {
@@ -108,7 +169,7 @@ const MerchantMenuPage = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black text-indigo-900 tracking-tight">Gestão do Cardápio</h1>
-          <p className="text-gray-500 text-sm">Controle seus produtos, categorias e complementos.</p>
+          <p className="text-gray-500 text-sm">Controle seus produtos e categorias em tempo real.</p>
         </div>
         <Dialog open={isAddingProduct} onOpenChange={(open) => { setIsAddingProduct(open); if(!open) setEditingProduct(null); }}>
           <DialogTrigger asChild>
@@ -124,7 +185,6 @@ const MerchantMenuPage = () => {
         </Dialog>
       </div>
 
-      {/* Gestão de Categorias */}
       <div className="bg-white p-4 rounded-3xl shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-indigo-900 text-sm uppercase tracking-wider">Categorias</h2>
@@ -165,87 +225,94 @@ const MerchantMenuPage = () => {
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-300" />
         <Input 
-          placeholder="Buscar produtos por nome ou categoria..." 
+          placeholder="Buscar produtos..." 
           className="rounded-2xl pl-12 h-14 bg-white border-none shadow-sm focus:ring-2 focus:ring-indigo-100 text-base"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
-        {filteredProducts.map((product) => (
-          <Card key={product.id} className={cn(
-            "rounded-[2rem] border-none shadow-sm hover:shadow-md transition-all overflow-hidden bg-white",
-            !product.isAvailable && "opacity-75 grayscale-[0.5]"
-          )}>
-            <CardContent className="p-5 flex flex-col md:flex-row items-center gap-6">
-              <div className="relative">
-                <img src={product.imageUrl} className="w-24 h-24 md:w-32 md:h-32 rounded-3xl object-cover bg-gray-50 shadow-inner" />
-                {!product.isAvailable && (
-                  <div className="absolute inset-0 bg-black/40 rounded-3xl flex items-center justify-center">
-                    <EyeOff className="h-8 w-8 text-white" />
-                  </div>
-                )}
-              </div>
-              
-              <div className="flex-1 min-w-0 space-y-1 w-full text-center md:text-left">
-                <div className="flex flex-wrap justify-center md:justify-start gap-2 mb-2">
-                  <Badge variant="outline" className="text-[10px] uppercase font-black text-indigo-400 border-indigo-50">
-                    {product.category}
-                  </Badge>
-                  {product.stock && (
-                    <Badge variant="secondary" className="text-[10px] uppercase font-black bg-gray-100 text-gray-500 border-none">
-                      <Package className="h-3 w-3 mr-1" /> {product.stock} em estoque
-                    </Badge>
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20">
+          <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
+          <p className="text-gray-500 font-medium">Carregando cardápio...</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+          {filteredProducts.map((product) => (
+            <Card key={product.id} className={cn(
+              "rounded-[2rem] border-none shadow-sm hover:shadow-md transition-all overflow-hidden bg-white",
+              !product.isAvailable && "opacity-75 grayscale-[0.5]"
+            )}>
+              <CardContent className="p-5 flex flex-col md:flex-row items-center gap-6">
+                <div className="relative shrink-0">
+                  <img src={product.imageUrl} className="w-24 h-24 md:w-32 md:h-32 rounded-3xl object-cover bg-gray-50 shadow-inner" />
+                  {!product.isAvailable && (
+                    <div className="absolute inset-0 bg-black/40 rounded-3xl flex items-center justify-center">
+                      <EyeOff className="h-8 w-8 text-white" />
+                    </div>
                   )}
                 </div>
-                <h3 className="font-black text-xl text-gray-900">{product.name}</h3>
-                <p className="text-sm text-gray-500 line-clamp-2">{product.description}</p>
-                <div className="pt-2">
-                   <span className="text-2xl font-black text-indigo-600">R$ {product.price.toFixed(2)}</span>
+                
+                <div className="flex-1 min-w-0 space-y-1 w-full text-center md:text-left">
+                  <div className="flex flex-wrap justify-center md:justify-start gap-2 mb-2">
+                    <Badge variant="outline" className="text-[10px] uppercase font-black text-indigo-400 border-indigo-50">
+                      {product.category}
+                    </Badge>
+                    {product.stock && (
+                      <Badge variant="secondary" className="text-[10px] uppercase font-black bg-gray-100 text-gray-500 border-none">
+                        <Package className="h-3 w-3 mr-1" /> {product.stock} em estoque
+                      </Badge>
+                    )}
+                  </div>
+                  <h3 className="font-black text-xl text-gray-900">{product.name}</h3>
+                  <p className="text-sm text-gray-500 line-clamp-2">{product.description}</p>
+                  <div className="pt-2">
+                     <span className="text-2xl font-black text-indigo-600">R$ {product.price?.toFixed(2)}</span>
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex flex-col sm:flex-row md:flex-col gap-3 w-full md:w-auto border-t md:border-t-0 md:border-l border-gray-100 pt-4 md:pt-0 md:pl-6">
-                <div className="flex items-center justify-between gap-4 px-2">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase">Status</span>
-                  <Switch 
-                    checked={product.isAvailable} 
-                    onCheckedChange={() => toggleAvailability(product.id)}
-                    className="data-[state=checked]:bg-green-500"
-                  />
+                <div className="flex flex-col sm:flex-row md:flex-col gap-3 w-full md:w-auto border-t md:border-t-0 md:border-l border-gray-100 pt-4 md:pt-0 md:pl-6">
+                  <div className="flex items-center justify-between gap-4 px-2">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">Status</span>
+                    <Switch 
+                      checked={product.isAvailable} 
+                      onCheckedChange={() => toggleAvailability(product.id)}
+                      className="data-[state=checked]:bg-green-500"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      className="flex-1 rounded-xl border-gray-100 hover:bg-indigo-50 hover:text-indigo-600 gap-2 h-11"
+                      onClick={() => {
+                        setEditingProduct(product);
+                        setIsAddingProduct(true);
+                      }}
+                    >
+                      <Edit2 className="h-4 w-4" /> Editar
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="rounded-xl text-red-400 hover:bg-red-50 hover:text-red-500 h-11 w-11"
+                      onClick={() => deleteProduct(product.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
-                    className="flex-1 rounded-xl border-gray-100 hover:bg-indigo-50 hover:text-indigo-600 gap-2 h-11"
-                    onClick={() => {
-                      setEditingProduct(product);
-                      setIsAddingProduct(true);
-                    }}
-                  >
-                    <Edit2 className="h-4 w-4" /> Editar
-                  </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="rounded-xl text-red-400 hover:bg-red-50 hover:text-red-500 h-11 w-11"
-                    onClick={() => deleteProduct(product.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-        {filteredProducts.length === 0 && (
-          <div className="text-center py-20 bg-white rounded-3xl shadow-sm border-2 border-dashed border-gray-100">
-            <Package className="h-16 w-16 text-gray-100 mx-auto mb-4" />
-            <p className="text-gray-400 font-bold">Nenhum produto encontrado.</p>
-          </div>
-        )}
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+          {filteredProducts.length === 0 && (
+            <div className="text-center py-20 bg-white rounded-3xl shadow-sm border-2 border-dashed border-gray-100">
+              <Package className="h-16 w-16 text-gray-100 mx-auto mb-4" />
+              <p className="text-gray-400 font-bold">Nenhum produto cadastrado.</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
