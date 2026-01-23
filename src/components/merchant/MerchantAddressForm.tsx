@@ -38,6 +38,7 @@ interface AddressData {
 interface MerchantAddressFormProps {
   address: AddressData;
   onChange: (address: AddressData) => void;
+  readOnlyInputs?: boolean; // New prop
 }
 
 const RecenterMap = ({ position }: { position: [number, number] }) => {
@@ -73,7 +74,7 @@ const LocationMarker = ({ position, onPositionChange }: { position: [number, num
   ) : null;
 };
 
-const MerchantAddressForm: React.FC<MerchantAddressFormProps> = ({ address, onChange }) => {
+const MerchantAddressForm: React.FC<MerchantAddressFormProps> = ({ address, onChange, readOnlyInputs = false }) => {
   const [loadingCep, setLoadingCep] = useState(false);
   const [streetSuggestions, setStreetSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -126,7 +127,7 @@ const MerchantAddressForm: React.FC<MerchantAddressFormProps> = ({ address, onCh
   const fetchSuggestions = useCallback(async (query: string) => {
     if (query.length < 3) return;
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&street=${encodeURIComponent(query)}&city=${encodeURIComponent(address.city)}&country=Brazil&addressdetails=1&limit=5`;
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&city=${encodeURIComponent(address.city)}&country=Brazil&addressdetails=1&limit=5`;
       const res = await fetch(url);
       const data = await res.json();
       setStreetSuggestions(data);
@@ -166,116 +167,121 @@ const MerchantAddressForm: React.FC<MerchantAddressFormProps> = ({ address, onCh
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="space-y-2">
-          <Label className="font-bold text-gray-700">CEP *</Label>
-          <div className="relative">
-            <Input
-              placeholder="00000-000"
-              value={address.zipCode}
-              onChange={(e) => onChange({ ...address, zipCode: e.target.value })}
-              onBlur={handleCepBlur}
-              className="rounded-xl h-12 border-gray-100"
-            />
-            {loadingCep && <Loader2 className="absolute right-3 top-3 h-5 w-5 animate-spin text-indigo-600" />}
-          </div>
-        </div>
-        
-        <div className="md:col-span-2 space-y-2 relative">
-          <Label className="font-bold text-gray-700">Rua/Avenida *</Label>
-          <div className="relative">
-            <Input
-              placeholder="Logradouro"
-              value={address.street}
-              onChange={(e) => { onChange({ ...address, street: e.target.value }); setShowSuggestions(true); }}
-              onFocus={() => setShowSuggestions(true)}
-              className="rounded-xl h-12 border-gray-100"
-              autoComplete="off"
-            />
-            {showSuggestions && address.street.length >= 3 && (
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-gray-400"
-                onClick={() => { setShowSuggestions(false); setStreetSuggestions([]); }}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-          {showSuggestions && streetSuggestions.length > 0 && (
-            <div className="absolute z-[100] w-full bg-white border border-gray-200 rounded-lg shadow-2xl mt-1 overflow-hidden max-h-48 overflow-y-auto">
-              {streetSuggestions.map((s, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className="w-full text-left p-3 hover:bg-indigo-50 text-sm border-b last:border-0 border-gray-100 transition-colors"
-                  onClick={() => selectSuggestion(s)}
-                >
-                  <p className="font-semibold text-gray-800">{s.display_name.split(",")[0]}</p>
-                  <p className="text-[10px] text-gray-500 truncate">{s.display_name}</p>
-                </button>
-              ))}
+      {!readOnlyInputs && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label className="font-bold text-gray-700">CEP *</Label>
+              <div className="relative">
+                <Input
+                  placeholder="00000-000"
+                  value={address.zipCode}
+                  onChange={(e) => onChange({ ...address, zipCode: e.target.value })}
+                  onBlur={handleCepBlur}
+                  className="rounded-xl h-12 border-gray-100"
+                />
+                {loadingCep && <Loader2 className="absolute right-3 top-3 h-5 w-5 animate-spin text-indigo-600" />}
+              </div>
             </div>
-          )}
-        </div>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="space-y-2">
-          <Label className="font-bold text-gray-700">Número *</Label>
-          <Input
-            placeholder="000"
-            value={address.number}
-            onChange={(e) => onChange({ ...address, number: e.target.value })}
-            className="rounded-xl h-12 border-gray-100"
-          />
-        </div>
-        
-        <div className="space-y-2">
-          <Label className="font-bold text-gray-700">Bairro *</Label>
-          <Input
-            placeholder="Bairro"
-            value={address.neighborhood}
-            onChange={(e) => onChange({ ...address, neighborhood: e.target.value })}
-            className="rounded-xl h-12 border-gray-100"
-          />
-        </div>
+            
+            <div className="md:col-span-2 space-y-2 relative">
+              <Label className="font-bold text-gray-700">Rua/Avenida *</Label>
+              <div className="relative">
+                <Input
+                  placeholder="Logradouro"
+                  value={address.street}
+                  onChange={(e) => { onChange({ ...address, street: e.target.value }); setShowSuggestions(true); }}
+                  onFocus={() => setShowSuggestions(true)}
+                  className="rounded-xl h-12 border-gray-100"
+                  autoComplete="off"
+                />
+                {showSuggestions && address.street.length >= 3 && (
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-gray-400"
+                    onClick={() => { setShowSuggestions(false); setStreetSuggestions([]); }}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              {showSuggestions && streetSuggestions.length > 0 && (
+                <div className="absolute z-[100] w-full bg-white border border-gray-200 rounded-lg shadow-2xl mt-1 overflow-hidden max-h-48 overflow-y-auto">
+                  {streetSuggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className="w-full text-left p-3 hover:bg-indigo-50 text-sm border-b last:border-0 border-gray-100 transition-colors"
+                      onClick={() => selectSuggestion(s)}
+                    >
+                      <p className="font-semibold text-gray-800">{s.display_name.split(",")[0]}</p>
+                      <p className="text-[10px] text-gray-500 truncate">{s.display_name}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label className="font-bold text-gray-700">Número *</Label>
+              <Input
+                placeholder="000"
+                value={address.number}
+                onChange={(e) => onChange({ ...address, number: e.target.value })}
+                className="rounded-xl h-12 border-gray-100"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="font-bold text-gray-700">Bairro *</Label>
+              <Input
+                placeholder="Bairro"
+                value={address.neighborhood}
+                onChange={(e) => onChange({ ...address, neighborhood: e.target.value })}
+                className="rounded-xl h-12 border-gray-100"
+              />
+            </div>
 
-        <div className="space-y-2">
-          <Label className="font-bold text-gray-700">Complemento</Label>
-          <Input
-            placeholder="Sala, Andar, etc."
-            value={address.complement}
-            onChange={(e) => onChange({ ...address, complement: e.target.value })}
-            className="rounded-xl h-12 border-gray-100"
-          />
-        </div>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label className="font-bold text-gray-700">Cidade *</Label>
-          <Input
-            placeholder="Cidade"
-            value={address.city}
-            onChange={(e) => onChange({ ...address, city: e.target.value })}
-            className="rounded-xl h-12 border-gray-100"
-          />
-        </div>
-        
-        <div className="space-y-2">
-          <Label className="font-bold text-gray-700">Estado *</Label>
-          <Input
-            placeholder="UF"
-            value={address.state}
-            onChange={(e) => onChange({ ...address, state: e.target.value })}
-            className="rounded-xl h-12 border-gray-100"
-          />
-        </div>
-      </div>
+            <div className="space-y-2">
+              <Label className="font-bold text-gray-700">Complemento</Label>
+              <Input
+                placeholder="Sala, Andar, etc."
+                value={address.complement}
+                onChange={(e) => onChange({ ...address, complement: e.target.value })}
+                className="rounded-xl h-12 border-gray-100"
+              />
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="font-bold text-gray-700">Cidade *</Label>
+              <Input
+                placeholder="Cidade"
+                value={address.city}
+                onChange={(e) => onChange({ ...address, city: e.target.value })}
+                className="rounded-xl h-12 border-gray-100"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="font-bold text-gray-700">Estado *</Label>
+              <Input
+                placeholder="UF"
+                value={address.state}
+                onChange={(e) => onChange({ ...address, state: e.target.value })}
+                className="rounded-xl h-12 border-gray-100"
+              />
+            </div>
+          </div>
+          <div className="pt-4 border-t border-gray-50" />
+        </>
+      )}
 
-      <div className="space-y-3 pt-4 border-t border-gray-50">
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <MapPin className="h-5 w-5 text-brand-accent" />
@@ -301,7 +307,7 @@ const MerchantAddressForm: React.FC<MerchantAddressFormProps> = ({ address, onCh
           </MapContainer>
         </div>
         <p className="text-[10px] text-gray-400 text-center font-bold uppercase tracking-wider">
-          O marcador atualiza automaticamente após preencher o endereço ou CEP.
+          Clique no mapa ou arraste o marcador para ajustar a localização exata.
         </p>
       </div>
     </div>

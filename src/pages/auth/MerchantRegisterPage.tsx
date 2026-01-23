@@ -30,7 +30,9 @@ const MerchantRegisterPage = () => {
     neighborhood: "",
     city: "",
     state: "",
-    zipCode: ""
+    zipCode: "",
+    lat: undefined, // Initialize lat/lng for map
+    lng: undefined
   });
   
   // Step 4: Category selection
@@ -123,6 +125,7 @@ const MerchantRegisterPage = () => {
           {step === 3 && (
             <AddressValidationStep 
               businessInfo={businessInfo}
+              setBusinessInfo={setBusinessInfo} // Passando o setter
               onNext={() => setStep(4)}
               onBack={() => setStep(2)}
             />
