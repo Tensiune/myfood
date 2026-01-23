@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,8 @@ import {
   CheckCircle2, 
   AlertCircle,
   Building2,
-  Map
+  Map,
+  Loader2
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -32,25 +33,13 @@ const BRAZILIAN_BANKS = [
   { code: "341", name: "341 - Itaú Unibanco" },
   { code: "260", name: "260 - Nu Pagamentos (Nubank)" },
   { code: "077", name: "077 - Banco Inter" },
-  { code: "422", name: "422 - Banco Safra" },
-  { code: "745", name: "745 - Banco Citibank" },
-  { code: "212", name: "212 - Banco Original" },
-  { code: "041", name: "041 - Banco Banrisul" },
-  { code: "655", name: "655 - Banco Votorantim" },
-  { code: "409", name: "409 - Banco Pan" },
-  { code: "069", name: "069 - Banco BMG" },
-  { code: "197", name: "197 - Stone Pagamentos" },
-  { code: "290", name: "290 - PagSeguro" },
-  { code: "323", name: "323 - Mercado Pago" },
-  { code: "637", name: "637 - Banco Sofisa" },
-  { code: "748", name: "748 - Sicredi" },
-  { code: "756", name: "756 - Sicoob" },
 ].sort((a, b) => a.name.localeCompare(b.name));
 
 const MerchantSetupPage = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("status");
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
   
   const [hours, setHours] = useState<Record<string, DayHours>>({
     monday: { closed: false, windows: [{ id: "1", open: "08:00", close: "18:00" }] },
@@ -100,6 +89,31 @@ const MerchantSetupPage = () => {
     delivery: false,
     bank: false
   });
+
+  // CARREGAR DADOS EXISTENTES
+  useEffect(() => {
+    const fetchCurrentData = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.user_metadata) {
+        const meta = user.user_metadata;
+        if (meta.business_hours) setHours(meta.business_hours);
+        if (meta.store_details) setStoreInfo(meta.store_details);
+        if (meta.delivery_area) setDeliveryArea(meta.delivery_area);
+        if (meta.bank_info) setBankInfo(meta.bank_info);
+        
+        // Se já tem dados, marca passos como completados
+        setCompletedSteps({
+          status: true,
+          hours: !!meta.business_hours,
+          store: !!meta.store_details,
+          delivery: !!meta.delivery_area,
+          bank: !!meta.bank_info
+        });
+      }
+      setInitializing(false);
+    };
+    fetchCurrentData();
+  }, []);
 
   const handleSaveHours = () => {
     setCompletedSteps(prev => ({ ...prev, hours: true }));
@@ -156,14 +170,14 @@ const MerchantSetupPage = () => {
     }
   };
 
-  const tabs = [
-    { id: "status", label: "Status", icon: Store },
-    { id: "hours", label: "Horário", icon: Clock },
-    { id: "store", label: "Minha Loja", icon: Building2 },
-    { id: "delivery", label: "Área de Entrega", icon: Map },
-    { id: "bank", label: "Financeiro", icon: CreditCard },
-    { id: "completion", label: "Conclusão", icon: CheckCircle2 }
-  ];
+  if (initializing) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center">
+        <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
+        <p className="text-gray-500 font-bold">Recuperando seus dados...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -176,12 +190,13 @@ const MerchantSetupPage = () => {
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isCompleted = completedSteps[tab.id as keyof typeof completedSteps];
+          const isActive = activeTab === tab.id;
           return (
             <Button
               key={tab.id}
-              variant={activeTab === tab.id ? "default" : "ghost"}
+              variant={isActive ? "default" : "ghost"}
               className={`flex items-center gap-2 rounded-xl h-12 px-4 ${
-                activeTab === tab.id ? "bg-indigo-600 text-white" : isCompleted ? "text-green-600" : "text-gray-400"
+                isActive ? "bg-indigo-600 text-white" : isCompleted ? "text-green-600" : "text-gray-400"
               }`}
               onClick={() => setActiveTab(tab.id)}
             >
@@ -200,7 +215,11 @@ const MerchantSetupPage = () => {
               <h3 className="font-bold text-lg text-yellow-800">Loja em Configuração</h3>
               <p className="text-yellow-700 text-sm">Sua loja será liberada após o envio para análise.</p>
             </div>
-            <div className="flex justify-end"><Button className="rounded-2xl bg-indigo-600 px-8 py-6 h-auto" onClick={() => setActiveTab("hours")}>Começar</Button></div>
+            <div className="flex justify-end">
+              <Button className="rounded-2xl bg-indigo-600 px-8 py-6 h-auto" onClick={() => setActiveTab("hours")}>
+                {completedSteps.status ? "Continuar Revisão" : "Começar"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -348,5 +367,14 @@ const MerchantSetupPage = () => {
     </div>
   );
 };
+
+const tabs = [
+  { id: "status", label: "Status", icon: Store },
+  { id: "hours", label: "Horário", icon: Clock },
+  { id: "store", label: "Minha Loja", icon: Building2 },
+  { id: "delivery", label: "Área de Entrega", icon: Map },
+  { id: "bank", label: "Financeiro", icon: CreditCard },
+  { id: "completion", label: "Conclusão", icon: CheckCircle2 }
+];
 
 export default MerchantSetupPage;
