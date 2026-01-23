@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { MapPin } from "lucide-react";
 import MerchantAddressForm from "@/components/merchant/MerchantAddressForm";
@@ -30,13 +30,43 @@ const AddressValidationStep: React.FC<AddressValidationStepProps> = ({
   onNext, 
   onBack 
 }) => {
+  
+  // Geocoding logic on mount if coordinates are missing
+  useEffect(() => {
+    const geocodeAddress = async () => {
+      // Only run if coordinates are missing but we have enough address info
+      if (businessInfo.lat && businessInfo.lng) return;
+      if (!businessInfo.street || !businessInfo.city) return;
+
+      const fullAddress = `${businessInfo.street}, ${businessInfo.number}, ${businessInfo.city}, ${businessInfo.state}, Brasil`;
+      
+      try {
+        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`);
+        const geoData = await geoRes.json();
+        
+        if (geoData && geoData.length > 0) {
+          const lat = parseFloat(geoData[0].lat);
+          const lng = parseFloat(geoData[0].lon);
+          
+          // Update state with coordinates
+          setBusinessInfo(prev => ({
+            ...prev,
+            lat,
+            lng
+          }));
+        }
+      } catch (error) {
+        console.error("Failed to geocode address on validation step:", error);
+      }
+    };
+    
+    geocodeAddress();
+  }, [businessInfo.lat, businessInfo.lng, businessInfo.street, businessInfo.number, businessInfo.city, businessInfo.state, setBusinessInfo]);
+
+
   const handleNextStep = () => {
     if (!businessInfo.lat || !businessInfo.lng) {
-      // If lat/lng are missing, try to trigger geocoding based on address before proceeding
-      // In a real app, we'd force geocoding here, but for this mock flow, we rely on the map component to set it.
-      // We can add a simple check.
-      onNext();
-      return;
+      // We allow proceeding, relying on the user to have dragged the marker if geocoding failed.
     }
     onNext();
   };
