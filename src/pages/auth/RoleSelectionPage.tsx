@@ -25,16 +25,17 @@ const RoleSelectionPage = () => {
       setUser(user);
       
       const roles: UserRole[] = ['CONSUMER'];
+      const metadataRole = user.user_metadata?.role;
 
-      if (user.user_metadata?.role === 'ADMIN') {
+      if (metadataRole === 'ADMIN') {
         roles.push('ADMIN');
       }
-      // Merchant status is set during merchant registration
-      if (user.user_metadata?.status) {
+      
+      if (metadataRole === 'MERCHANT') {
         roles.push('MERCHANT');
       }
-      // CPF is set during driver registration
-      if (user.user_metadata?.cpf) {
+      
+      if (metadataRole === 'DRIVER') {
         roles.push('DRIVER');
       }
       
@@ -42,10 +43,8 @@ const RoleSelectionPage = () => {
       setAvailableRoles(uniqueRoles);
       setLoading(false);
 
-      // If only one role is available, redirect immediately
-      if (uniqueRoles.length === 1) {
-        handleRoleSelect(uniqueRoles[0]);
-      }
+      // If only one role is available (excluding consumer usually), we could auto-redirect, 
+      // but let's keep it manual for safety unless it's just consumer.
     };
     fetchUserAndRoles();
   }, [navigate]);
@@ -74,9 +73,11 @@ const RoleSelectionPage = () => {
     switch (role) {
       case 'CONSUMER': return '/';
       case 'MERCHANT': 
-        const status = user?.user_metadata?.status;
-        return status === 'NEEDS_SETUP' ? '/merchant/setup' : '/merchant/dashboard';
-      case 'DRIVER': return '/driver/orders';
+        const mStatus = user?.user_metadata?.status;
+        return mStatus === 'NEEDS_SETUP' ? '/merchant/setup' : '/merchant/dashboard';
+      case 'DRIVER': 
+        const dStatus = user?.user_metadata?.status;
+        return dStatus === 'NEEDS_SETUP' ? '/driver/setup' : '/driver/orders';
       case 'ADMIN': return '/admin/dashboard';
       default: return '/';
     }
@@ -110,8 +111,7 @@ const RoleSelectionPage = () => {
             const Icon = getRoleIcon(role);
             const label = getRoleLabel(role);
             
-            // Rejeitado se o status for explicitamente REJECTED
-            const isRejected = role === 'MERCHANT' && user?.user_metadata?.status === 'REJECTED';
+            const isRejected = (role === 'MERCHANT' || role === 'DRIVER') && user?.user_metadata?.status === 'REJECTED';
 
             return (
               <button

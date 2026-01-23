@@ -8,17 +8,20 @@ import { UserRole } from "@/types/auth";
 // Helper function to determine available roles based on user metadata
 const getAvailableRoles = (user: User): UserRole[] => {
     const roles: UserRole[] = ['CONSUMER'];
+    const metadataRole = user.user_metadata?.role;
 
-    if (user.user_metadata?.role === 'ADMIN') {
+    if (metadataRole === 'ADMIN') {
         roles.push('ADMIN');
     }
-    // Check if user has merchant or driver specific metadata
-    if (user.user_metadata?.role === 'MERCHANT' || user.user_metadata?.status) {
+    
+    if (metadataRole === 'MERCHANT') {
         roles.push('MERCHANT');
     }
-    if (user.user_metadata?.role === 'DRIVER' || user.user_metadata?.cpf) {
+    
+    if (metadataRole === 'DRIVER') {
         roles.push('DRIVER');
     }
+    
     return Array.from(new Set(roles));
 };
 
