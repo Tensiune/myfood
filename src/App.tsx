@@ -38,6 +38,7 @@ import MerchantReportsPage from "./pages/merchant/MerchantReportsPage";
 import MerchantSetupPage from "./pages/merchant/MerchantSetupPage";
 import DriverSetupPage from "./pages/driver/DriverSetupPage";
 import DriverProfilePage from "./pages/driver/DriverProfilePage";
+import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 
 const queryClient = new QueryClient();
 
@@ -58,6 +59,7 @@ const App = () => (
                 <Route path="/driver-register" element={<DriverRegisterPage />} />
                 <Route path="/merchant-register" element={<MerchantRegisterPage />} />
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
 
                 {/* Protected Routes */}
                 <Route element={<AuthGuard />}>
