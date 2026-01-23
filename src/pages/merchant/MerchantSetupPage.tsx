@@ -24,6 +24,7 @@ import {
 import { showError, showSuccess } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
+import { cn } from "@/lib/utils";
 import BusinessHoursManager, { DayHours } from "@/components/merchant/BusinessHoursManager";
 import MerchantAddressForm from "@/components/merchant/MerchantAddressForm";
 
