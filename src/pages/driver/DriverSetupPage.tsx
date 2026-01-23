@@ -15,7 +15,8 @@ import {
   FileText,
   Upload,
   ArrowRight,
-  ArrowLeft
+  ArrowLeft,
+  Loader2
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -44,6 +45,7 @@ const DriverSetupPage = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [loadingCep, setLoadingCep] = useState(false);
 
   // Form states
   const [address, setAddress] = useState({
@@ -70,6 +72,34 @@ const DriverSetupPage = () => {
     account: "",
     pix: ""
   });
+
+  const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
+    const cep = e.target.value.replace(/\D/g, "");
+    if (cep.length === 8) {
+      setLoadingCep(true);
+      try {
+        const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+        const data = await response.json();
+        
+        if (data.erro) {
+          showError("CEP não encontrado.");
+        } else {
+          setAddress({
+            ...address,
+            street: data.logradouro || address.street,
+            neighborhood: data.bairro || address.neighborhood,
+            city: data.localidade || address.city,
+            state: data.uf || address.state,
+            zipCode: cep,
+          });
+        }
+      } catch (error) {
+        showError("Erro ao buscar CEP.");
+      } finally {
+        setLoadingCep(false);
+      }
+    }
+  };
 
   const handleNext = () => {
     if (step === 1) {
@@ -153,12 +183,16 @@ const DriverSetupPage = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>CEP</Label>
-                    <Input 
-                      placeholder="00000-000" 
-                      value={address.zipCode}
-                      onChange={(e) => setAddress({...address, zipCode: e.target.value})}
-                      className="rounded-xl h-12"
-                    />
+                    <div className="relative">
+                      <Input 
+                        placeholder="00000-000" 
+                        value={address.zipCode}
+                        onChange={(e) => setAddress({...address, zipCode: e.target.value})}
+                        onBlur={handleCepBlur}
+                        className="rounded-xl h-12"
+                      />
+                      {loadingCep && <Loader2 className="absolute right-3 top-3 h-5 w-5 animate-spin text-indigo-600" />}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label>Rua</Label>

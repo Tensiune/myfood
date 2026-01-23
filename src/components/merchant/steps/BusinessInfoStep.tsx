@@ -1,10 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Building2 } from "lucide-react";
+import { Building2, Loader2 } from "lucide-react";
 import { showError } from "@/utils/toast";
 
 interface BusinessInfo {
@@ -32,6 +32,36 @@ const BusinessInfoStep: React.FC<BusinessInfoStepProps> = ({
   onNext, 
   onBack 
 }) => {
+  const [loadingCep, setLoadingCep] = useState(false);
+
+  const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
+    const cep = e.target.value.replace(/\D/g, "");
+    if (cep.length === 8) {
+      setLoadingCep(true);
+      try {
+        const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+        const data = await response.json();
+        
+        if (data.erro) {
+          showError("CEP não encontrado.");
+        } else {
+          setBusinessInfo({
+            ...businessInfo,
+            street: data.logradouro || businessInfo.street,
+            neighborhood: data.bairro || businessInfo.neighborhood,
+            city: data.localidade || businessInfo.city,
+            state: data.uf || businessInfo.state,
+            zipCode: cep,
+          });
+        }
+      } catch (error) {
+        showError("Erro ao buscar CEP.");
+      } finally {
+        setLoadingCep(false);
+      }
+    }
+  };
+
   const handleBusinessInfoSubmit = () => {
     if (!businessInfo.cnpj || !businessInfo.phone || !businessInfo.street || 
         !businessInfo.number || !businessInfo.neighborhood || !businessInfo.city || 
@@ -72,12 +102,16 @@ const BusinessInfoStep: React.FC<BusinessInfoStepProps> = ({
       
       <div className="space-y-2">
         <Label>CEP</Label>
-        <Input 
-          placeholder="00000-000" 
-          value={businessInfo.zipCode}
-          onChange={(e) => setBusinessInfo({...businessInfo, zipCode: e.target.value})}
-          className="rounded-xl border-gray-200 h-12"
-        />
+        <div className="relative">
+          <Input 
+            placeholder="00000-000" 
+            value={businessInfo.zipCode}
+            onChange={(e) => setBusinessInfo({...businessInfo, zipCode: e.target.value})}
+            onBlur={handleCepBlur}
+            className="rounded-xl border-gray-200 h-12"
+          />
+          {loadingCep && <Loader2 className="absolute right-3 top-3 h-5 w-5 animate-spin text-indigo-600" />}
+        </div>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
