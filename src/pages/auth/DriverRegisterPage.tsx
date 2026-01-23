@@ -42,7 +42,8 @@ const DriverRegisterPage = () => {
           data: {
             full_name: fullName,
             cpf: cpf,
-            role: 'DRIVER'
+            role: 'DRIVER',
+            status: 'NEEDS_SETUP' // Garante que o entregador vá para o setup primeiro
           }
         }
       });

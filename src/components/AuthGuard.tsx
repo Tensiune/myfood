@@ -12,12 +12,11 @@ const getAvailableRoles = (user: User): UserRole[] => {
     if (user.user_metadata?.role === 'ADMIN') {
         roles.push('ADMIN');
     }
-    // Assuming Merchant status is set during merchant registration
-    if (user.user_metadata?.status) {
+    // Check if user has merchant or driver specific metadata
+    if (user.user_metadata?.role === 'MERCHANT' || user.user_metadata?.status) {
         roles.push('MERCHANT');
     }
-    // Assuming CPF is set during driver registration
-    if (user.user_metadata?.cpf) {
+    if (user.user_metadata?.role === 'DRIVER' || user.user_metadata?.cpf) {
         roles.push('DRIVER');
     }
     return Array.from(new Set(roles));
@@ -33,7 +32,6 @@ const AuthGuard = () => {
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session) {
-        // If not logged in, redirect to login
         if (!location.pathname.startsWith("/login") && !location.pathname.includes("-register") && location.pathname !== "/forgot-password") {
             navigate("/login");
         }
@@ -46,14 +44,11 @@ const AuthGuard = () => {
       const activeRole = localStorage.getItem('active_role') as UserRole | null;
       const path = location.pathname;
       
-      // 1. Handle Role Selection Requirement
       if (!activeRole || !availableRoles.includes(activeRole)) {
         if (path !== "/select-role") {
-            // If multiple roles are available, force selection
             if (availableRoles.length > 1) {
                 navigate("/select-role");
             } else {
-                // If only one role, set it as active and redirect
                 localStorage.setItem('active_role', availableRoles[0]);
                 const targetPath = getRolePath(availableRoles[0], user);
                 navigate(targetPath);
@@ -63,25 +58,31 @@ const AuthGuard = () => {
         return;
       }
       
-      // 2. Enforce Role Path and Merchant Status
       const expectedPrefix = getRolePrefix(activeRole);
+      
+      // Enforce setup pages for both roles
       const isMerchantSetupRequired = activeRole === 'MERCHANT' && user.user_metadata?.status === 'NEEDS_SETUP';
+      const isDriverSetupRequired = activeRole === 'DRIVER' && user.user_metadata?.status === 'NEEDS_SETUP';
       
       if (isMerchantSetupRequired && path !== "/merchant/setup") {
           navigate("/merchant/setup");
           setLoading(false);
           return;
       }
+
+      if (isDriverSetupRequired && path !== "/driver/setup") {
+          navigate("/driver/setup");
+          setLoading(false);
+          return;
+      }
       
-      if (!path.startsWith(expectedPrefix) && path !== "/select-role" && path !== "/checkout" && path !== "/chat") {
-          // If trying to access a path outside the active role's domain, redirect to the role's dashboard
+      if (!path.startsWith(expectedPrefix) && path !== "/select-role" && path !== "/checkout" && !path.startsWith("/chat")) {
           const targetPath = getRolePath(activeRole, user);
           navigate(targetPath);
           setLoading(false);
           return;
       }
       
-      // 3. Handle root path redirection
       if (path === "/") {
           const targetPath = getRolePath(activeRole, user);
           if (targetPath !== "/") {
@@ -101,7 +102,6 @@ const AuthGuard = () => {
         localStorage.removeItem('active_role');
         navigate("/login");
       } else if (event === "SIGNED_IN" && session) {
-        // On sign in, force role selection check
         checkUser();
       }
     });
@@ -125,7 +125,7 @@ const AuthGuard = () => {
     switch (role) {
       case 'CONSUMER': return '/';
       case 'MERCHANT': return user.user_metadata?.status === 'NEEDS_SETUP' ? '/merchant/setup' : '/merchant/dashboard';
-      case 'DRIVER': return '/driver/orders';
+      case 'DRIVER': return user.user_metadata?.status === 'NEEDS_SETUP' ? '/driver/setup' : '/driver/orders';
       case 'ADMIN': return '/admin/dashboard';
       default: return '/';
     }

@@ -1,13 +1,28 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Store, Package, ArrowRight, DollarSign } from "lucide-react";
+import { MapPin, Store, Package, ArrowRight, Clock, ShieldCheck, AlertCircle } from "lucide-react";
 import { showSuccess } from "@/utils/toast";
+import { supabase } from "@/lib/supabase";
+import { useNavigate } from "react-router-dom";
 
 const AvailableOrdersPage = () => {
+  const navigate = useNavigate();
+  const [driverStatus, setDriverStatus] = useState<string | null>(null);
+  
+  useEffect(() => {
+    const fetchStatus = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setDriverStatus(user.user_metadata?.status || 'NEEDS_SETUP');
+      }
+    };
+    fetchStatus();
+  }, []);
+
   const availableOrders = [
     {
       id: "ORD-99",
@@ -31,6 +46,31 @@ const AvailableOrdersPage = () => {
     showSuccess(`Pedido ${id} aceito! Navegue até a loja.`);
   };
 
+  if (driverStatus === 'PENDING') {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-6 space-y-6">
+        <div className="bg-yellow-100 p-6 rounded-full">
+          <Clock className="h-16 w-16 text-yellow-600 animate-pulse" />
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-3xl font-black text-indigo-900">Perfil em Análise</h1>
+          <p className="text-gray-500 max-w-sm mx-auto">
+            Recebemos seus dados! Nossa equipe está validando seus documentos. Você receberá uma notificação assim que for aprovado.
+          </p>
+        </div>
+        <Card className="p-4 bg-indigo-50 border-indigo-100 rounded-2xl flex items-start gap-3 text-left">
+          <AlertCircle className="h-5 w-5 text-indigo-600 mt-1 shrink-0" />
+          <p className="text-xs text-indigo-800 font-medium">
+            O prazo médio de aprovação é de 24 a 48 horas úteis. Fique de olho no seu e-mail!
+          </p>
+        </Card>
+        <Button variant="outline" className="rounded-xl border-indigo-200" onClick={() => navigate("/driver/setup")}>
+          Revisar meus dados
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -53,7 +93,6 @@ const AvailableOrdersPage = () => {
               </div>
 
               <div className="space-y-3 relative">
-                {/* Linha pontilhada conectando os pontos */}
                 <div className="absolute left-2.5 top-6 bottom-6 w-0.5 border-l-2 border-dashed border-gray-200" />
                 
                 <div className="flex items-center gap-3">
