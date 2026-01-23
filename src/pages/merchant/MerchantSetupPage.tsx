@@ -8,16 +8,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { 
   Store, 
   Clock, 
-  Users, 
   CreditCard, 
   CheckCircle2, 
   AlertCircle,
   Building2,
-  MapPin,
   Map
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
@@ -28,28 +25,32 @@ import MerchantAddressForm from "@/components/merchant/MerchantAddressForm";
 import DeliveryAreaManager from "@/components/merchant/DeliveryAreaManager";
 
 const BRAZILIAN_BANKS = [
-  { code: "001", name: "Banco do Brasil" },
-  { code: "033", name: "Santander" },
-  { code: "104", name: "Caixa Econômica Federal" },
-  { code: "237", name: "Bradesco" },
-  { code: "341", name: "Itaú Unibanco" },
-  { code: "260", name: "Nubank" },
-  { code: "077", name: "Banco Inter" },
-];
-
-const PERMISSIONS = [
-  { id: "orders", label: "Gerenciar Pedidos" },
-  { id: "menu", label: "Editar Cardápio" },
-  { id: "reports", label: "Ver Relatórios" },
-  { id: "settings", label: "Configurações da Loja" },
-];
+  { code: "001", name: "001 - Banco do Brasil" },
+  { code: "033", name: "033 - Santander" },
+  { code: "104", name: "104 - Caixa Econômica Federal" },
+  { code: "237", name: "237 - Bradesco" },
+  { code: "341", name: "341 - Itaú Unibanco" },
+  { code: "260", name: "260 - Nu Pagamentos (Nubank)" },
+  { code: "077", name: "077 - Banco Inter" },
+  { code: "422", name: "422 - Banco Safra" },
+  { code: "745", name: "745 - Banco Citibank" },
+  { code: "212", name: "212 - Banco Original" },
+  { code: "041", name: "041 - Banco Banrisul" },
+  { code: "655", name: "655 - Banco Votorantim" },
+  { code: "409", name: "409 - Banco Pan" },
+  { code: "069", name: "069 - Banco BMG" },
+  { code: "197", name: "197 - Stone Pagamentos" },
+  { code: "290", name: "290 - PagSeguro" },
+  { code: "323", name: "323 - Mercado Pago" },
+  { code: "637", name: "637 - Banco Sofisa" },
+  { code: "748", name: "748 - Sicredi" },
+  { code: "756", name: "756 - Sicoob" },
+].sort((a, b) => a.name.localeCompare(b.name));
 
 const MerchantSetupPage = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("status");
   const [loading, setLoading] = useState(false);
-  
-  const [isOpen, setIsOpen] = useState(false);
   
   const [hours, setHours] = useState<Record<string, DayHours>>({
     monday: { closed: false, windows: [{ id: "1", open: "08:00", close: "18:00" }] },
@@ -91,10 +92,6 @@ const MerchantSetupPage = () => {
     account: "",
     accountDigit: ""
   });
-  
-  const [teamMembers, setTeamMembers] = useState([
-    { id: "1", email: "gerente@loja.com", role: "manager", status: "active", permissions: ["orders", "menu", "reports", "settings"] }
-  ]);
 
   const [completedSteps, setCompletedSteps] = useState({
     status: false,
@@ -127,6 +124,10 @@ const MerchantSetupPage = () => {
   };
 
   const handleSaveBankInfo = () => {
+    if (!bankInfo.bank || !bankInfo.agency || !bankInfo.account || !bankInfo.accountDigit) {
+      showError("Preencha os dados bancários obrigatórios.");
+      return;
+    }
     setCompletedSteps(prev => ({ ...prev, bank: true }));
     showSuccess("Dados bancários salvos!");
     setActiveTab("completion");
@@ -141,8 +142,7 @@ const MerchantSetupPage = () => {
           business_hours: hours,
           bank_info: bankInfo,
           store_details: storeInfo,
-          delivery_area: deliveryArea,
-          team: teamMembers
+          delivery_area: deliveryArea
         }
       });
       
@@ -246,19 +246,88 @@ const MerchantSetupPage = () => {
 
       {activeTab === "bank" && (
         <Card className="rounded-[2rem] border-none shadow-sm overflow-hidden bg-white">
-          <CardHeader className="p-8 pb-0"><CardTitle className="text-2xl font-black text-indigo-900">Dados Bancários</CardTitle></CardHeader>
+          <CardHeader className="p-8 pb-0">
+            <CardTitle className="text-2xl font-black text-indigo-900">Dados Bancários</CardTitle>
+          </CardHeader>
           <CardContent className="space-y-6 p-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>Banco</Label>
-                <Select value={bankInfo.bank} onValueChange={(v) => setBankInfo({...bankInfo, bank: v})}>
-                  <SelectTrigger className="rounded-xl"><SelectValue placeholder="Selecione o banco" /></SelectTrigger>
-                  <SelectContent>{BRAZILIAN_BANKS.map(b => <SelectItem key={b.code} value={b.code}>{b.name}</SelectItem>)}</SelectContent>
+                <Label className="font-bold text-gray-700">Banco *</Label>
+                <Select value={bankInfo.bank} onValueChange={(v) => setBankInfo({ ...bankInfo, bank: v })}>
+                  <SelectTrigger className="rounded-xl h-12">
+                    <SelectValue placeholder="Selecione o banco" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl max-h-60">
+                    {BRAZILIAN_BANKS.map((b) => (
+                      <SelectItem key={b.code} value={b.code}>{b.name}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2"><Label>Conta</Label><Input value={bankInfo.account} onChange={(e) => setBankInfo({...bankInfo, account: e.target.value})} className="rounded-xl" /></div>
+
+              <div className="space-y-2">
+                <Label className="font-bold text-gray-700">Tipo de Conta *</Label>
+                <Select value={bankInfo.accountType} onValueChange={(v) => setBankInfo({ ...bankInfo, accountType: v })}>
+                  <SelectTrigger className="rounded-xl h-12">
+                    <SelectValue placeholder="Selecione o tipo" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="checking">Conta Corrente</SelectItem>
+                    <SelectItem value="savings">Conta Poupança</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <div className="col-span-3 space-y-2">
+                  <Label className="font-bold text-gray-700">Agência *</Label>
+                  <Input
+                    placeholder="0001"
+                    value={bankInfo.agency}
+                    onChange={(e) => setBankInfo({ ...bankInfo, agency: e.target.value })}
+                    className="rounded-xl h-12"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-bold text-gray-700">Dígito</Label>
+                  <Input
+                    placeholder="0"
+                    maxLength={1}
+                    value={bankInfo.agencyDigit}
+                    onChange={(e) => setBankInfo({ ...bankInfo, agencyDigit: e.target.value })}
+                    className="rounded-xl h-12 text-center"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <div className="col-span-3 space-y-2">
+                  <Label className="font-bold text-gray-700">Número da Conta *</Label>
+                  <Input
+                    placeholder="00000000"
+                    value={bankInfo.account}
+                    onChange={(e) => setBankInfo({ ...bankInfo, account: e.target.value })}
+                    className="rounded-xl h-12"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-bold text-gray-700">Dígito *</Label>
+                  <Input
+                    placeholder="0"
+                    maxLength={1}
+                    value={bankInfo.accountDigit}
+                    onChange={(e) => setBankInfo({ ...bankInfo, accountDigit: e.target.value })}
+                    className="rounded-xl h-12 text-center"
+                  />
+                </div>
+              </div>
             </div>
-            <div className="flex justify-between pt-4"><Button variant="ghost" onClick={() => setActiveTab("delivery")}>Voltar</Button><Button className="rounded-2xl bg-indigo-600 px-8 py-6 h-auto" onClick={handleSaveBankInfo}>Continuar</Button></div>
+            <div className="flex justify-between pt-4">
+              <Button variant="ghost" onClick={() => setActiveTab("delivery")} className="rounded-xl">Voltar</Button>
+              <Button className="rounded-2xl bg-indigo-600 px-8 py-6 h-auto font-bold" onClick={handleSaveBankInfo}>
+                Continuar
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
