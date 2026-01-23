@@ -47,14 +47,25 @@ const AuthGuard = () => {
       const activeRole = localStorage.getItem('active_role') as UserRole | null;
       const path = location.pathname;
       
+      // If no active role is set or it's invalid for this user
       if (!activeRole || !availableRoles.includes(activeRole)) {
         if (path !== "/select-role") {
-            if (availableRoles.length > 1) {
+            // Intelligent redirect: if user has a professional role, prioritize it
+            const professionalRoles = availableRoles.filter(r => r !== 'CONSUMER');
+            
+            if (professionalRoles.length === 1) {
+                // Auto-select the only professional role available
+                const chosenRole = professionalRoles[0];
+                localStorage.setItem('active_role', chosenRole);
+                const targetPath = getRolePath(chosenRole, user);
+                navigate(targetPath);
+            } else if (availableRoles.length > 1) {
+                // Multiple roles (e.g. Admin + Merchant), let them choose
                 navigate("/select-role");
             } else {
-                localStorage.setItem('active_role', availableRoles[0]);
-                const targetPath = getRolePath(availableRoles[0], user);
-                navigate(targetPath);
+                // Only consumer
+                localStorage.setItem('active_role', 'CONSUMER');
+                navigate("/");
             }
         }
         setLoading(false);
@@ -63,7 +74,7 @@ const AuthGuard = () => {
       
       const expectedPrefix = getRolePrefix(activeRole);
       
-      // Enforce setup pages for both roles
+      // Enforce setup pages for both roles based on user metadata status
       const isMerchantSetupRequired = activeRole === 'MERCHANT' && user.user_metadata?.status === 'NEEDS_SETUP';
       const isDriverSetupRequired = activeRole === 'DRIVER' && user.user_metadata?.status === 'NEEDS_SETUP';
       
@@ -79,6 +90,7 @@ const AuthGuard = () => {
           return;
       }
       
+      // Redirect if user is trying to access a prefix that doesn't match their active role
       if (!path.startsWith(expectedPrefix) && path !== "/select-role" && path !== "/checkout" && !path.startsWith("/chat")) {
           const targetPath = getRolePath(activeRole, user);
           navigate(targetPath);
@@ -86,6 +98,7 @@ const AuthGuard = () => {
           return;
       }
       
+      // Handle root path redirect
       if (path === "/") {
           const targetPath = getRolePath(activeRole, user);
           if (targetPath !== "/") {
