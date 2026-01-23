@@ -34,9 +34,11 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddress, setSelectedAddress] = useState<Address | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
 
+  // Carregamento inicial e escuta de mudanças de autenticação
   useEffect(() => {
-    const fetchUser = async () => {
+    const initialize = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setUserId(user.id);
@@ -51,45 +53,73 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
             console.error("Erro ao carregar endereços", e);
           }
         }
-      } else {
+      }
+      setIsLoaded(true);
+    };
+
+    initialize();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        setUserId(session.user.id);
+        const saved = localStorage.getItem(`addresses_${session.user.id}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setAddresses(parsed);
+          setSelectedAddress(parsed.find((a: Address) => a.isDefault) || parsed[0] || null);
+        }
+      } else if (event === "SIGNED_OUT") {
+        setUserId(null);
         setAddresses([]);
         setSelectedAddress(null);
       }
-    };
-    fetchUser();
+    });
+
+    return () => authListener.subscription.unsubscribe();
   }, []);
 
+  // Salvar sempre que os endereços mudarem, mas só depois do carregamento inicial
   useEffect(() => {
-    if (userId) {
+    if (isLoaded && userId) {
       localStorage.setItem(`addresses_${userId}`, JSON.stringify(addresses));
     }
-  }, [addresses, userId]);
+  }, [addresses, userId, isLoaded]);
 
   const addAddress = (addr: Omit<Address, "id">) => {
     const newAddr = { ...addr, id: Date.now().toString() };
-    if (newAddr.isDefault) {
-      const updated = addresses.map(a => ({ ...a, isDefault: false })).concat(newAddr);
-      setAddresses(updated);
-      setSelectedAddress(newAddr);
-    } else {
-      setAddresses(prev => [...prev, newAddr]);
-      if (!selectedAddress) setSelectedAddress(newAddr);
-    }
+    
+    setAddresses(prev => {
+      let updated;
+      if (newAddr.isDefault) {
+        updated = prev.map(a => ({ ...a, isDefault: false })).concat(newAddr);
+      } else {
+        updated = [...prev, newAddr];
+      }
+      
+      // Se for o primeiro endereço, seleciona automaticamente
+      if (updated.length === 1) setSelectedAddress(newAddr);
+      return updated;
+    });
   };
 
   const updateAddress = (id: string, updates: Partial<Address>) => {
-    setAddresses(prev => prev.map(a => (a.id === id ? { ...a, ...updates } : a)));
-    if (selectedAddress?.id === id) {
-      setSelectedAddress(prev => prev ? { ...prev, ...updates } : null);
-    }
+    setAddresses(prev => {
+      const updated = prev.map(a => (a.id === id ? { ...a, ...updates } : a));
+      if (selectedAddress?.id === id) {
+        setSelectedAddress({ ...selectedAddress, ...updates } as Address);
+      }
+      return updated;
+    });
   };
 
   const removeAddress = (id: string) => {
-    const newAddresses = addresses.filter(a => a.id !== id);
-    setAddresses(newAddresses);
-    if (selectedAddress?.id === id) {
-      setSelectedAddress(newAddresses.find(a => a.isDefault) || newAddresses[0] || null);
-    }
+    setAddresses(prev => {
+      const updated = prev.filter(a => a.id !== id);
+      if (selectedAddress?.id === id) {
+        setSelectedAddress(updated.find(a => a.isDefault) || updated[0] || null);
+      }
+      return updated;
+    });
   };
 
   const selectAddress = (id: string) => {
@@ -98,10 +128,12 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const setDefaultAddress = (id: string) => {
-    const updated = addresses.map(a => ({ ...a, isDefault: a.id === id }));
-    setAddresses(updated);
-    const addr = updated.find(a => a.id === id);
-    if (addr) setSelectedAddress(addr);
+    setAddresses(prev => {
+      const updated = prev.map(a => ({ ...a, isDefault: a.id === id }));
+      const addr = updated.find(a => a.id === id);
+      if (addr) setSelectedAddress(addr);
+      return updated;
+    });
   };
 
   return (
