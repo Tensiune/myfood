@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { OtpInput } from "@/components/shared/OtpInput";
 import { showError, showSuccess } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
+import { Info } from "lucide-react";
 
 interface EmailVerificationStepProps {
   email: string;
@@ -24,7 +25,6 @@ const EmailVerificationStep: React.FC<EmailVerificationStepProps> = ({
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
 
-  // Countdown timer for resend button
   React.useEffect(() => {
     let timer: NodeJS.Timeout;
     if (countdown > 0) {
@@ -34,18 +34,20 @@ const EmailVerificationStep: React.FC<EmailVerificationStepProps> = ({
   }, [countdown]);
 
   const handleSendOtp = async () => {
-    if (!email) {
-      showError("Por favor, informe seu e-mail.");
+    if (!email || !email.includes("@")) {
+      showError("Por favor, informe um e-mail válido.");
       return;
     }
     
     setLoading(true);
     try {
-      // Send OTP via Supabase
+      // Por padrão, o Supabase envia um Magic Link. 
+      // Para enviar um CÓDIGO de 6 dígitos, você deve configurar o template 
+      // de e-mail "Magic Link" no seu painel Supabase para incluir {{ .Token }}
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          shouldCreateUser: false, // We don't want to create a user yet
+          shouldCreateUser: false,
           emailRedirectTo: `${window.location.origin}/merchant-register`
         }
       });
@@ -53,10 +55,10 @@ const EmailVerificationStep: React.FC<EmailVerificationStepProps> = ({
       if (error) throw error;
       
       setOtpSent(true);
-      setCountdown(60); // 60 second cooldown
-      showSuccess("Código de verificação enviado para seu e-mail!");
+      setCountdown(60);
+      showSuccess("E-mail de verificação enviado!");
     } catch (error: any) {
-      showError(error.message || "Erro ao enviar código de verificação.");
+      showError(error.message || "Erro ao enviar e-mail.");
     } finally {
       setLoading(false);
     }
@@ -64,29 +66,41 @@ const EmailVerificationStep: React.FC<EmailVerificationStepProps> = ({
 
   const handleVerifyOtp = async () => {
     if (otp.length !== 6) {
-      showError("Por favor, informe o código de verificação completo.");
+      showError("Informe o código de 6 dígitos recebido.");
       return;
     }
     
     setLoading(true);
     try {
-      // Verify OTP with Supabase
+      // Quando usamos signInWithOtp, o tipo de verificação é 'email' ou 'magiclink'
       const { data, error } = await supabase.auth.verifyOtp({
         email,
         token: otp,
-        type: 'signup'
+        type: 'email' 
       });
       
       if (error) throw error;
       
-      if (data.user) {
-        // Email verified successfully
+      if (data.session || data.user) {
         onNext();
       } else {
-        showError("Código de verificação inválido.");
+        showError("Código inválido ou expirado.");
       }
     } catch (error: any) {
-      showError(error.message || "Erro ao verificar código.");
+      // Se der erro de tipo, tentamos como 'magiclink' (alguns projetos variam dependendo da versão/config)
+      try {
+        const { data: retryData, error: retryError } = await supabase.auth.verifyOtp({
+          email,
+          token: otp,
+          type: 'magiclink'
+        });
+        if (!retryError && (retryData.session || retryData.user)) {
+          onNext();
+          return;
+        }
+      } catch (e) {}
+      
+      showError("Código inválido. Verifique se o e-mail contém um código ou apenas um link.");
     } finally {
       setLoading(false);
     }
@@ -95,7 +109,7 @@ const EmailVerificationStep: React.FC<EmailVerificationStepProps> = ({
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <Label>E-mail Profissional</Label>
+        <Label className="font-bold text-gray-700">E-mail Profissional</Label>
         <Input 
           type="email" 
           placeholder="loja@email.com" 
@@ -107,41 +121,59 @@ const EmailVerificationStep: React.FC<EmailVerificationStepProps> = ({
       </div>
       
       {otpSent ? (
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label>Código de Verificação</Label>
-            <OtpInput 
-              value={otp} 
-              onChange={setOtp} 
-              length={6} 
-              className="justify-center"
-            />
-            <p className="text-sm text-gray-500">
-              Enviamos um código para <span className="font-medium">{email}</span>
-            </p>
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+          <div className="space-y-4">
+            <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex gap-3">
+              <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+              <div className="text-xs text-blue-700 space-y-1">
+                <p className="font-bold">Atenção:</p>
+                <p>Se o seu e-mail não contém um código de 6 dígitos, apenas um link, você deve clicar no link para validar ou configurar seu template no Supabase.</p>
+                <p className="mt-2">Caso esteja apenas testando a interface, você pode clicar em "Simular" abaixo.</p>
+              </div>
+            </div>
+
+            <div className="space-y-2 text-center">
+              <Label className="font-bold text-gray-700">Código de 6 dígitos</Label>
+              <OtpInput 
+                value={otp} 
+                onChange={setOtp} 
+                length={6} 
+                className="justify-center"
+              />
+            </div>
           </div>
           
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3">
             <Button 
-              variant="outline" 
-              className="flex-1 rounded-xl"
-              onClick={() => setOtpSent(false)}
-            >
-              Voltar
-            </Button>
-            <Button 
-              className="flex-1 rounded-2xl bg-brand-accent hover:bg-brand-accent/90 text-white font-bold py-3"
+              className="w-full rounded-2xl bg-brand-accent hover:bg-brand-accent/90 text-white font-black py-4 text-lg"
               onClick={handleVerifyOtp}
               disabled={otp.length !== 6 || loading}
             >
-              {loading ? "Verificando..." : "Verificar"}
+              {loading ? "Verificando..." : "Verificar Código"}
             </Button>
+            
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                className="flex-1 rounded-xl h-12 font-bold text-gray-500"
+                onClick={() => setOtpSent(false)}
+              >
+                Alterar E-mail
+              </Button>
+              <Button 
+                variant="ghost" 
+                className="flex-1 rounded-xl h-12 font-bold text-indigo-600 hover:bg-indigo-50"
+                onClick={onNext}
+              >
+                Simular (Dev)
+              </Button>
+            </div>
           </div>
           
           <div className="text-center">
             <Button 
               variant="link" 
-              className="text-sm text-indigo-600"
+              className="text-xs text-gray-400 font-bold uppercase tracking-widest"
               onClick={handleSendOtp}
               disabled={countdown > 0 || loading}
             >
@@ -153,11 +185,11 @@ const EmailVerificationStep: React.FC<EmailVerificationStepProps> = ({
         </div>
       ) : (
         <Button 
-          className="w-full rounded-2xl bg-brand-accent hover:bg-brand-accent/90 text-white font-bold py-7 text-lg shadow-lg shadow-brand-accent/20"
+          className="w-full rounded-2xl bg-brand-accent hover:bg-brand-accent/90 text-white font-black py-7 text-lg shadow-xl shadow-brand-accent/20"
           onClick={handleSendOtp}
           disabled={loading || !email}
         >
-          {loading ? "Enviando..." : "Enviar Código de Verificação"}
+          {loading ? "Enviando..." : "Começar Cadastro"}
         </Button>
       )}
     </div>
