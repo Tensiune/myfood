@@ -11,16 +11,21 @@ import BusinessInfoStep from "@/components/merchant/steps/BusinessInfoStep";
 import AddressValidationStep from "@/components/merchant/steps/AddressValidationStep";
 import CategorySelectionStep from "@/components/merchant/steps/CategorySelectionStep";
 import LegalRepresentativeStep from "@/components/merchant/steps/LegalRepresentativeStep";
+import PasswordStep from "@/components/merchant/steps/PasswordStep";
 
 const MerchantRegisterPage = () => {
-  const [step, setStep] = useState(1); // 1: Email, 2: Business Info, 3: Address Map, 4: Category, 5: Legal Representative
+  const [step, setStep] = useState(1); // 1: Email, 2: Password, 3: Business Info, 4: Address Map, 5: Category, 6: Legal Representative
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   
   // Step 1: Email verification
   const [email, setEmail] = useState("");
   
-  // Step 2: Business Info
+  // New Step 2: Password
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  
+  // Step 3: Business Info
   const [businessInfo, setBusinessInfo] = useState({
     cnpj: "",
     phone: "",
@@ -35,10 +40,10 @@ const MerchantRegisterPage = () => {
     lng: undefined
   });
   
-  // Step 4: Category selection
+  // Step 5: Category selection
   const [category, setCategory] = useState("");
   
-  // Step 5: Legal representative
+  // Step 6: Legal representative
   const [legalRep, setLegalRep] = useState({
     cpf: "",
     fullName: ""
@@ -50,7 +55,7 @@ const MerchantRegisterPage = () => {
       // Create user account with all merchant data
       const { data, error } = await supabase.auth.signUp({
         email,
-        password: "TempPass123!", // In a real app, this would be set by user
+        password, // Use the collected password
         options: {
           data: {
             role: 'MERCHANT',
@@ -79,13 +84,16 @@ const MerchantRegisterPage = () => {
   const getStepTitle = () => {
     switch(step) {
       case 1: return "Verificação de E-mail";
-      case 2: return "Informações da Empresa";
-      case 3: return "Validação de Endereço";
-      case 4: return "Categoria do Estabelecimento";
-      case 5: return "Representante Legal";
+      case 2: return "Defina sua Senha";
+      case 3: return "Informações da Empresa";
+      case 4: return "Validação de Endereço";
+      case 5: return "Categoria do Estabelecimento";
+      case 6: return "Representante Legal";
       default: return "";
     }
   };
+  
+  const totalSteps = 6;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4 py-12">
@@ -100,7 +108,7 @@ const MerchantRegisterPage = () => {
             {getStepTitle()}
           </h2>
           <p className="text-indigo-200 mt-2">
-            Passo {step} de 5
+            Passo {step} de {totalSteps}
           </p>
         </div>
         
@@ -114,33 +122,44 @@ const MerchantRegisterPage = () => {
           )}
           
           {step === 2 && (
-            <BusinessInfoStep 
-              businessInfo={businessInfo}
-              setBusinessInfo={setBusinessInfo}
+            <PasswordStep
+              password={password}
+              setPassword={setPassword}
+              confirmPassword={confirmPassword}
+              setConfirmPassword={setConfirmPassword}
               onNext={() => setStep(3)}
               onBack={() => setStep(1)}
             />
           )}
           
           {step === 3 && (
-            <AddressValidationStep 
+            <BusinessInfoStep 
               businessInfo={businessInfo}
-              setBusinessInfo={setBusinessInfo} // Passando o setter
+              setBusinessInfo={setBusinessInfo}
               onNext={() => setStep(4)}
               onBack={() => setStep(2)}
             />
           )}
           
           {step === 4 && (
-            <CategorySelectionStep 
-              category={category}
-              setCategory={setCategory}
+            <AddressValidationStep 
+              businessInfo={businessInfo}
+              setBusinessInfo={setBusinessInfo}
               onNext={() => setStep(5)}
               onBack={() => setStep(3)}
             />
           )}
           
           {step === 5 && (
+            <CategorySelectionStep 
+              category={category}
+              setCategory={setCategory}
+              onNext={() => setStep(6)}
+              onBack={() => setStep(4)}
+            />
+          )}
+          
+          {step === 6 && (
             <LegalRepresentativeStep 
               legalRep={legalRep}
               setLegalRep={setLegalRep}
@@ -148,7 +167,7 @@ const MerchantRegisterPage = () => {
               email={email}
               category={category}
               onNext={handleFinalSubmit}
-              onBack={() => setStep(4)}
+              onBack={() => setStep(5)}
               loading={loading}
             />
           )}
