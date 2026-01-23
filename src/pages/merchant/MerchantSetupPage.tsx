@@ -19,7 +19,8 @@ import {
   UserPlus,
   Building2,
   MapPin,
-  ShieldCheck
+  ShieldCheck,
+  X
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -104,10 +105,11 @@ const MerchantSetupPage = () => {
     accountDigit: ""
   });
   
-  // Team invitation states
+  // Team states
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("employee");
   const [invitePermissions, setInvitePermissions] = useState<string[]>(["orders"]);
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState([
     { id: "1", email: "gerente@loja.com", role: "manager", status: "active", permissions: ["orders", "menu", "reports", "settings"] }
   ]);
@@ -118,17 +120,57 @@ const MerchantSetupPage = () => {
       return;
     }
     
-    const newMember = {
-      id: Date.now().toString(),
-      email: inviteEmail,
-      role: inviteRole,
-      status: "pending",
-      permissions: [...invitePermissions]
-    };
+    if (editingMemberId) {
+      // Update existing member
+      setTeamMembers(prev => prev.map(m => 
+        m.id === editingMemberId 
+          ? { ...m, email: inviteEmail, role: inviteRole, permissions: [...invitePermissions] } 
+          : m
+      ));
+      showSuccess("Colaborador atualizado com sucesso!");
+      setEditingMemberId(null);
+    } else {
+      // Add new member
+      if (teamMembers.some(m => m.email === inviteEmail)) {
+        showError("Este e-mail já possui um convite ou acesso.");
+        return;
+      }
+
+      const newMember = {
+        id: Date.now().toString(),
+        email: inviteEmail,
+        role: inviteRole,
+        status: "pending",
+        permissions: [...invitePermissions]
+      };
+      
+      setTeamMembers(prev => [newMember, ...prev]);
+      showSuccess("Convite enviado com sucesso!");
+    }
     
-    setTeamMembers(prev => [newMember, ...prev]);
     setInviteEmail("");
-    showSuccess("Convite enviado com sucesso!");
+    setInviteRole("employee");
+    setInvitePermissions(["orders"]);
+  };
+
+  const handleEditMember = (member: any) => {
+    setInviteEmail(member.email);
+    setInviteRole(member.role);
+    setInvitePermissions(member.permissions);
+    setEditingMemberId(member.id);
+    // Scroll smoothly to form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleRemoveMember = (id: string) => {
+    setTeamMembers(prev => prev.filter(m => m.id !== id));
+    showSuccess("Acesso removido.");
+    if (editingMemberId === id) {
+      setEditingMemberId(null);
+      setInviteEmail("");
+      setInviteRole("employee");
+      setInvitePermissions(["orders"]);
+    }
   };
 
   const togglePermission = (permId: string) => {
@@ -185,7 +227,8 @@ const MerchantSetupPage = () => {
           status: 'PENDING',
           business_hours: hours,
           bank_info: bankInfo,
-          store_details: storeInfo
+          store_details: storeInfo,
+          team: teamMembers
         }
       });
       
@@ -321,9 +364,28 @@ const MerchantSetupPage = () => {
           </CardHeader>
           <CardContent className="space-y-6 pt-4">
             <div className="bg-indigo-50/50 rounded-3xl p-6 border border-indigo-100 space-y-6">
-              <h3 className="font-black text-indigo-900 flex items-center gap-2"><UserPlus className="h-5 w-5" />Convidar Novo Integrante</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-indigo-900 flex items-center gap-2">
+                  <UserPlus className="h-5 w-5" />
+                  {editingMemberId ? "Editar Colaborador" : "Convidar Novo Integrante"}
+                </h3>
+                {editingMemberId && (
+                  <Button variant="ghost" size="sm" className="h-8 rounded-lg text-gray-400" onClick={() => { setEditingMemberId(null); setInviteEmail(""); }}>
+                    Cancelar Edição
+                  </Button>
+                )}
+              </div>
+              
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2"><Label className="font-bold text-gray-700">E-mail</Label><Input placeholder="colaborador@loja.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} className="rounded-xl h-12 bg-white" /></div>
+                <div className="space-y-2">
+                  <Label className="font-bold text-gray-700">E-mail</Label>
+                  <Input 
+                    placeholder="colaborador@loja.com" 
+                    value={inviteEmail} 
+                    onChange={(e) => setInviteEmail(e.target.value)} 
+                    className="rounded-xl h-12 bg-white" 
+                  />
+                </div>
                 <div className="space-y-2">
                   <Label className="font-bold text-gray-700">Perfil de Acesso</Label>
                   <Select value={inviteRole} onValueChange={setInviteRole}>
@@ -348,13 +410,18 @@ const MerchantSetupPage = () => {
                 </div>
               </div>
               
-              <Button onClick={handleInviteSubmit} className="w-full md:w-auto rounded-xl bg-indigo-600 font-bold px-8 h-12">Enviar Convite</Button>
+              <Button onClick={handleInviteSubmit} className="w-full md:w-auto rounded-xl bg-indigo-600 font-bold px-8 h-12">
+                {editingMemberId ? "Salvar Alterações" : "Enviar Convite"}
+              </Button>
             </div>
             
             <div className="space-y-3">
               <Label className="font-black text-indigo-900 text-xs uppercase tracking-widest ml-1">Integrantes da Equipe</Label>
               {teamMembers.map((member) => (
-                <div key={member.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 shadow-sm gap-4">
+                <div key={member.id} className={cn(
+                  "flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white rounded-2xl border transition-all gap-4",
+                  editingMemberId === member.id ? "border-indigo-600 ring-2 ring-indigo-100" : "border-gray-100 shadow-sm"
+                )}>
                   <div className="flex items-center gap-4">
                     <div className="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center font-black text-indigo-600 shrink-0">
                       {member.email.charAt(0).toUpperCase()}
@@ -362,7 +429,9 @@ const MerchantSetupPage = () => {
                     <div className="min-w-0">
                       <p className="font-bold text-gray-900 truncate">{member.email}</p>
                       <div className="flex flex-wrap gap-2 mt-1">
-                        <Badge variant="secondary" className="text-[9px] font-black uppercase bg-indigo-50 text-indigo-500">{member.role === "manager" ? "Gerente" : "Operador"}</Badge>
+                        <Badge variant="secondary" className="text-[9px] font-black uppercase bg-indigo-50 text-indigo-500">
+                          {member.role === "manager" ? "Gerente" : "Operador"}
+                        </Badge>
                         <Badge variant="outline" className={cn(
                           "text-[9px] font-black uppercase",
                           member.status === "active" ? "text-green-600 border-green-200 bg-green-50" : "text-orange-500 border-orange-200 bg-orange-50"
@@ -373,11 +442,30 @@ const MerchantSetupPage = () => {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="ghost" size="sm" className="flex-1 sm:flex-none text-indigo-600 hover:bg-indigo-50 rounded-xl font-bold">Gerenciar</Button>
-                    <Button variant="ghost" size="sm" className="flex-1 sm:flex-none text-red-400 hover:text-red-500 hover:bg-red-50 rounded-xl font-bold">Remover</Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="flex-1 sm:flex-none text-indigo-600 hover:bg-indigo-50 rounded-xl font-bold"
+                      onClick={() => handleEditMember(member)}
+                    >
+                      Gerenciar
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="flex-1 sm:flex-none text-red-400 hover:text-red-500 hover:bg-red-50 rounded-xl font-bold"
+                      onClick={() => handleRemoveMember(member.id)}
+                    >
+                      Remover
+                    </Button>
                   </div>
                 </div>
               ))}
+              {teamMembers.length === 0 && (
+                <div className="text-center py-10 border-2 border-dashed border-gray-100 rounded-3xl">
+                  <p className="text-gray-400 text-sm font-medium">Nenhum integrante na equipe ainda.</p>
+                </div>
+              )}
             </div>
             
             <div className="flex justify-between pt-4"><Button variant="ghost" className="rounded-xl font-bold text-gray-400" onClick={() => setActiveTab("bank")}>Voltar</Button><Button className="rounded-2xl bg-indigo-600 text-white font-black py-6 px-8 h-auto shadow-lg shadow-indigo-100" onClick={() => setActiveTab("completion")}>Continuar</Button></div>
