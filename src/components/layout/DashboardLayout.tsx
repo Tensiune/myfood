@@ -33,13 +33,13 @@ const DashboardLayout = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setUser(user);
-        // Use active_role from localStorage if available, otherwise fallback to metadata role
+        // Prioriza o papel ativo no localStorage, mas valida com os metadados
         const activeRole = localStorage.getItem('active_role') || user.user_metadata?.role;
         setRole(activeRole);
       }
     };
     fetchUser();
-  }, []);
+  }, [location.pathname]); // Re-checa ao mudar de rota
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -59,6 +59,7 @@ const DashboardLayout = () => {
     { label: "Usuários", path: "/admin/users", icon: Users },
   ];
 
+  // Garante que o menu correto seja exibido
   const links = role === "ADMIN" ? adminLinks : merchantLinks;
 
   return (
@@ -98,6 +99,7 @@ const DashboardLayout = () => {
                       ? "bg-brand-accent text-white shadow-lg shadow-brand-accent/20" 
                       : "text-indigo-100 hover:bg-white/10"
                   )}
+                  onClick={() => setIsSidebarOpen(false)}
                 >
                   <Icon className="h-5 w-5" />
                   {link.label}

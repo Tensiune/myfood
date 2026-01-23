@@ -30,6 +30,7 @@ import InboxPage from "./pages/consumer/InboxPage";
 import ChatPage from "./pages/consumer/ChatPage";
 import OrderTrackingPage from "./pages/consumer/OrderTrackingPage";
 import ValidateMerchantsPage from "./pages/admin/ValidateMerchantsPage";
+import AdminDashboard from "./pages/admin/AdminDashboard"; // Novo Import
 import MerchantOrdersPage from "./pages/merchant/MerchantOrdersPage";
 import AvailableOrdersPage from "./pages/driver/AvailableOrdersPage";
 import NavigationPage from "./pages/driver/NavigationPage";
@@ -94,7 +95,7 @@ const App = () => (
                     <Route path="/merchant/setup" element={<MerchantSetupPage />} />
                     
                     {/* Admin Routes */}
-                    <Route path="/admin/dashboard" element={<PlaceholderPage title="Painel Admin" message="Visão global." />} />
+                    <Route path="/admin/dashboard" element={<AdminDashboard />} />
                     <Route path="/admin/merchants" element={<ValidateMerchantsPage />} />
                     <Route path="/admin/users" element={<PlaceholderPage title="Gestão de Usuários" />} />
                   </Route>
