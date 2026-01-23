@@ -8,9 +8,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { ImagePlus, Plus, Trash2, Settings2, X } from "lucide-react";
+import { ImagePlus, Plus, Trash2, Settings2, X, Loader2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { showSuccess, showError } from "@/utils/toast";
+import { uploadImage } from "@/lib/storage";
 
 interface Option {
   id: string;
@@ -43,6 +45,7 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
     stock: product?.stock || "",
     optionGroups: (product?.optionGroups as OptionGroup[]) || [],
   });
+  const [isUploading, setIsUploading] = useState(false);
 
   const addOptionGroup = () => {
     const newGroup: OptionGroup = {
@@ -86,8 +89,29 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
     });
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    
+    // Using a placeholder path for the merchant ID. In a real app, this should be the actual merchant ID.
+    const merchantId = "merchant_123"; 
+    const imageUrl = await uploadImage(file, merchantId);
+
+    if (imageUrl) {
+      setFormData(prev => ({ ...prev, imageUrl }));
+    }
+    
+    setIsUploading(false);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.name || !formData.price || !formData.category) {
+      showError("Preencha o nome, preço e categoria do produto.");
+      return;
+    }
     onSave(formData);
   };
 
@@ -106,7 +130,9 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-4">
                 <div className="w-full h-48 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center relative overflow-hidden group hover:border-brand-accent transition-all">
-                  {formData.imageUrl ? (
+                  {isUploading ? (
+                    <Loader2 className="h-10 w-10 text-brand-accent animate-spin" />
+                  ) : formData.imageUrl ? (
                     <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" />
                   ) : (
                     <>
@@ -114,7 +140,13 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
                       <span className="text-xs font-bold text-gray-400">Capa do Produto</span>
                     </>
                   )}
-                  <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={() => {}} />
+                  <input 
+                    type="file" 
+                    className="absolute inset-0 opacity-0 cursor-pointer" 
+                    onChange={handleImageUpload} 
+                    accept="image/*"
+                    disabled={isUploading}
+                  />
                 </div>
 
                 <div className="flex items-center justify-between p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100">
@@ -231,7 +263,7 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
 
                     <div className="space-y-3 pl-4 border-l-4 border-white">
                       {group.options.map((opt) => (
-                        <div key={opt.id} className="flex items-center gap-3 animate-in fade-in slide-in-from-left-2">
+                        <div key={opt.id} className="flex items-end gap-3 animate-in fade-in slide-in-from-left-2">
                           <Input 
                             placeholder="Nome do item (ex: Muçarela)" 
                             value={opt.name} 
