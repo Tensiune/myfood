@@ -47,14 +47,19 @@ const MerchantMenuPage = () => {
   const [editingProduct, setEditingProduct] = useState<any>(null);
 
   const handleSaveProduct = (data: any) => {
+    const productData = {
+      ...data,
+      price: parseFloat(data.price),
+      imageUrl: data.imageUrl || "https://via.placeholder.com/100", // Fallback image
+    };
+
     if (editingProduct) {
-      setProducts(prev => prev.map(p => p.id === editingProduct.id ? { ...data, id: p.id, price: parseFloat(data.price) } : p));
+      setProducts(prev => prev.map(p => p.id === editingProduct.id ? { ...productData, id: p.id } : p));
       showSuccess("Produto atualizado!");
     } else {
       const newProduct = {
-        ...data,
+        ...productData,
         id: Math.random().toString(36).substr(2, 9),
-        price: parseFloat(data.price)
       };
       setProducts([newProduct, ...products]);
       showSuccess("Produto adicionado!");
@@ -178,7 +183,7 @@ const MerchantMenuPage = () => {
                 <img src={product.imageUrl} className="w-24 h-24 md:w-32 md:h-32 rounded-3xl object-cover bg-gray-50 shadow-inner" />
                 {!product.isAvailable && (
                   <div className="absolute inset-0 bg-black/40 rounded-3xl flex items-center justify-center">
-                    <EyeOff className="text-white h-8 w-8" />
+                    <EyeOff className="h-8 w-8 text-white" />
                   </div>
                 )}
               </div>
