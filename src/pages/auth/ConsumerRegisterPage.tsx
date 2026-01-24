@@ -15,6 +15,7 @@ const ConsumerRegisterPage = () => {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -26,8 +27,8 @@ const ConsumerRegisterPage = () => {
       return;
     }
     
-    if (password.length < 6) {
-      showError("A senha deve ter pelo menos 6 caracteres.");
+    if (phone.length < 8) {
+      showError("Informe um telefone válido.");
       return;
     }
     
@@ -40,6 +41,7 @@ const ConsumerRegisterPage = () => {
         options: {
           data: {
             full_name: fullName,
+            phone: phone,
             role: 'CONSUMER'
           }
         }
@@ -47,8 +49,8 @@ const ConsumerRegisterPage = () => {
       
       if (error) throw error;
       
-      localStorage.removeItem('active_role'); // Clear active role to ensure correct selection on next login
-      showSuccess("Cadastro realizado com sucesso! Verifique seu e-mail para confirmar a conta.");
+      localStorage.removeItem('active_role');
+      showSuccess("Cadastro realizado! Verifique seu e-mail.");
       navigate("/login");
     } catch (error: any) {
       showError(error.message || "Erro ao cadastrar.");
@@ -64,83 +66,41 @@ const ConsumerRegisterPage = () => {
           <div className="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
             <User className="h-8 w-8 text-indigo-600" />
           </div>
-          <CardTitle className="text-3xl font-bold text-indigo-800">Cadastro de Consumidor</CardTitle>
-          <CardDescription className="text-gray-600">
-            Preencha os dados abaixo para criar sua conta
-          </CardDescription>
+          <CardTitle className="text-3xl font-bold text-indigo-800">Cadastro</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <form onSubmit={handleRegister} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="fullName" className="text-gray-700">Nome Completo</Label>
-              <Input
-                id="fullName"
-                placeholder="Seu nome completo"
-                required
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
-              />
+              <Label>Nome Completo</Label>
+              <Input placeholder="Seu nome" required value={fullName} onChange={(e) => setFullName(e.target.value)} className="rounded-lg" />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-gray-700">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="seu@email.com"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
-              />
+              <Label>Telefone (com DDD)</Label>
+              <Input placeholder="(00) 00000-0000" required value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-lg" />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-gray-700">Senha</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="********"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
-              />
+              <Label>Email</Label>
+              <Input type="email" placeholder="seu@email.com" required value={email} onChange={(e) => setEmail(e.target.value)} className="rounded-lg" />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="confirm-password" className="text-gray-700">Confirmar Senha</Label>
-              <Input
-                id="confirm-password"
-                type="password"
-                placeholder="********"
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400"
-              />
+              <Label>Senha</Label>
+              <Input type="password" placeholder="********" required value={password} onChange={(e) => setPassword(e.target.value)} className="rounded-lg" />
             </div>
             
-            <Button
-              type="submit"
-              className="w-full rounded-lg bg-brand-accent hover:bg-brand-accent/90 text-white font-semibold py-2"
-              disabled={loading}
-            >
+            <div className="space-y-2">
+              <Label>Confirmar Senha</Label>
+              <Input type="password" placeholder="********" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="rounded-lg" />
+            </div>
+            
+            <Button type="submit" className="w-full rounded-lg bg-brand-accent hover:bg-brand-accent/90 text-white font-semibold py-2" disabled={loading}>
               {loading ? "Cadastrando..." : "Cadastrar"}
             </Button>
           </form>
-          
           <div className="text-center text-sm text-gray-600">
-            Já tem uma conta?{" "}
-            <Link to="/login" className="underline text-indigo-600 hover:text-indigo-800">
-              Entrar
-            </Link>
-            <p className="mt-2">
-              <Link to="/register" className="text-xs text-gray-500 hover:underline">
-                Voltar para seleção de perfil
-              </Link>
-            </p>
+            Já tem uma conta? <Link to="/login" className="underline text-indigo-600">Entrar</Link>
           </div>
         </CardContent>
       </Card>
