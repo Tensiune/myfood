@@ -2,22 +2,47 @@
 
 import React, { useState, useEffect } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { Bike, List, User, Bell, Map, ChevronRight } from "lucide-react";
+import { Bike, List, User, Bell, Map, ChevronRight, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { useDriverLocationTracker } from "@/hooks/useDriverLocationTracker";
+import { showSuccess, showError } from "@/utils/toast";
 
 const DriverLayout = () => {
   const [isOnline, setIsOnline] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  
+  // Ativa o rastreamento quando o motorista está online
+  const { isTracking } = useDriverLocationTracker(isOnline);
 
   const navItems = [
     { path: "/driver/orders", icon: List, label: "Pedidos" },
     { path: "/driver/map", icon: Map, label: "Mapa" },
     { path: "/driver/profile", icon: User, label: "Perfil" },
   ];
+  
+  const handleToggleOnline = (checked: boolean) => {
+    if (checked) {
+      // Simulação de pedido de permissão de localização em segundo plano
+      if (localStorage.getItem('driver_location_permission') !== 'granted') {
+        if (window.confirm("Para ficar online, você precisa permitir o acesso à sua localização em segundo plano. Isso é essencial para receber pedidos e rastreamento. Deseja autorizar?")) {
+          localStorage.setItem('driver_location_permission', 'granted');
+          showSuccess("Permissão concedida! Você está online.");
+          setIsOnline(true);
+        } else {
+          showError("Você precisa conceder a permissão para ficar online.");
+          setIsOnline(false);
+        }
+      } else {
+        setIsOnline(true);
+      }
+    } else {
+      setIsOnline(false);
+    }
+  };
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
@@ -35,10 +60,18 @@ const DriverLayout = () => {
         <Switch 
           id="online-status" 
           checked={isOnline} 
-          onCheckedChange={setIsOnline}
+          onCheckedChange={handleToggleOnline}
           className="data-[state=checked]:bg-green-500"
         />
       </header>
+      
+      {/* Tracking Status Alert */}
+      {isOnline && localStorage.getItem('driver_location_permission') === 'granted' && (
+        <div className="bg-green-500 text-white p-2 text-center text-xs font-bold flex items-center justify-center gap-2">
+          <MapPin className="h-3 w-3 animate-pulse" />
+          RASTREAMENTO ATIVO
+        </div>
+      )}
 
       {/* Content */}
       <main className="flex-grow container mx-auto p-4 max-w-2xl pb-24">
@@ -48,7 +81,7 @@ const DriverLayout = () => {
             <p className="text-indigo-100 text-sm mb-4">Fique online para começar a receber pedidos próximos de você.</p>
             <Button 
               className="w-full bg-brand-accent hover:bg-brand-accent/90 text-white font-bold rounded-xl"
-              onClick={() => setIsOnline(true)}
+              onClick={() => handleToggleOnline(true)}
             >
               Ficar Online Agora
             </Button>
