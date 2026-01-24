@@ -28,17 +28,18 @@ const HomePage = () => {
   ];
 
   useEffect(() => {
-    const fetchApprovedMerchants = async () => {
+    const fetchApprovedAndOpenMerchants = async () => {
       setLoading(true);
       try {
+        // Agora filtramos apenas por lojas APROVADAS e ABERTAS
         const { data, error } = await supabase
           .from('merchant_applications')
           .select('*')
-          .eq('status', 'APPROVED');
+          .eq('status', 'APPROVED')
+          .eq('is_open', true);
 
         if (error) throw error;
 
-        // Mapear dados do banco para o formato do componente
         const mapped = (data || []).map(m => {
           const meta = m.metadata || {};
           const storeDetails = meta.store_details || {};
@@ -50,7 +51,7 @@ const HomePage = () => {
             name: m.store_name || storeDetails.name || "Nova Loja",
             cuisine: meta.category || "Restaurante",
             imageUrl: storeDetails.imageUrl || "https://via.placeholder.com/400x200/indigo/FFFFFF?text=" + encodeURIComponent(m.store_name || "Loja"),
-            rating: 5.0, // Novos começam com 5.0
+            rating: 5.0,
             deliveryTime: "30-45 min",
             location: { 
               lat: addr.lat || -23.5505, 
@@ -71,7 +72,7 @@ const HomePage = () => {
       }
     };
 
-    fetchApprovedMerchants();
+    fetchApprovedAndOpenMerchants();
   }, []);
 
   // Filtragem baseada em localização
@@ -162,7 +163,7 @@ const HomePage = () => {
             ) : (
               <div className="col-span-full py-20 text-center bg-gray-50 rounded-3xl border-2 border-dashed border-gray-100">
                 <Store className="h-12 w-12 text-gray-200 mx-auto mb-3" />
-                <p className="text-gray-500 font-medium">Ops! Nenhuma loja aprovada entrega neste endereço no momento.</p>
+                <p className="text-gray-500 font-medium">Nenhuma loja aberta no momento que entregue neste endereço.</p>
               </div>
             )}
           </div>

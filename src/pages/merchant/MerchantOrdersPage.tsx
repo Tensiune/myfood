@@ -14,7 +14,7 @@ import {
   MessageCircle,
   Store
 } from "lucide-react";
-import { showSuccess } from "@/utils/toast";
+import { showSuccess, showError } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { Switch } from "@/components/ui/switch";
@@ -24,16 +24,48 @@ const MerchantOrdersPage = () => {
   const navigate = useNavigate();
   const [merchantStatus, setMerchantStatus] = useState<string | null>(null);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(false);
 
   useEffect(() => {
     const fetchStatus = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setMerchantStatus(user.user_metadata?.status || 'NEEDS_SETUP');
+        
+        // Buscar status de abertura real do banco
+        const { data, error } = await supabase
+          .from('merchant_applications')
+          .select('is_open')
+          .eq('id', user.id)
+          .single();
+        
+        if (data) setIsStoreOpen(data.is_open);
       }
     };
     fetchStatus();
   }, []);
+
+  const handleToggleStore = async (checked: boolean) => {
+    setLoadingStatus(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('merchant_applications')
+        .update({ is_open: checked })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      setIsStoreOpen(checked);
+      showSuccess(checked ? "Loja aberta! Você já pode receber pedidos." : "Loja fechada com sucesso.");
+    } catch (err: any) {
+      showError("Erro ao alterar status da loja: " + err.message);
+    } finally {
+      setLoadingStatus(false);
+    }
+  };
 
   const [orders, setOrders] = useState([
     { 
@@ -76,11 +108,14 @@ const MerchantOrdersPage = () => {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-indigo-900">Gestão de Pedidos</h1>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-gray-600">Loja {isStoreOpen ? 'Aberta' : 'Fechada'}</span>
+          <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100">
+            <span className={cn("text-sm font-bold", isStoreOpen ? "text-green-600" : "text-red-500")}>
+              {loadingStatus ? "Processando..." : `Loja ${isStoreOpen ? 'Aberta' : 'Fechada'}`}
+            </span>
             <Switch 
               checked={isStoreOpen} 
-              onCheckedChange={setIsStoreOpen} 
+              onCheckedChange={handleToggleStore} 
+              disabled={loadingStatus}
               className="data-[state=checked]:bg-green-500"
             />
           </div>
