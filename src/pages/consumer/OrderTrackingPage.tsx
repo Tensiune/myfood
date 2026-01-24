@@ -14,7 +14,7 @@ import {
   Clock,
   ShieldCheck,
   Store,
-  Loader2 // Adicionado Loader2
+  Loader2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -188,7 +188,7 @@ const OrderTrackingPage = () => {
           <div className="space-y-2">
             <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-gray-400">
               <span>Status</span>
-              <span>{progress}%</span>
+              {/* Removido o percentual de progresso */}
             </div>
             <Progress value={progress} className="h-3 bg-indigo-50" />
           </div>

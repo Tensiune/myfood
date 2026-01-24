@@ -214,6 +214,11 @@ const MerchantOrdersPage = () => {
 const OrderCard = ({ order, onAction, actionLabel, variant, showTimer, onTimerEnd, disabled, showTrackingButton }: any) => {
   const navigate = useNavigate(); // Usar useNavigate dentro do componente
 
+  const handleTrackClick = () => {
+    console.log(`[OrderCard] Navegando para rastreamento do pedido ID: ${order.id}`);
+    navigate(`/track/${order.id}`);
+  };
+
   return (
     <Card className="rounded-[2rem] border-none shadow-sm hover:shadow-md transition-all bg-white overflow-hidden">
       <CardContent className="p-0">
@@ -251,7 +256,7 @@ const OrderCard = ({ order, onAction, actionLabel, variant, showTimer, onTimerEn
           {showTrackingButton ? (
             <Button 
               className="w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg transition-all active:scale-95 bg-green-600 hover:bg-green-700 shadow-green-100"
-              onClick={() => navigate(`/track/${order.id}`)}
+              onClick={handleTrackClick} // Usando a função de depuração
             >
               <Map className="h-4 w-4 mr-2" /> Acompanhar Entrega
             </Button>

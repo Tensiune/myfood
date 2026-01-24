@@ -76,8 +76,8 @@ const DynamicMap: React.FC<DynamicMapProps> = ({
       center={center} 
       zoom={zoom} 
       style={{ height: '100%', width: '100%' }}
-      zoomControl={false}
-      scrollWheelZoom={false}
+      zoomControl={true} // Habilitado
+      scrollWheelZoom={true} // Habilitado
     >
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
