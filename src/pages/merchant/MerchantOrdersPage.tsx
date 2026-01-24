@@ -91,7 +91,7 @@ const MerchantOrdersPage = () => {
         .eq('id', orderId);
 
       if (error) throw error;
-      showSuccess("Pedido atualizado!");
+      // Removido showSuccess("Pedido atualizado!") para evitar repetição
     } catch (err: any) {
       showError("Erro ao atualizar status.");
     }
