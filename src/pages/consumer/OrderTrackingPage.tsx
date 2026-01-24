@@ -19,49 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { MapContainer, TileLayer, Marker, useMap } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
 import { calculateDistance } from "@/utils/geo";
-
-// Ícones customizados para o mapa
-const driverIcon = L.divIcon({
-  html: `<div class="bg-brand-accent p-3 rounded-full shadow-2xl relative border-2 border-white transform -rotate-45">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M12 15l4-4 4 4"/><path d="M12 15V3"/></svg>
-        </div>`,
-  className: "custom-driver-icon",
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
-});
-
-const destinationIcon = L.divIcon({
-  html: `<div class="bg-indigo-600 p-2 rounded-full shadow-xl border-2 border-white">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-        </div>`,
-  className: "custom-destination-icon",
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
-});
-
-const storeIcon = L.divIcon({
-  html: `<div class="bg-green-600 p-2 rounded-full shadow-xl border-2 border-white">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-        </div>`,
-  className: "custom-store-icon",
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
-});
-
-// Componente para centralizar o mapa
-const MapView = ({ center, zoom }: { center: [number, number], zoom: number }) => {
-  const map = useMap();
-  useEffect(() => {
-    if (center[0] !== 0) {
-      map.setView(center, zoom);
-    }
-  }, [center, zoom, map]);
-  return null;
-};
+import DynamicMap from "@/components/shared/DynamicMap"; // Novo Import
 
 const OrderTrackingPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -72,11 +31,11 @@ const OrderTrackingPage = () => {
 
   const fetchOrder = async () => {
     if (!id) return;
-    const { data } = await supabase.from('orders').select('*').eq('id', id).single();
+    const { data } = await supabase.from('orders').select('*, merchant:merchant_id(*)').eq('id', id).single();
     if (data) {
       setOrder(data);
       // Se o pedido está em rota, buscamos a localização do motorista
-      if (data.status === 'OUT_FOR_DELIVERY') {
+      if (data.status === 'OUT_FOR_DELIVERY' && data.driver_id) {
         fetchDriverLocation(data.driver_id);
       }
     }
@@ -193,30 +152,14 @@ const OrderTrackingPage = () => {
 
       {/* Área do Mapa */}
       <div className="flex-1 relative overflow-hidden bg-slate-200">
-        <MapContainer 
-          center={mapCenter} 
-          zoom={14} 
-          style={{ height: '100%', width: '100%' }}
-          zoomControl={false}
-          scrollWheelZoom={false}
-        >
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution='&copy; OpenStreetMap'
-          />
-          <MapView center={mapCenter} zoom={14} />
-
-          {/* Marcador: Loja (Origem) */}
-          <Marker position={storePos} icon={storeIcon} />
-
-          {/* Marcador: Cliente (Destino) */}
-          <Marker position={destinationPos} icon={destinationIcon} />
-
-          {/* Marcador: Entregador (Apenas se estiver em rota) */}
-          {isTrackingActive && driverLocation && (
-            <Marker position={driverLocation} icon={driverIcon} />
-          )}
-        </MapContainer>
+        <DynamicMap
+          center={mapCenter}
+          zoom={14}
+          driverLocation={driverLocation}
+          destinationPos={destinationPos}
+          storePos={storePos}
+          isTrackingActive={isTrackingActive}
+        />
       </div>
 
       {/* Painel de Informações (Drawer) */}
@@ -250,7 +193,7 @@ const OrderTrackingPage = () => {
           </div>
 
           {isTrackingActive && (
-            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl animate-in fade-in">
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl flex-wrap gap-4 border border-gray-100 animate-in fade-in">
               <div className="flex items-center gap-4">
                 <div className="relative">
                   <div className="h-14 w-14 rounded-full bg-indigo-200 border-2 border-white shadow-sm overflow-hidden">

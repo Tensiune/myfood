@@ -12,13 +12,15 @@ import {
   Loader2,
   MapPin,
   Store,
-  BellRing
+  BellRing,
+  Map
 } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { Switch } from "@/components/ui/switch";
 import OrderTimer from "@/components/merchant/OrderTimer";
+import { useNavigate } from "react-router-dom"; // Importar useNavigate
 
 const MerchantOrdersPage = () => {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
@@ -200,6 +202,7 @@ const MerchantOrdersPage = () => {
               actionLabel="Em Trânsito..."
               variant="green"
               disabled
+              showTrackingButton
             />
           ))}
         </div>
@@ -208,7 +211,9 @@ const MerchantOrdersPage = () => {
   );
 };
 
-const OrderCard = ({ order, onAction, actionLabel, variant, showTimer, onTimerEnd, disabled }: any) => {
+const OrderCard = ({ order, onAction, actionLabel, variant, showTimer, onTimerEnd, disabled, showTrackingButton }: any) => {
+  const navigate = useNavigate(); // Usar useNavigate dentro do componente
+
   return (
     <Card className="rounded-[2rem] border-none shadow-sm hover:shadow-md transition-all bg-white overflow-hidden">
       <CardContent className="p-0">
@@ -243,19 +248,28 @@ const OrderCard = ({ order, onAction, actionLabel, variant, showTimer, onTimerEn
         </div>
 
         <div className="px-4 pb-4">
-          <Button 
-            className={cn(
-              "w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg transition-all active:scale-95",
-              variant === "blue" && "bg-blue-600 hover:bg-blue-700 shadow-blue-100",
-              variant === "orange" && "bg-orange-500 hover:bg-orange-600 shadow-orange-100",
-              variant === "indigo" && "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100",
-              variant === "green" && "bg-green-600 opacity-60 cursor-default"
-            )}
-            onClick={onAction}
-            disabled={disabled}
-          >
-            {actionLabel}
-          </Button>
+          {showTrackingButton ? (
+            <Button 
+              className="w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg transition-all active:scale-95 bg-green-600 hover:bg-green-700 shadow-green-100"
+              onClick={() => navigate(`/track/${order.id}`)}
+            >
+              <Map className="h-4 w-4 mr-2" /> Acompanhar Entrega
+            </Button>
+          ) : (
+            <Button 
+              className={cn(
+                "w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg transition-all active:scale-95",
+                variant === "blue" && "bg-blue-600 hover:bg-blue-700 shadow-blue-100",
+                variant === "orange" && "bg-orange-500 hover:bg-orange-600 shadow-orange-100",
+                variant === "indigo" && "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100",
+                variant === "green" && "bg-green-600 opacity-60 cursor-default"
+              )}
+              onClick={onAction}
+              disabled={disabled}
+            >
+              {actionLabel}
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
