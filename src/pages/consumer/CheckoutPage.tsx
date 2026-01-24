@@ -4,45 +4,64 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, CreditCard, CheckCircle2, QrCode, Wallet, Truck } from "lucide-react";
+import { ArrowLeft, CreditCard, CheckCircle2, QrCode, Wallet, Truck, Loader2 } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { usePayment } from "@/context/PaymentContext";
+import { useAddresses } from "@/context/AddressContext";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
+import { supabase } from "@/lib/supabase";
 
 const CheckoutPage = () => {
   const navigate = useNavigate();
-  const { items, getTotal, clearCart } = useCart();
+  const { items, getTotal, clearCart, restaurantId } = useCart();
   const { selectedPaymentType, selectedCardId, savedCards } = usePayment();
+  const { selectedAddress } = useAddresses();
   const [isProcessing, setIsProcessing] = useState(false);
   const [step, setStep] = useState<"review" | "pix_payment" | "success">("review");
 
   const total = getTotal() + 5.0;
 
   const handleFinishOrder = async () => {
-    if (selectedPaymentType === "pix") {
+    if (!selectedAddress) {
+      showError("Selecione um endereço de entrega.");
+      return;
+    }
+
+    if (selectedPaymentType === "pix" && step !== "pix_payment") {
       setStep("pix_payment");
       return;
     }
 
     setIsProcessing(true);
-    const tid = showLoading(selectedPaymentType === "stripe" ? "Processando pagamento seguro..." : "Enviando pedido...");
+    const tid = showLoading("Enviando seu pedido...");
     
-    // Simulação de gateway de pagamento (Stripe/Backend)
-    await new Promise(r => setTimeout(r, 2000));
-    
-    dismissToast(tid);
-    setIsProcessing(false);
-    setStep("success");
-    clearCart();
-  };
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
 
-  const getPaymentLabel = () => {
-    switch(selectedPaymentType) {
-      case "pix": return "PIX";
-      case "stripe": return "Cartão via App (Stripe)";
-      case "delivery_card": return "Máquina na Entrega";
-      case "delivery_cash": return "Dinheiro na Entrega";
-      default: return "Não selecionado";
+      // Salvar pedido real no Supabase
+      const { error } = await supabase
+        .from('orders')
+        .insert({
+          customer_id: user.id,
+          merchant_id: restaurantId,
+          items: items,
+          total: total,
+          payment_method: selectedPaymentType,
+          delivery_address: selectedAddress,
+          status: 'PENDING'
+        });
+
+      if (error) throw error;
+
+      dismissToast(tid);
+      setIsProcessing(false);
+      setStep("success");
+      clearCart();
+    } catch (err: any) {
+      dismissToast(tid);
+      setIsProcessing(false);
+      showError("Erro ao processar pedido: " + err.message);
     }
   };
 
@@ -70,8 +89,11 @@ const CheckoutPage = () => {
         </div>
         <Card className="p-8 flex flex-col items-center space-y-6 text-center rounded-3xl">
           <QrCode className="w-48 h-48 text-indigo-900" />
+          <p className="text-sm text-gray-500">Escaneie o código acima ou pague para finalizar o pedido.</p>
           <p className="text-2xl font-black">R$ {total.toFixed(2)}</p>
-          <Button className="w-full rounded-xl bg-indigo-600" onClick={() => { clearCart(); setStep("success"); }}>Confirmei o Pagamento</Button>
+          <Button className="w-full rounded-xl bg-indigo-600" onClick={handleFinishOrder} disabled={isProcessing}>
+            {isProcessing ? <Loader2 className="animate-spin h-5 w-5" /> : "Confirmei o Pagamento"}
+          </Button>
         </Card>
       </div>
     );
@@ -85,7 +107,18 @@ const CheckoutPage = () => {
       </div>
 
       <div className="space-y-4">
-        <h2 className="font-bold ml-1">Forma de Pagamento</h2>
+        <h2 className="font-bold ml-1 text-indigo-900">Resumo da Entrega</h2>
+        <Card className="rounded-2xl p-4 border-indigo-100 bg-white">
+          <div className="flex items-start gap-3">
+             <Truck className="h-5 w-5 text-indigo-600 mt-1" />
+             <div>
+                <p className="font-bold text-gray-800">{selectedAddress?.street}, {selectedAddress?.number}</p>
+                <p className="text-xs text-gray-500">{selectedAddress?.neighborhood} - {selectedAddress?.city}</p>
+             </div>
+          </div>
+        </Card>
+
+        <h2 className="font-bold ml-1 text-indigo-900">Forma de Pagamento</h2>
         <Card className="rounded-2xl border-indigo-100 bg-indigo-50/30 p-4 flex items-center gap-4">
           <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm">
             {selectedPaymentType === "pix" && <QrCode className="text-indigo-600" />}
@@ -93,7 +126,7 @@ const CheckoutPage = () => {
             {(selectedPaymentType === "delivery_card" || selectedPaymentType === "delivery_cash") && <Truck className="text-indigo-600" />}
           </div>
           <div>
-            <p className="font-bold text-gray-800">{getPaymentLabel()}</p>
+            <p className="font-bold text-gray-800">Pagar com {selectedPaymentType.toUpperCase()}</p>
             {selectedPaymentType === "stripe" && selectedCardId && (
               <p className="text-xs text-gray-500">Cartão final {savedCards.find(c => c.id === selectedCardId)?.lastFour}</p>
             )}
@@ -106,15 +139,15 @@ const CheckoutPage = () => {
 
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t z-20 safe-area-bottom">
         <div className="flex justify-between items-center mb-4 px-2">
-          <span className="text-gray-400 font-bold text-xs">TOTAL DO PEDIDO</span>
+          <span className="text-gray-400 font-bold text-xs uppercase tracking-widest">Total do Pedido</span>
           <span className="text-2xl font-black text-gray-900">R$ {total.toFixed(2)}</span>
         </div>
         <Button 
-          className="w-full py-7 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-lg"
+          className="w-full py-7 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-lg shadow-xl shadow-indigo-100"
           onClick={handleFinishOrder}
           disabled={isProcessing}
         >
-          {isProcessing ? "Confirmando..." : "Finalizar Pedido"}
+          {isProcessing ? <Loader2 className="animate-spin h-6 w-6" /> : "Enviar Pedido"}
         </Button>
       </div>
     </div>

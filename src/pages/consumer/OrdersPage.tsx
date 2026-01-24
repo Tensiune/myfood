@@ -1,140 +1,171 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, Clock, CheckCircle, Star } from "lucide-react";
+import { Package, Clock, CheckCircle, Star, Loader2, Store, ChevronRight } from "lucide-react";
 import RatingComponent from "@/components/consumer/RatingComponent";
 import { Button } from "@/components/ui/button";
-import { showSuccess } from "@/utils/toast";
+import { showSuccess, showError } from "@/utils/toast";
+import { supabase } from "@/lib/supabase";
+import { useNavigate } from "react-router-dom";
 
 const OrdersPage = () => {
-  const orders = [
-    {
-      id: "1",
-      restaurant: "Restaurante Sabor",
-      items: "2x Feijoada, 1x Pudim",
-      status: "Em Entrega",
-      time: "15:30",
-      total: "R$ 75.00",
-      rating: null,
-      canRate: true,
-    },
-    {
-      id: "2",
-      restaurant: "Pizzaria Delícia",
-      items: "1x Pizza Calabresa G",
-      status: "Entregue",
-      time: "Ontem, 19:00",
-      total: "R$ 55.00",
-      rating: 4.5,
-      canRate: false,
-    },
-    {
-      id: "3",
-      restaurant: "Mercado Fresco",
-      items: "Leite, Pão, Ovos",
-      status: "Aguardando Confirmação",
-      time: "Hoje, 10:00",
-      total: "R$ 42.50",
-      rating: null,
-      canRate: false,
-    },
-  ];
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "Em Entrega":
-        return <Badge className="bg-yellow-500 hover:bg-yellow-600 text-white rounded-full">Em Entrega</Badge>;
-      case "Entregue":
-        return <Badge className="bg-green-500 hover:bg-green-600 text-white rounded-full">Entregue</Badge>;
-      case "Aguardando Confirmação":
-        return <Badge className="bg-blue-500 hover:bg-blue-600 text-white rounded-full">Aguardando Confirmação</Badge>;
-      default:
-        return <Badge variant="secondary" className="rounded-full">{status}</Badge>;
+  const fetchOrders = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*, merchant:merchant_id(store_name, metadata)')
+        .eq('customer_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setOrders(data || []);
+    } catch (err) {
+      console.error(err);
+      showError("Erro ao carregar seus pedidos.");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleRatingSubmit = (orderId: string, rating: number, comment?: string) => {
-    return new Promise<void>((resolve) => {
-      // Em um app real, você enviaria isso para o backend
-      console.log(`Avaliação para pedido ${orderId}: ${rating} estrelas`, comment);
-      showSuccess("Obrigado pela sua avaliação!");
-      resolve();
-    });
+  useEffect(() => {
+    fetchOrders();
+
+    // Realtime subscription for status updates
+    const channel = supabase
+      .channel('order_updates')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
+        fetchOrders();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case "PENDING": return "Aguardando Loja";
+      case "PREPARING": return "Em Preparo";
+      case "READY_FOR_PICKUP": return "Aguardando Coleta";
+      case "OUT_FOR_DELIVERY": return "Saiu para Entrega";
+      case "DELIVERED": return "Entregue";
+      case "CANCELLED": return "Cancelado";
+      default: return status;
+    }
   };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "PENDING": return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-none rounded-full">Pendente</Badge>;
+      case "PREPARING": return <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 border-none rounded-full">Em Preparo</Badge>;
+      case "OUT_FOR_DELIVERY": return <Badge className="bg-yellow-500 text-white rounded-full">Em Entrega</Badge>;
+      case "DELIVERED": return <Badge className="bg-green-500 text-white rounded-full">Entregue</Badge>;
+      case "CANCELLED": return <Badge variant="destructive" className="rounded-full">Cancelado</Badge>;
+      default: return <Badge variant="secondary" className="rounded-full">{status}</Badge>;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
+        <p className="text-gray-500 font-bold">Carregando seus pedidos...</p>
+      </div>
+    );
+  }
+
+  const activeOrders = orders.filter(o => o.status !== "DELIVERED" && o.status !== "CANCELLED");
+  const pastOrders = orders.filter(o => o.status === "DELIVERED" || o.status === "CANCELLED");
 
   return (
     <div className="space-y-6 pb-20">
-      <h1 className="text-4xl font-bold text-indigo-800 text-center">Meus Pedidos</h1>
+      <h1 className="text-4xl font-bold text-indigo-800 text-center tracking-tight">Meus Pedidos</h1>
 
       <section className="space-y-4">
-        <h2 className="text-2xl font-semibold text-indigo-700">Pedidos Ativos</h2>
-        {orders.filter(order => order.status !== "Entregue").length > 0 ? (
-          orders.filter(order => order.status !== "Entregue").map((order) => (
-            <Card key={order.id} className="rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-gray-200 bg-white">
-              <CardContent className="p-4 space-y-2">
-                <div className="flex justify-between items-center">
-                  <CardTitle className="text-lg font-semibold text-gray-800">{order.restaurant}</CardTitle>
+        <h2 className="text-xl font-bold text-indigo-900 flex items-center gap-2">
+           <Clock className="h-5 w-5" /> Ativos
+        </h2>
+        {activeOrders.length > 0 ? (
+          activeOrders.map((order) => (
+            <Card key={order.id} className="rounded-3xl border-none shadow-md hover:shadow-lg transition-all overflow-hidden bg-white">
+              <CardContent className="p-5 space-y-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-black text-gray-900 text-lg leading-tight">
+                      {order.merchant?.store_name || "Loja"}
+                    </h3>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Pedido #{order.id.slice(0, 8)}</p>
+                  </div>
                   {getStatusBadge(order.status)}
                 </div>
-                <p className="text-sm text-gray-600">{order.items}</p>
-                <div className="flex items-center text-sm text-gray-500 space-x-4">
-                  <div className="flex items-center">
-                    <Clock className="h-4 w-4 mr-1" /> {order.time}
-                  </div>
-                  <div className="flex items-center">
-                    <Package className="h-4 w-4 mr-1" /> {order.total}
+                
+                <div className="space-y-1">
+                   {order.items.map((item: any, i: number) => (
+                     <p key={i} className="text-sm text-gray-600">
+                       <span className="font-bold text-indigo-600">{item.quantity}x</span> {item.name}
+                     </p>
+                   ))}
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+                  <span className="font-black text-indigo-900 text-lg">R$ {order.total.toFixed(2)}</span>
+                  <div className="flex items-center gap-2 text-indigo-600 font-bold text-sm">
+                    {getStatusLabel(order.status)}
                   </div>
                 </div>
+
+                {order.status === "OUT_FOR_DELIVERY" && (
+                   <Button 
+                    className="w-full rounded-2xl bg-brand-accent text-white font-bold h-12 shadow-lg shadow-brand-accent/20"
+                    onClick={() => navigate(`/track/${order.id}`)}
+                   >
+                     Acompanhar Entrega <ChevronRight className="ml-2 h-4 w-4" />
+                   </Button>
+                )}
               </CardContent>
             </Card>
           ))
         ) : (
-          <p className="text-center text-gray-600">Nenhum pedido ativo no momento.</p>
+          <div className="text-center py-12 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">
+            <p className="text-gray-400 font-medium italic">Nenhum pedido ativo no momento.</p>
+          </div>
         )}
       </section>
 
       <section className="space-y-4">
-        <h2 className="text-2xl font-semibold text-indigo-700">Histórico de Pedidos</h2>
-        {orders.filter(order => order.status === "Entregue").length > 0 ? (
-          orders.filter(order => order.status === "Entregue").map((order) => (
-            <Card key={order.id} className="rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-gray-200 bg-white">
-              <CardContent className="p-4 space-y-3">
+        <h2 className="text-xl font-bold text-indigo-900 flex items-center gap-2">
+           <Package className="h-5 w-5" /> Histórico
+        </h2>
+        {pastOrders.length > 0 ? (
+          pastOrders.map((order) => (
+            <Card key={order.id} className="rounded-3xl border border-gray-100 shadow-sm opacity-80 hover:opacity-100 transition-all bg-white">
+              <CardContent className="p-5 space-y-3">
                 <div className="flex justify-between items-center">
-                  <CardTitle className="text-lg font-semibold text-gray-800">{order.restaurant}</CardTitle>
+                  <h3 className="font-bold text-gray-800">{order.merchant?.store_name || "Loja"}</h3>
                   {getStatusBadge(order.status)}
                 </div>
-                <p className="text-sm text-gray-600">{order.items}</p>
-                <div className="flex items-center text-sm text-gray-500 space-x-4">
-                  <div className="flex items-center">
-                    <Clock className="h-4 w-4 mr-1" /> {order.time}
-                  </div>
-                  <div className="flex items-center">
-                    <CheckCircle className="h-4 w-4 mr-1" /> {order.total}
-                  </div>
+                <p className="text-xs text-gray-500 line-clamp-1">
+                   {order.items.map((i: any) => `${i.quantity}x ${i.name}`).join(', ')}
+                </p>
+                <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase">
+                  <span>{new Date(order.created_at).toLocaleDateString()} às {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className="text-gray-900">Total: R$ {order.total.toFixed(2)}</span>
                 </div>
-
-                {order.rating !== null && (
-                  <div className="flex items-center space-x-2 pt-2 border-t border-gray-100 mt-2">
-                    <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                    <span className="text-sm font-medium text-gray-700">Sua avaliação: {order.rating.toFixed(1)}</span>
-                  </div>
-                )}
-
-                {order.canRate && (
-                  <div className="pt-3 border-t border-gray-100 mt-3">
-                    <h3 className="text-sm font-medium text-gray-700 mb-2">Avalie sua experiência:</h3>
-                    <RatingComponent
-                      onRatingSubmit={(rating, comment) => handleRatingSubmit(order.id, rating, comment)}
-                    />
-                  </div>
-                )}
               </CardContent>
             </Card>
           ))
         ) : (
-          <p className="text-center text-gray-600">Nenhum pedido entregue ainda.</p>
+          <p className="text-center text-gray-400 py-8 italic">Você ainda não tem pedidos entregues.</p>
         )}
       </section>
     </div>
