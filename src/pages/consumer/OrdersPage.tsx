@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Package, Clock, Loader2, ChevronRight, Key, Bike } from "lucide-react";
@@ -14,7 +14,7 @@ const OrdersPage = () => {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -33,7 +33,7 @@ const OrdersPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchOrders();
@@ -46,12 +46,13 @@ const OrdersPage = () => {
         if (payload.new.status === 'OUT_FOR_DELIVERY') {
            showSuccess("Seu pedido saiu para entrega!");
         }
+        // Força a busca completa para atualizar o estado local
         fetchOrders();
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [fetchOrders]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
