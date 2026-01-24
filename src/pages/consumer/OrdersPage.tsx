@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, Clock, Loader2, ChevronRight, Key } from "lucide-react";
+import { Package, Clock, Loader2, ChevronRight, Key, Bike } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -19,7 +19,6 @@ const OrdersPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Consulta simplificada para evitar erros de join se a FK não estiver pronta
       const { data, error } = await supabase
         .from('orders')
         .select('*, merchant:merchant_id(*)')
@@ -38,9 +37,19 @@ const OrdersPage = () => {
 
   useEffect(() => {
     fetchOrders();
-    const channel = supabase.channel('order_updates').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
-      fetchOrders();
-    }).subscribe();
+
+    // Inscrição Realtime para atualizações de status
+    const channel = supabase
+      .channel('client_order_updates')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
+        // Se o status mudou para entrega, avisa o usuário
+        if (payload.new.status === 'OUT_FOR_DELIVERY') {
+           showSuccess("Seu pedido saiu para entrega!");
+        }
+        fetchOrders();
+      })
+      .subscribe();
+
     return () => { supabase.removeChannel(channel); };
   }, []);
 
@@ -48,7 +57,8 @@ const OrdersPage = () => {
     switch (status) {
       case "PENDING": return <Badge className="bg-blue-100 text-blue-700 border-none rounded-full">Aguardando Loja</Badge>;
       case "PREPARING": return <Badge className="bg-orange-100 text-orange-700 border-none rounded-full">Em Preparo</Badge>;
-      case "OUT_FOR_DELIVERY": return <Badge className="bg-yellow-500 text-white rounded-full">Em Entrega</Badge>;
+      case "WAITING_FOR_DRIVER": return <Badge className="bg-indigo-100 text-indigo-700 border-none rounded-full">Aguardando Entregador</Badge>;
+      case "OUT_FOR_DELIVERY": return <Badge className="bg-yellow-500 text-white rounded-full">Em Rota de Entrega</Badge>;
       case "DELIVERED": return <Badge className="bg-green-500 text-white rounded-full">Entregue</Badge>;
       case "CANCELLED": return <Badge variant="destructive" className="rounded-full">Cancelado</Badge>;
       default: return <Badge variant="secondary" className="rounded-full">{status}</Badge>;
@@ -59,7 +69,7 @@ const OrdersPage = () => {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
-        <p className="text-gray-500 font-bold">Carregando seus pedidos...</p>
+        <p className="text-gray-500 font-bold">Sincronizando seus pedidos...</p>
       </div>
     );
   }
@@ -71,7 +81,7 @@ const OrdersPage = () => {
       <h1 className="text-4xl font-bold text-indigo-800 text-center tracking-tight">Meus Pedidos</h1>
 
       {activeOrders.map((order) => (
-        <Card key={order.id} className="rounded-3xl border-none shadow-md overflow-hidden bg-white">
+        <Card key={order.id} className="rounded-3xl border-none shadow-md overflow-hidden bg-white animate-in fade-in slide-in-from-bottom-2">
           <CardContent className="p-5 space-y-4">
             <div className="flex justify-between items-start">
               <div>
@@ -86,13 +96,13 @@ const OrdersPage = () => {
             {order.status === "OUT_FOR_DELIVERY" && (
               <div className="bg-indigo-50 p-4 rounded-2xl flex items-center justify-between border border-indigo-100">
                 <div className="flex items-center gap-3">
-                  <Key className="h-5 w-5 text-indigo-600" />
+                  <div className="p-2 bg-white rounded-xl shadow-sm"><Key className="h-5 w-5 text-indigo-600" /></div>
                   <div>
                     <p className="text-[10px] font-bold text-indigo-400 uppercase">Código de Entrega</p>
                     <p className="text-xl font-black text-indigo-900">{order.confirmation_code}</p>
                   </div>
                 </div>
-                <Button size="sm" className="rounded-xl bg-indigo-600" onClick={() => navigate(`/track/${order.id}`)}>Rastrear</Button>
+                <Button size="sm" className="rounded-xl bg-indigo-600 h-10 font-bold" onClick={() => navigate(`/track/${order.id}`)}>Rastrear</Button>
               </div>
             )}
 
@@ -112,6 +122,7 @@ const OrdersPage = () => {
 
       {activeOrders.length === 0 && (
         <div className="text-center py-12 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-100">
+          <Package className="h-10 w-10 text-gray-200 mx-auto mb-2" />
           <p className="text-gray-400 font-medium">Você não tem pedidos ativos.</p>
         </div>
       )}

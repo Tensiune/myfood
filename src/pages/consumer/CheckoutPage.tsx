@@ -21,6 +21,13 @@ const CheckoutPage = () => {
 
   const total = getTotal() + 5.0;
 
+  const paymentMethodLabels: Record<string, string> = {
+    pix: "PIX",
+    stripe: "Cartão de Crédito (via App)",
+    delivery_card: "Cartão (Débito/Crédito na Entrega)",
+    delivery_cash: "Dinheiro (na Entrega)"
+  };
+
   const handleFinishOrder = async () => {
     if (!selectedAddress) {
       showError("Selecione um endereço de entrega.");
@@ -33,13 +40,12 @@ const CheckoutPage = () => {
     }
 
     setIsProcessing(true);
-    const tid = showLoading("Processando pedido...");
+    const tid = showLoading("Finalizando seu pedido...");
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
 
-      // Gerar código: 4 últimos dígitos do telefone
       const userPhone = user.user_metadata?.phone || "0000";
       const code = userPhone.replace(/\D/g, "").slice(-4);
 
@@ -64,7 +70,7 @@ const CheckoutPage = () => {
     } catch (err: any) {
       dismissToast(tid);
       setIsProcessing(false);
-      showError("Erro ao finalizar: " + err.message);
+      showError("Erro: " + err.message);
     }
   };
 
@@ -75,27 +81,29 @@ const CheckoutPage = () => {
           <CheckCircle2 className="w-12 h-12 text-green-600" />
         </div>
         <div className="space-y-2">
-          <h1 className="text-3xl font-extrabold text-gray-900">Pedido Feito!</h1>
-          <p className="text-gray-500">Acompanhe agora o status do seu pedido.</p>
+          <h1 className="text-3xl font-extrabold text-gray-900">Pedido Realizado!</h1>
+          <p className="text-gray-500">O restaurante já foi notificado e começará a preparar seu pedido.</p>
         </div>
-        <Button className="w-full py-6 rounded-2xl bg-indigo-600 text-white font-bold" onClick={() => navigate("/orders")}>Ir para Meus Pedidos</Button>
+        <Button className="w-full py-6 rounded-2xl bg-indigo-600 text-white font-bold" onClick={() => navigate("/orders")}>Acompanhar agora</Button>
       </div>
     );
   }
 
-  // Render do Pix e Review permanecem os mesmos...
   if (step === "pix_payment") {
     return (
-      <div className="space-y-6 p-4">
+      <div className="space-y-6 p-4 max-w-lg mx-auto">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => setStep("review")}><ArrowLeft /></Button>
-          <h1 className="text-xl font-bold">Pagamento PIX</h1>
+          <h1 className="text-xl font-bold">Pagar com PIX</h1>
         </div>
-        <Card className="p-8 flex flex-col items-center space-y-6 text-center rounded-3xl">
-          <QrCode className="w-48 h-48 text-indigo-900" />
-          <p className="text-2xl font-black">R$ {total.toFixed(2)}</p>
-          <Button className="w-full rounded-xl bg-indigo-600" onClick={handleFinishOrder} disabled={isProcessing}>
-            Confirmei o Pagamento
+        <Card className="p-8 flex flex-col items-center space-y-6 text-center rounded-[2.5rem] shadow-xl border-none">
+          <QrCode className="w-56 h-56 text-indigo-900" />
+          <div className="space-y-2">
+             <p className="text-2xl font-black text-indigo-900">R$ {total.toFixed(2)}</p>
+             <p className="text-xs text-gray-400 font-bold uppercase">Escaneie o código para pagar</p>
+          </div>
+          <Button className="w-full h-14 rounded-2xl bg-indigo-600 font-bold" onClick={handleFinishOrder} disabled={isProcessing}>
+            {isProcessing ? <Loader2 className="animate-spin" /> : "Já realizei o pagamento"}
           </Button>
         </Card>
       </div>
@@ -103,30 +111,49 @@ const CheckoutPage = () => {
   }
 
   return (
-    <div className="space-y-6 pb-32 p-4">
+    <div className="space-y-6 pb-32 p-4 max-w-lg mx-auto">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}><ArrowLeft /></Button>
-        <h1 className="text-xl font-bold">Resumo</h1>
+        <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full hover:bg-gray-100"><ArrowLeft /></Button>
+        <h1 className="text-2xl font-black text-indigo-900">Revisar Pedido</h1>
       </div>
-      <div className="space-y-4">
-        <Card className="rounded-2xl p-4 border-indigo-100 bg-white">
-          <p className="font-bold text-gray-800">{selectedAddress?.street}, {selectedAddress?.number}</p>
-          <p className="text-xs text-gray-500">{selectedAddress?.neighborhood}</p>
-        </Card>
-        <Card className="rounded-2xl border-indigo-100 bg-indigo-50/30 p-4 flex items-center gap-4">
-          <QrCode className="text-indigo-600" />
-          <div>
-            <p className="font-bold text-gray-800">Pagamento via {selectedPaymentType.toUpperCase()}</p>
-          </div>
-        </Card>
-      </div>
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t z-20 safe-area-bottom">
-        <div className="flex justify-between items-center mb-4">
-          <span className="text-gray-400 font-bold">Total</span>
-          <span className="text-2xl font-black">R$ {total.toFixed(2)}</span>
+
+      <div className="space-y-5">
+        <div>
+           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2">Entrega</p>
+           <Card className="rounded-3xl p-5 border-none shadow-sm bg-white flex items-center gap-4">
+             <div className="p-3 bg-indigo-50 rounded-2xl"><Truck className="text-indigo-600 h-5 w-5" /></div>
+             <div>
+                <p className="font-bold text-gray-800">{selectedAddress?.street}, {selectedAddress?.number}</p>
+                <p className="text-xs text-gray-500">{selectedAddress?.neighborhood}</p>
+             </div>
+           </Card>
         </div>
-        <Button className="w-full py-7 rounded-2xl bg-indigo-600 text-white font-bold" onClick={handleFinishOrder} disabled={isProcessing}>
-          Confirmar e Pedir
+
+        <div>
+           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2">Pagamento</p>
+           <Card className="rounded-3xl p-5 border-none shadow-sm bg-white flex items-center gap-4">
+             <div className="p-3 bg-green-50 rounded-2xl">
+                {selectedPaymentType === 'pix' ? <QrCode className="text-green-600 h-5 w-5" /> : <Wallet className="text-green-600 h-5 w-5" />}
+             </div>
+             <div>
+                <p className="font-bold text-gray-800">{paymentMethodLabels[selectedPaymentType]}</p>
+                <p className="text-xs text-gray-500">Pagamento seguro via App</p>
+             </div>
+           </Card>
+        </div>
+      </div>
+
+      <div className="fixed bottom-0 left-0 right-0 p-6 bg-white border-t z-20 safe-area-bottom shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+        <div className="flex justify-between items-center mb-6 px-1">
+          <span className="text-gray-400 font-bold text-sm uppercase">Valor Total</span>
+          <span className="text-3xl font-black text-indigo-900">R$ {total.toFixed(2)}</span>
+        </div>
+        <Button 
+          className="w-full py-8 rounded-[2rem] bg-brand-accent hover:bg-brand-accent/90 text-white font-black text-xl shadow-2xl shadow-brand-accent/30 transition-transform active:scale-95"
+          onClick={handleFinishOrder}
+          disabled={isProcessing}
+        >
+          {isProcessing ? <Loader2 className="animate-spin h-6 w-6 mr-2" /> : "Confirmar e Pedir"}
         </Button>
       </div>
     </div>
