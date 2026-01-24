@@ -90,8 +90,15 @@ const AuthGuard = () => {
           return;
       }
       
+      // EXCEÇÕES: Rotas compartilhadas que não precisam do prefixo do papel
+      const isSharedRoute = 
+        path === "/select-role" || 
+        path === "/checkout" || 
+        path.startsWith("/chat") || 
+        path.startsWith("/track");
+
       // Redirect if user is trying to access a prefix that doesn't match their active role
-      if (!path.startsWith(expectedPrefix) && path !== "/select-role" && path !== "/checkout" && !path.startsWith("/chat")) {
+      if (!path.startsWith(expectedPrefix) && !isSharedRoute) {
           const targetPath = getRolePath(activeRole, user);
           navigate(targetPath);
           setLoading(false);
