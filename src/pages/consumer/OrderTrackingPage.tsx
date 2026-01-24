@@ -13,14 +13,15 @@ import {
   Navigation,
   Clock,
   ShieldCheck,
-  Store
+  Store,
+  Loader2 // Adicionado Loader2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { calculateDistance } from "@/utils/geo";
-import DynamicMap from "@/components/shared/DynamicMap"; // Novo Import
+import DynamicMap from "@/components/shared/DynamicMap";
 
 const OrderTrackingPage = () => {
   const { id } = useParams<{ id: string }>();
