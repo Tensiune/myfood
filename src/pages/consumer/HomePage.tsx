@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import CategoryCard from "@/components/consumer/CategoryCard";
 import RestaurantCard from "@/components/consumer/RestaurantCard";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
@@ -8,11 +8,14 @@ import WelcomeHeader from "@/components/consumer/WelcomeHeader";
 import SearchBar from "@/components/consumer/SearchBar";
 import { useAddresses } from "@/context/AddressContext";
 import { canDeliver } from "@/utils/geo";
-import { MapPin, Info } from "lucide-react";
+import { MapPin, Info, Loader2, Store } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { supabase } from "@/lib/supabase";
 
 const HomePage = () => {
   const [searchTerm, setSearchTerm] = useState("");
+  const [restaurants, setRestaurants] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const { selectedAddress } = useAddresses();
 
   const categories = [
@@ -24,45 +27,58 @@ const HomePage = () => {
     { name: "Doces", imageUrl: "https://via.placeholder.com/100/FF69B4/FFFFFF?text=Doce" },
   ];
 
-  // Dados mockados com informações de logística
-  const allRestaurants = [
-    {
-      id: "1",
-      name: "Restaurante Sabor",
-      cuisine: "Culinária Brasileira",
-      imageUrl: "https://via.placeholder.com/400x200/FF6347/FFFFFF?text=Sabor",
-      rating: 4.5,
-      deliveryTime: "30-45 min",
-      location: { lat: -23.5505, lng: -46.6333 },
-      logistics: { radius: 5, exclusionZones: [] }
-    },
-    {
-      id: "2",
-      name: "Pizzaria Delícia",
-      cuisine: "Pizzas e Massas",
-      imageUrl: "https://via.placeholder.com/400x200/FFA500/FFFFFF?text=Pizza",
-      rating: 4.8,
-      deliveryTime: "20-35 min",
-      location: { lat: -23.5605, lng: -46.6433 },
-      logistics: { radius: 10, exclusionZones: [] }
-    },
-    {
-      id: "3",
-      name: "Sushi Express",
-      cuisine: "Comida Japonesa",
-      imageUrl: "https://via.placeholder.com/400x200/4682B4/FFFFFF?text=Sushi",
-      rating: 4.7,
-      deliveryTime: "35-50 min",
-      location: { lat: -23.5705, lng: -46.6533 },
-      logistics: { radius: 3, exclusionZones: [] }
-    }
-  ];
+  useEffect(() => {
+    const fetchApprovedMerchants = async () => {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('merchant_applications')
+          .select('*')
+          .eq('status', 'APPROVED');
+
+        if (error) throw error;
+
+        // Mapear dados do banco para o formato do componente
+        const mapped = (data || []).map(m => {
+          const meta = m.metadata || {};
+          const storeDetails = meta.store_details || {};
+          const deliveryArea = meta.delivery_area || { radius: 5, exclusionZones: [] };
+          const addr = storeDetails.address || meta.address || {};
+
+          return {
+            id: m.id,
+            name: m.store_name || storeDetails.name || "Nova Loja",
+            cuisine: meta.category || "Restaurante",
+            imageUrl: storeDetails.imageUrl || "https://via.placeholder.com/400x200/indigo/FFFFFF?text=" + encodeURIComponent(m.store_name || "Loja"),
+            rating: 5.0, // Novos começam com 5.0
+            deliveryTime: "30-45 min",
+            location: { 
+              lat: addr.lat || -23.5505, 
+              lng: addr.lng || -46.6333 
+            },
+            logistics: { 
+              radius: deliveryArea.radius || 5, 
+              exclusionZones: deliveryArea.exclusionZones || [] 
+            }
+          };
+        });
+
+        setRestaurants(mapped);
+      } catch (err) {
+        console.error("Erro ao buscar lojas:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchApprovedMerchants();
+  }, []);
 
   // Filtragem baseada em localização
   const availableRestaurants = useMemo(() => {
-    if (!selectedAddress?.lat || !selectedAddress?.lng) return allRestaurants;
+    if (!selectedAddress?.lat || !selectedAddress?.lng) return restaurants;
 
-    return allRestaurants.filter(rest => 
+    return restaurants.filter(rest => 
       canDeliver(
         selectedAddress.lat!, 
         selectedAddress.lng!, 
@@ -72,7 +88,7 @@ const HomePage = () => {
         rest.logistics.exclusionZones
       )
     );
-  }, [selectedAddress]);
+  }, [selectedAddress, restaurants]);
 
   const handleSearch = () => {
     if (searchTerm.trim()) {
@@ -116,34 +132,41 @@ const HomePage = () => {
 
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-semibold text-indigo-700">Em Destaque</h2>
-          {selectedAddress && (
+          <h2 className="text-2xl font-semibold text-indigo-700">Lojas Disponíveis</h2>
+          {selectedAddress && !loading && (
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
-              <Info className="h-3 w-3" /> Filtrado por localização
+              <Info className="h-3 w-3" /> Filtrado por sua localização
             </span>
           )}
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {availableRestaurants.length > 0 ? (
-            availableRestaurants.map((restaurant) => (
-              <RestaurantCard
-                key={restaurant.id}
-                id={restaurant.id}
-                name={restaurant.name}
-                cuisine={restaurant.cuisine}
-                imageUrl={restaurant.imageUrl}
-                rating={restaurant.rating}
-                deliveryTime={restaurant.deliveryTime}
-              />
-            ))
-          ) : (
-            <div className="col-span-full py-20 text-center bg-gray-50 rounded-3xl border-2 border-dashed border-gray-100">
-              <MapPin className="h-12 w-12 text-gray-200 mx-auto mb-3" />
-              <p className="text-gray-500 font-medium">Ops! Nenhum restaurante entrega nesta localização no momento.</p>
-            </div>
-          )}
-        </div>
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <Loader2 className="h-8 w-8 text-indigo-600 animate-spin mb-2" />
+            <p className="text-gray-500 font-medium">Buscando lojas reais...</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {availableRestaurants.length > 0 ? (
+              availableRestaurants.map((restaurant) => (
+                <RestaurantCard
+                  key={restaurant.id}
+                  id={restaurant.id}
+                  name={restaurant.name}
+                  cuisine={restaurant.cuisine}
+                  imageUrl={restaurant.imageUrl}
+                  rating={restaurant.rating}
+                  deliveryTime={restaurant.deliveryTime}
+                />
+              ))
+            ) : (
+              <div className="col-span-full py-20 text-center bg-gray-50 rounded-3xl border-2 border-dashed border-gray-100">
+                <Store className="h-12 w-12 text-gray-200 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">Ops! Nenhuma loja aprovada entrega neste endereço no momento.</p>
+              </div>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );
