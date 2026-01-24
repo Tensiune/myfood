@@ -1,32 +1,18 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Clock, 
-  ChefHat, 
-  Bike, 
-  CheckCircle2, 
-  Loader2,
-  MapPin,
-  Store,
-  BellRing,
-  Map
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { Switch } from "@/components/ui/switch";
-import OrderTimer from "@/components/merchant/OrderTimer";
-import { useNavigate } from "react-router-dom";
+import OrderCard from "@/components/merchant/OrderCard";
 
 const MerchantOrdersPage = () => {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<any[]>([]);
-  const navigate = useNavigate();
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -64,7 +50,7 @@ const MerchantOrdersPage = () => {
       if (!user) return;
 
       const channel = supabase
-        .channel(`merchant_${user.id}_orders`)
+        .channel(`merchant_${user.id}_orders_v2`)
         .on('postgres_changes', { 
           event: '*', 
           schema: 'public', 
@@ -76,6 +62,7 @@ const MerchantOrdersPage = () => {
             audio.play().catch(() => {});
             showSuccess("Novo pedido recebido!");
           }
+          // Atualiza a lista completa para garantir consistência
           fetchOrders();
         })
         .subscribe();
@@ -96,20 +83,42 @@ const MerchantOrdersPage = () => {
       updatePayload = { status: newStatus, auto_transition_at: null };
     }
     
+    // Atualização otimista local
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updatePayload } : o));
+
     try {
-      setOrders(prevOrders => prevOrders.map(order => 
-        order.id === orderId ? { ...order, ...updatePayload } : order
-      ));
-
-      const { error } = await supabase
-        .from('orders')
-        .update(updatePayload)
-        .eq('id', orderId);
-
+      const { error } = await supabase.from('orders').update(updatePayload).eq('id', orderId);
       if (error) throw error;
     } catch (err: any) {
       showError("Erro ao atualizar status.");
       fetchOrders(); 
+    }
+  };
+
+  const handleAdjustTimer = async (orderId: string, minutes: number) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    const currentAt = order.auto_transition_at ? new Date(order.auto_transition_at) : new Date();
+    const newAt = new Date(currentAt.getTime() + minutes * 60000);
+    const newAtIso = newAt.toISOString();
+
+    // 1. ATUALIZAÇÃO OTIMISTA (INSTANTÂNEA NA TELA)
+    setOrders(prev => prev.map(o => 
+      o.id === orderId ? { ...o, auto_transition_at: newAtIso } : o
+    ));
+
+    // 2. ATUALIZAÇÃO NO BANCO (EM SEGUNDO PLANO)
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ auto_transition_at: newAtIso })
+        .eq('id', orderId);
+
+      if (error) throw error;
+    } catch (err) {
+      showError("Erro ao salvar ajuste de tempo.");
+      fetchOrders(); // Reverte para o estado do servidor em caso de erro
     }
   };
 
@@ -156,6 +165,7 @@ const MerchantOrdersPage = () => {
               key={order.id} 
               order={order} 
               onAction={() => updateOrderStatus(order.id, "PREPARING")} 
+              onAdjustTimer={(mins) => handleAdjustTimer(order.id, mins)}
               actionLabel="Aceitar Pedido"
               variant="blue"
             />
@@ -172,6 +182,7 @@ const MerchantOrdersPage = () => {
               key={order.id} 
               order={order} 
               onAction={() => updateOrderStatus(order.id, "WAITING_FOR_DRIVER")} 
+              onAdjustTimer={(mins) => handleAdjustTimer(order.id, mins)}
               actionLabel="Chamar Entregador"
               variant="orange"
               showTimer
@@ -190,6 +201,7 @@ const MerchantOrdersPage = () => {
               key={order.id} 
               order={order} 
               onAction={() => updateOrderStatus(order.id, "OUT_FOR_DELIVERY")} 
+              onAdjustTimer={(mins) => handleAdjustTimer(order.id, mins)}
               actionLabel="Entregar para Motoboy"
               variant="indigo"
             />
@@ -206,6 +218,7 @@ const MerchantOrdersPage = () => {
               key={order.id} 
               order={order} 
               onAction={() => {}}
+              onAdjustTimer={(mins) => handleAdjustTimer(order.id, mins)}
               actionLabel="Em Trânsito..."
               variant="green"
               disabled
@@ -215,75 +228,6 @@ const MerchantOrdersPage = () => {
         </div>
       </div>
     </div>
-  );
-};
-
-const OrderCard = ({ order, onAction, actionLabel, variant, showTimer, onTimerEnd, disabled, showTrackingButton }: any) => {
-  const navigate = useNavigate();
-
-  const handleTrackClick = () => {
-    navigate(`/track/${order.id}`);
-  };
-
-  return (
-    <Card className="rounded-[2rem] border-none shadow-sm hover:shadow-md transition-all bg-white overflow-hidden">
-      <CardContent className="p-0">
-        <div className="p-5 space-y-4">
-          <div className="flex justify-between items-start">
-            <div className="p-2 bg-gray-50 rounded-xl">
-               <span className="text-[10px] font-black text-gray-400">#{order.id.slice(0, 6)}</span>
-            </div>
-            <span className="text-[10px] font-bold text-gray-400">{new Date(order.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-          </div>
-
-          <div className="space-y-1.5">
-             {order.items.map((item: any, i: number) => (
-               <div key={i} className="flex justify-between text-sm">
-                 <p className="text-gray-700 font-medium"><span className="text-indigo-600 font-black">{item.quantity}x</span> {item.name}</p>
-               </div>
-             ))}
-          </div>
-
-          <div className="flex items-start gap-2 text-xs text-gray-500 bg-gray-50 p-3 rounded-2xl">
-            <MapPin className="h-3 w-3 mt-0.5 text-indigo-400 shrink-0" />
-            <p className="line-clamp-1">{order.delivery_address?.street}, {order.delivery_address?.number}</p>
-          </div>
-
-          {showTimer && (
-            <OrderTimer 
-              orderId={order.id} 
-              autoTransitionAt={order.auto_transition_at} 
-              onTimerEnd={onTimerEnd} 
-            />
-          )}
-        </div>
-
-        <div className="px-4 pb-4">
-          {showTrackingButton ? (
-            <Button 
-              className="w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg transition-all active:scale-95 bg-green-600 hover:bg-green-700 shadow-green-100"
-              onClick={handleTrackClick}
-            >
-              <Map className="h-4 w-4 mr-2" /> Acompanhar Entrega
-            </Button>
-          ) : (
-            <Button 
-              className={cn(
-                "w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg transition-all active:scale-95",
-                variant === "blue" && "bg-blue-600 hover:bg-blue-700 shadow-blue-100",
-                variant === "orange" && "bg-orange-500 hover:bg-orange-600 shadow-orange-100",
-                variant === "indigo" && "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100",
-                variant === "green" && "bg-green-600 opacity-60 cursor-default"
-              )}
-              onClick={onAction}
-              disabled={disabled}
-            >
-              {actionLabel}
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
   );
 };
 
