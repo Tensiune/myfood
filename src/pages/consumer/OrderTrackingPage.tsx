@@ -14,7 +14,8 @@ import {
   Clock,
   ShieldCheck,
   Store,
-  Loader2
+  Loader2,
+  X
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -27,7 +28,7 @@ const OrderTrackingPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [order, setOrder] = useState<any>(null);
-  const [merchantDetails, setMerchantDetails] = useState<any>(null); // Novo estado para detalhes do lojista
+  const [merchantDetails, setMerchantDetails] = useState<any>(null);
   const [driverLocation, setDriverLocation] = useState<[number, number] | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -48,7 +49,6 @@ const OrderTrackingPage = () => {
     if (!id) return;
     setLoading(true);
     try {
-      // 1. Buscar o pedido (sem junção complexa, apenas o ID do lojista)
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .select('*')
@@ -58,7 +58,6 @@ const OrderTrackingPage = () => {
       if (orderError) throw orderError;
       setOrder(orderData);
 
-      // 2. Buscar detalhes do lojista (necessário para o mapa)
       if (orderData.merchant_id) {
         const { data: merchantApp, error: merchantError } = await supabase
           .from('merchant_applications')
@@ -70,13 +69,11 @@ const OrderTrackingPage = () => {
         setMerchantDetails(merchantApp);
       }
 
-      // Se o pedido está em rota, buscamos a localização do motorista
       if (orderData.status === 'OUT_FOR_DELIVERY' && orderData.driver_id) {
         fetchDriverLocation(orderData.driver_id);
       }
     } catch (err: any) {
       console.error("Erro ao buscar pedido/loja:", err);
-      // Não mostramos erro aqui, apenas deixamos o loading terminar
     } finally {
       setLoading(false);
     }
@@ -85,7 +82,6 @@ const OrderTrackingPage = () => {
   useEffect(() => {
     fetchOrder();
 
-    // 1. Realtime para o status do pedido
     const orderChannel = supabase
       .channel(`order_${id}_status`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${id}` }, (payload) => {
@@ -96,37 +92,24 @@ const OrderTrackingPage = () => {
       })
       .subscribe();
 
-    // 2. Realtime para a localização do motorista
-    let driverChannel: any;
-    if (order?.status === 'OUT_FOR_DELIVERY' && order?.driver_id) {
-      driverChannel = supabase
-        .channel(`driver_${order.driver_id}_location`)
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'driver_locations', filter: `driver_id=eq.${order.driver_id}` }, (payload) => {
-          setDriverLocation([parseFloat(payload.new.latitude), parseFloat(payload.new.longitude)]);
-        })
-        .subscribe();
-    }
-
     return () => {
       supabase.removeChannel(orderChannel);
-      if (driverChannel) supabase.removeChannel(driverChannel);
     };
-  }, [id, order?.status, order?.driver_id]);
+  }, [id]);
 
   const deliveryAddress = order?.delivery_address;
-  // Usar merchantDetails para obter o endereço da loja
   const storeAddress = merchantDetails?.metadata?.store_details?.address || merchantDetails?.metadata?.address;
 
   const destinationPos: [number, number] = useMemo(() => 
     deliveryAddress?.lat && deliveryAddress?.lng 
       ? [deliveryAddress.lat, deliveryAddress.lng] 
-      : [-23.5505, -46.6333] // Default SP
+      : [-23.5505, -46.6333]
   , [deliveryAddress]);
 
   const storePos: [number, number] = useMemo(() => 
     storeAddress?.lat && storeAddress?.lng 
       ? [storeAddress.lat, storeAddress.lng] 
-      : [-23.5505, -46.6333] // Default SP
+      : [-23.5505, -46.6333]
   , [storeAddress]);
 
   const mapCenter: [number, number] = useMemo(() => {
@@ -138,7 +121,6 @@ const OrderTrackingPage = () => {
 
   const distanceToClient = useMemo(() => {
     if (order?.status === 'OUT_FOR_DELIVERY' && driverLocation) {
-      // Garantir que as coordenadas sejam números válidos antes de calcular
       if (driverLocation[0] && driverLocation[1] && destinationPos[0] && destinationPos[1]) {
         return calculateDistance(driverLocation[0], driverLocation[1], destinationPos[0], destinationPos[1]).toFixed(1);
       }
@@ -163,26 +145,26 @@ const OrderTrackingPage = () => {
   const isTrackingActive = order.status === 'OUT_FOR_DELIVERY';
 
   return (
-    <div className="fixed inset-0 bg-indigo-50 flex flex-col z-50 overflow-hidden max-w-2xl mx-auto shadow-2xl">
-      {/* Header Transparente */}
-      <header className="absolute top-0 left-0 right-0 p-4 z-20 flex items-center justify-between">
+    <div className="fixed inset-0 bg-white flex flex-col z-[100] overflow-hidden max-w-2xl mx-auto shadow-2xl">
+      {/* Header com botão de fechar/voltar proeminente */}
+      <header className="absolute top-0 left-0 right-0 p-4 z-[110] flex items-center justify-between pointer-events-none">
         <Button 
           variant="secondary" 
           size="icon" 
           onClick={() => navigate(-1)} 
-          className="rounded-full bg-white/80 backdrop-blur shadow-lg border-none"
+          className="rounded-full bg-white shadow-xl border-none pointer-events-auto hover:bg-gray-50 active:scale-95 transition-all"
         >
-          <ArrowLeft className="h-6 w-6 text-indigo-900" />
+          <X className="h-6 w-6 text-indigo-900" />
         </Button>
         {isTrackingActive && (
-          <Badge className="bg-brand-accent text-white px-4 py-2 rounded-full shadow-lg border-none flex gap-2 animate-in fade-in">
+          <Badge className="bg-brand-accent text-white px-4 py-2 rounded-full shadow-lg border-none flex gap-2 animate-in fade-in pointer-events-auto">
             <Clock className="h-4 w-4" /> {distanceToClient} km restantes
           </Badge>
         )}
       </header>
 
       {/* Área do Mapa */}
-      <div className="flex-1 relative overflow-hidden bg-slate-200">
+      <div className="flex-1 relative overflow-hidden bg-slate-100">
         <DynamicMap
           center={mapCenter}
           zoom={14}
@@ -193,15 +175,15 @@ const OrderTrackingPage = () => {
         />
       </div>
 
-      {/* Painel de Informações (Drawer) */}
-      <Card className="rounded-t-[2.5rem] border-none shadow-[0_-10px_40px_rgba(0,0,0,0.1)] bg-white z-20 pb-safe">
+      {/* Painel de Informações */}
+      <Card className="rounded-t-[2.5rem] border-none shadow-[0_-10px_40px_rgba(0,0,0,0.1)] bg-white z-[110] pb-safe">
         <CardContent className="p-6 space-y-6">
           <div className="w-12 h-1.5 bg-gray-100 rounded-full mx-auto mb-4" />
           
           <div className="flex justify-between items-end">
             <div>
               <h2 className="text-2xl font-black text-indigo-900 leading-tight">
-                {isTrackingActive ? "Seu pedido está a caminho!" : "Aguardando Entregador"}
+                {order.status === 'DELIVERED' ? 'Pedido Entregue!' : isTrackingActive ? "Seu pedido está a caminho!" : "Aguardando Entregador"}
               </h2>
               <p className="text-gray-500 text-sm mt-1">Pedido #{order.id.slice(0, 8)} • {merchantDetails?.store_name || "Loja"}</p>
             </div>
@@ -216,10 +198,6 @@ const OrderTrackingPage = () => {
           </div>
 
           <div className="space-y-2">
-            <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-gray-400">
-              <span>Status</span>
-              {/* Removido o percentual de progresso */}
-            </div>
             <Progress value={progress} className="h-3 bg-indigo-50" />
           </div>
 
@@ -252,13 +230,19 @@ const OrderTrackingPage = () => {
             </div>
           )}
           
-          {!isTrackingActive && (
+          {!isTrackingActive && order.status !== 'DELIVERED' && (
             <div className="p-4 bg-yellow-50 rounded-2xl flex items-center gap-4 border border-yellow-100">
               <Clock className="h-6 w-6 text-yellow-600 shrink-0" />
               <p className="text-sm text-yellow-800 font-medium">
                 O pedido está em preparo ou aguardando um entregador parceiro.
               </p>
             </div>
+          )}
+
+          {order.status === 'DELIVERED' && (
+            <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl h-14 font-bold" onClick={() => navigate(-1)}>
+              Concluir e Voltar
+            </Button>
           )}
         </CardContent>
       </Card>

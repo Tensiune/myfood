@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,14 +20,15 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { Switch } from "@/components/ui/switch";
 import OrderTimer from "@/components/merchant/OrderTimer";
-import { useNavigate } from "react-router-dom"; // Importar useNavigate
+import { useNavigate } from "react-router-dom";
 
 const MerchantOrdersPage = () => {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<any[]>([]);
+  const navigate = useNavigate();
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -53,46 +54,53 @@ const MerchantOrdersPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchOrders();
 
-    // Sincronização em Tempo Real (Realtime)
-    const channel = supabase
-      .channel('merchant_dashboard_realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
-        // Se for um novo pedido, toca um alerta opcional e atualiza a lista
-        if (payload.eventType === 'INSERT') {
-          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-          audio.play().catch(() => {});
-        }
-        fetchOrders(); // Recarrega os dados para garantir consistência
-      })
-      .subscribe();
+    const initializeRealtime = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-    return () => { supabase.removeChannel(channel); };
-  }, []);
+      const channel = supabase
+        .channel(`merchant_${user.id}_orders`)
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'orders',
+          filter: `merchant_id=eq.${user.id}`
+        }, (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+            audio.play().catch(() => {});
+            showSuccess("Novo pedido recebido!");
+          }
+          fetchOrders();
+        })
+        .subscribe();
+
+      return () => { supabase.removeChannel(channel); };
+    };
+
+    initializeRealtime();
+  }, [fetchOrders]);
 
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
     let updatePayload: any = { status: newStatus };
 
     if (newStatus === 'PREPARING') {
-      // Set initial timer for 15 minutes when moving to PREPARING
       const autoTransitionAt = new Date(Date.now() + 15 * 60000).toISOString();
       updatePayload = { status: newStatus, auto_transition_at: autoTransitionAt };
     } else {
-      // Clear timer for other transitions
       updatePayload = { status: newStatus, auto_transition_at: null };
     }
     
     try {
-      // 1. Atualização otimista local
       setOrders(prevOrders => prevOrders.map(order => 
         order.id === orderId ? { ...order, ...updatePayload } : order
       ));
 
-      // 2. Atualização no banco de dados
       const { error } = await supabase
         .from('orders')
         .update(updatePayload)
@@ -101,7 +109,6 @@ const MerchantOrdersPage = () => {
       if (error) throw error;
     } catch (err: any) {
       showError("Erro ao atualizar status.");
-      // O listener de tempo real deve reverter o estado se a atualização falhar, mas um fetch manual pode ser mais seguro aqui.
       fetchOrders(); 
     }
   };
@@ -198,7 +205,7 @@ const MerchantOrdersPage = () => {
             <OrderCard 
               key={order.id} 
               order={order} 
-              onAction={() => {}} // Entregador confirma
+              onAction={() => {}}
               actionLabel="Em Trânsito..."
               variant="green"
               disabled
@@ -212,10 +219,9 @@ const MerchantOrdersPage = () => {
 };
 
 const OrderCard = ({ order, onAction, actionLabel, variant, showTimer, onTimerEnd, disabled, showTrackingButton }: any) => {
-  const navigate = useNavigate(); // Usar useNavigate dentro do componente
+  const navigate = useNavigate();
 
   const handleTrackClick = () => {
-    console.log(`[OrderCard] Navegando para rastreamento do pedido ID: ${order.id}`);
     navigate(`/track/${order.id}`);
   };
 
@@ -256,7 +262,7 @@ const OrderCard = ({ order, onAction, actionLabel, variant, showTimer, onTimerEn
           {showTrackingButton ? (
             <Button 
               className="w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg transition-all active:scale-95 bg-green-600 hover:bg-green-700 shadow-green-100"
-              onClick={handleTrackClick} // Usando a função de depuração
+              onClick={handleTrackClick}
             >
               <Map className="h-4 w-4 mr-2" /> Acompanhar Entrega
             </Button>

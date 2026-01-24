@@ -20,6 +20,7 @@ const OrderTimer: React.FC<OrderTimerProps> = ({ orderId, autoTransitionAt, onTi
   const [isEditing, setIsEditing] = useState(false);
   const [inputMinutes, setInputMinutes] = useState<string>("");
 
+  // Função para calcular o tempo restante
   const calculateTime = useCallback(() => {
     if (!autoTransitionAt) {
       setTimeLeftSeconds(0);
@@ -30,8 +31,13 @@ const OrderTimer: React.FC<OrderTimerProps> = ({ orderId, autoTransitionAt, onTi
     if (diff === 0) onTimerEnd();
   }, [autoTransitionAt, onTimerEnd]);
 
+  // Efeito 1: Atualiza o tempo interno sempre que a prop vinda do banco mudar
   useEffect(() => {
     calculateTime();
+  }, [autoTransitionAt, calculateTime]);
+
+  // Efeito 2: Intervalo de 1 segundo para o countdown
+  useEffect(() => {
     const interval = setInterval(calculateTime, 1000);
     return () => clearInterval(interval);
   }, [calculateTime]);
@@ -42,7 +48,6 @@ const OrderTimer: React.FC<OrderTimerProps> = ({ orderId, autoTransitionAt, onTi
       const now = new Date();
       let baseTime = autoTransitionAt ? new Date(autoTransitionAt) : now;
       
-      // Se o tempo expirou, a base deve ser o tempo atual + o novo ajuste
       if (baseTime.getTime() < now.getTime()) {
         baseTime = now;
       }
@@ -55,6 +60,7 @@ const OrderTimer: React.FC<OrderTimerProps> = ({ orderId, autoTransitionAt, onTi
         .eq('id', orderId);
 
       if (error) throw error;
+      // O Realtime no pai (MerchantOrdersPage) vai atualizar a prop e o Efeito 1 cuidará do resto
     } catch (err) {
       showError("Erro ao ajustar tempo.");
     } finally {
@@ -126,7 +132,7 @@ const OrderTimer: React.FC<OrderTimerProps> = ({ orderId, autoTransitionAt, onTi
               if (timeLeftSeconds > 0) {
                 setInputMinutes(currentMinutes.toString());
               } else {
-                setInputMinutes("15"); // Default to 15 min if timer is off
+                setInputMinutes("15");
               }
               setIsEditing(true);
             }}
@@ -142,7 +148,7 @@ const OrderTimer: React.FC<OrderTimerProps> = ({ orderId, autoTransitionAt, onTi
           size="icon" 
           className="h-8 w-8 rounded-full border-indigo-200 text-indigo-600"
           onClick={() => updateTimer(-5)}
-          disabled={loading || timeLeftSeconds <= 300} // Não permite ir abaixo de 5 minutos
+          disabled={loading || timeLeftSeconds <= 300}
         >
           <Minus className="h-3 w-3" />
         </Button>
