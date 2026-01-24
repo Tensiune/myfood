@@ -23,7 +23,6 @@ const MerchantMenuPage = () => {
   const [newCatName, setNewCatName] = useState("");
   const [isAddingCat, setIsAddingCat] = useState(false);
 
-  // Carregar produtos (Tenta Supabase, senão usa LocalStorage como fallback)
   useEffect(() => {
     const loadMenu = async () => {
       setLoading(true);
@@ -31,22 +30,16 @@ const MerchantMenuPage = () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // Tentativa de buscar do Supabase (tabela 'products')
         const { data, error } = await supabase
           .from('products')
           .select('*')
           .eq('merchant_id', user.id);
 
-        if (error) {
-          // Se a tabela não existir ainda, usamos LocalStorage para não travar o usuário
-          console.warn("Tabela 'products' não encontrada ou erro no Supabase. Usando LocalStorage.");
-          const localData = localStorage.getItem(`menu_${user.id}`);
-          if (localData) setProducts(JSON.parse(localData));
-        } else if (data) {
-          setProducts(data);
-        }
+        if (error) throw error;
+        if (data) setProducts(data);
       } catch (err) {
         console.error("Erro ao carregar menu:", err);
+        showError("Erro ao carregar seus produtos do servidor.");
       } finally {
         setLoading(false);
       }
@@ -55,30 +48,24 @@ const MerchantMenuPage = () => {
     loadMenu();
   }, []);
 
-  // Salvar no LocalStorage sempre que houver mudanças (Redundância de persistência)
-  useEffect(() => {
-    const saveLocally = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user && products.length > 0) {
-        localStorage.setItem(`menu_${user.id}`, JSON.stringify(products));
-      }
-    };
-    saveLocally();
-  }, [products]);
-
   const handleSaveProduct = async (data: any) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
+    // Mapeamento crucial: convertendo camelCase do front para snake_case/lowercase do banco
     const productData = {
-      ...data,
       merchant_id: user.id,
+      name: data.name,
+      description: data.description,
       price: parseFloat(data.price),
-      imageUrl: data.imageUrl || "https://via.placeholder.com/300?text=Sem+Imagem",
+      category: data.category,
+      imageurl: data.imageUrl || "https://via.placeholder.com/300?text=Sem+Imagem",
+      isavailable: data.isAvailable ?? true,
+      stock: data.stock ? parseInt(data.stock) : null,
+      optiongroups: data.optionGroups || [],
     };
 
     try {
-      // Tenta salvar no Supabase
       const { data: savedData, error } = await supabase
         .from('products')
         .upsert({ 
@@ -92,35 +79,30 @@ const MerchantMenuPage = () => {
 
       if (editingProduct) {
         setProducts(prev => prev.map(p => p.id === editingProduct.id ? savedData : p));
-        showSuccess("Produto atualizado!");
+        showSuccess("Produto atualizado com sucesso!");
       } else {
         setProducts([savedData, ...products]);
-        showSuccess("Produto adicionado!");
+        showSuccess("Produto salvo com sucesso no servidor!");
       }
-    } catch (err) {
-      // Fallback para estado local caso o Supabase falhe (ex: tabela inexistente)
-      const mockSaved = { ...productData, id: editingProduct?.id || Math.random().toString(36).substr(2, 9) };
-      if (editingProduct) {
-        setProducts(prev => prev.map(p => p.id === editingProduct.id ? mockSaved : p));
-      } else {
-        setProducts([mockSaved, ...products]);
-      }
-      showSuccess("Produto salvo localmente (Tabela Supabase não detectada).");
+      
+      setIsAddingProduct(false);
+      setEditingProduct(null);
+    } catch (err: any) {
+      console.error(err);
+      showError("Erro ao salvar no Supabase: " + err.message);
     }
-
-    setIsAddingProduct(false);
-    setEditingProduct(null);
   };
 
   const deleteProduct = async (id: string) => {
+    if (!window.confirm("Tem certeza que deseja excluir este produto?")) return;
+    
     try {
       const { error } = await supabase.from('products').delete().eq('id', id);
       if (error) throw error;
       setProducts(products.filter(p => p.id !== id));
       showSuccess("Produto removido.");
-    } catch (err) {
-      setProducts(products.filter(p => p.id !== id));
-      showSuccess("Produto removido localmente.");
+    } catch (err: any) {
+      showError("Erro ao remover: " + err.message);
     }
   };
 
@@ -128,13 +110,18 @@ const MerchantMenuPage = () => {
     const product = products.find(p => p.id === id);
     if (!product) return;
 
-    const newStatus = !product.isAvailable;
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, isAvailable: newStatus } : p));
+    const newStatus = !product.isavailable;
+    
+    // Update local state first for UX
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, isavailable: newStatus } : p));
 
     try {
-      await supabase.from('products').update({ isAvailable: newStatus }).eq('id', id);
+      const { error } = await supabase.from('products').update({ isavailable: newStatus }).eq('id', id);
+      if (error) throw error;
     } catch (err) {
-      console.warn("Não foi possível sincronizar o status com o servidor.");
+      // Revert if failed
+      setProducts(prev => prev.map(p => p.id === id ? { ...p, isavailable: !newStatus } : p));
+      showError("Não foi possível atualizar a disponibilidade.");
     }
   };
 
@@ -161,7 +148,7 @@ const MerchantMenuPage = () => {
 
   const filteredProducts = products.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.category.toLowerCase().includes(searchTerm.toLowerCase())
+    (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
@@ -179,7 +166,12 @@ const MerchantMenuPage = () => {
           </DialogTrigger>
           <ProductDialog 
             categories={categories} 
-            product={editingProduct} 
+            product={editingProduct ? {
+              ...editingProduct,
+              imageUrl: editingProduct.imageurl, // Map back for dialog
+              isAvailable: editingProduct.isavailable,
+              optionGroups: editingProduct.optiongroups
+            } : null} 
             onSave={handleSaveProduct} 
           />
         </Dialog>
@@ -242,12 +234,12 @@ const MerchantMenuPage = () => {
           {filteredProducts.map((product) => (
             <Card key={product.id} className={cn(
               "rounded-[2rem] border-none shadow-sm hover:shadow-md transition-all overflow-hidden bg-white",
-              !product.isAvailable && "opacity-75 grayscale-[0.5]"
+              !product.isavailable && "opacity-75 grayscale-[0.5]"
             )}>
               <CardContent className="p-5 flex flex-col md:flex-row items-center gap-6">
                 <div className="relative shrink-0">
-                  <img src={product.imageUrl} className="w-24 h-24 md:w-32 md:h-32 rounded-3xl object-cover bg-gray-50 shadow-inner" />
-                  {!product.isAvailable && (
+                  <img src={product.imageurl} className="w-24 h-24 md:w-32 md:h-32 rounded-3xl object-cover bg-gray-50 shadow-inner" />
+                  {!product.isavailable && (
                     <div className="absolute inset-0 bg-black/40 rounded-3xl flex items-center justify-center">
                       <EyeOff className="h-8 w-8 text-white" />
                     </div>
@@ -268,7 +260,7 @@ const MerchantMenuPage = () => {
                   <h3 className="font-black text-xl text-gray-900">{product.name}</h3>
                   <p className="text-sm text-gray-500 line-clamp-2">{product.description}</p>
                   <div className="pt-2">
-                     <span className="text-2xl font-black text-indigo-600">R$ {product.price?.toFixed(2)}</span>
+                     <span className="text-2xl font-black text-indigo-600">R$ {product.price ? parseFloat(product.price.toString()).toFixed(2) : '0.00'}</span>
                   </div>
                 </div>
 
@@ -276,7 +268,7 @@ const MerchantMenuPage = () => {
                   <div className="flex items-center justify-between gap-4 px-2">
                     <span className="text-[10px] font-bold text-gray-400 uppercase">Status</span>
                     <Switch 
-                      checked={product.isAvailable} 
+                      checked={product.isavailable} 
                       onCheckedChange={() => toggleAvailability(product.id)}
                       className="data-[state=checked]:bg-green-500"
                     />
