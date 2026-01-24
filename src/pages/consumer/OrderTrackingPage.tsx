@@ -27,21 +27,9 @@ const OrderTrackingPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [order, setOrder] = useState<any>(null);
+  const [merchantDetails, setMerchantDetails] = useState<any>(null); // Novo estado para detalhes do lojista
   const [driverLocation, setDriverLocation] = useState<[number, number] | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const fetchOrder = async () => {
-    if (!id) return;
-    const { data } = await supabase.from('orders').select('*, merchant:merchant_id(*)').eq('id', id).single();
-    if (data) {
-      setOrder(data);
-      // Se o pedido está em rota, buscamos a localização do motorista
-      if (data.status === 'OUT_FOR_DELIVERY' && data.driver_id) {
-        fetchDriverLocation(data.driver_id);
-      }
-    }
-    setLoading(false);
-  };
 
   const fetchDriverLocation = async (driverId: string) => {
     if (!driverId) return;
@@ -56,10 +44,48 @@ const OrderTrackingPage = () => {
     }
   };
 
+  const fetchOrder = async () => {
+    if (!id) return;
+    setLoading(true);
+    try {
+      // 1. Buscar o pedido (sem junção complexa, apenas o ID do lojista)
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (orderError) throw orderError;
+      setOrder(orderData);
+
+      // 2. Buscar detalhes do lojista (necessário para o mapa)
+      if (orderData.merchant_id) {
+        const { data: merchantApp, error: merchantError } = await supabase
+          .from('merchant_applications')
+          .select('*')
+          .eq('id', orderData.merchant_id)
+          .single();
+        
+        if (merchantError) throw merchantError;
+        setMerchantDetails(merchantApp);
+      }
+
+      // Se o pedido está em rota, buscamos a localização do motorista
+      if (orderData.status === 'OUT_FOR_DELIVERY' && orderData.driver_id) {
+        fetchDriverLocation(orderData.driver_id);
+      }
+    } catch (err: any) {
+      console.error("Erro ao buscar pedido/loja:", err);
+      // Não mostramos erro aqui, apenas deixamos o loading terminar
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchOrder();
 
-    // 1. Realtime para o status do pedido (se mudar para OUT_FOR_DELIVERY)
+    // 1. Realtime para o status do pedido
     const orderChannel = supabase
       .channel(`order_${id}_status`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${id}` }, (payload) => {
@@ -70,7 +96,7 @@ const OrderTrackingPage = () => {
       })
       .subscribe();
 
-    // 2. Realtime para a localização do motorista (se o pedido estiver em rota)
+    // 2. Realtime para a localização do motorista
     let driverChannel: any;
     if (order?.status === 'OUT_FOR_DELIVERY' && order?.driver_id) {
       driverChannel = supabase
@@ -88,7 +114,8 @@ const OrderTrackingPage = () => {
   }, [id, order?.status, order?.driver_id]);
 
   const deliveryAddress = order?.delivery_address;
-  const storeAddress = order?.merchant?.metadata?.store_details?.address || order?.merchant?.metadata?.address;
+  // Usar merchantDetails para obter o endereço da loja
+  const storeAddress = merchantDetails?.metadata?.store_details?.address || merchantDetails?.metadata?.address;
 
   const destinationPos: [number, number] = useMemo(() => 
     deliveryAddress?.lat && deliveryAddress?.lng 
@@ -111,7 +138,10 @@ const OrderTrackingPage = () => {
 
   const distanceToClient = useMemo(() => {
     if (order?.status === 'OUT_FOR_DELIVERY' && driverLocation) {
-      return calculateDistance(driverLocation[0], driverLocation[1], destinationPos[0], destinationPos[1]).toFixed(1);
+      // Garantir que as coordenadas sejam números válidos antes de calcular
+      if (driverLocation[0] && driverLocation[1] && destinationPos[0] && destinationPos[1]) {
+        return calculateDistance(driverLocation[0], driverLocation[1], destinationPos[0], destinationPos[1]).toFixed(1);
+      }
     }
     return null;
   }, [order?.status, driverLocation, destinationPos]);
@@ -173,7 +203,7 @@ const OrderTrackingPage = () => {
               <h2 className="text-2xl font-black text-indigo-900 leading-tight">
                 {isTrackingActive ? "Seu pedido está a caminho!" : "Aguardando Entregador"}
               </h2>
-              <p className="text-gray-500 text-sm mt-1">Pedido #{order.id.slice(0, 8)} • {order.merchant?.store_name || "Loja"}</p>
+              <p className="text-gray-500 text-sm mt-1">Pedido #{order.id.slice(0, 8)} • {merchantDetails?.store_name || "Loja"}</p>
             </div>
             <div className="text-right">
               <span className="text-3xl font-black text-indigo-600">
