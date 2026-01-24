@@ -11,7 +11,7 @@ import { useNavigate } from "react-router-dom";
 interface OrderCardProps {
   order: any;
   onAction: () => void;
-  onAdjustTimer: (minutes: number) => void;
+  onAdjustTimer: (minutes: number, isAbsolute?: boolean) => void;
   actionLabel: string;
   variant: "blue" | "orange" | "indigo" | "green";
   showTimer?: boolean;

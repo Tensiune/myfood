@@ -50,7 +50,7 @@ const MerchantOrdersPage = () => {
       if (!user) return;
 
       const channel = supabase
-        .channel(`merchant_${user.id}_orders_v2`)
+        .channel(`merchant_${user.id}_orders_v3`)
         .on('postgres_changes', { 
           event: '*', 
           schema: 'public', 
@@ -62,7 +62,6 @@ const MerchantOrdersPage = () => {
             audio.play().catch(() => {});
             showSuccess("Novo pedido recebido!");
           }
-          // Atualiza a lista completa para garantir consistência
           fetchOrders();
         })
         .subscribe();
@@ -83,7 +82,6 @@ const MerchantOrdersPage = () => {
       updatePayload = { status: newStatus, auto_transition_at: null };
     }
     
-    // Atualização otimista local
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updatePayload } : o));
 
     try {
@@ -95,20 +93,29 @@ const MerchantOrdersPage = () => {
     }
   };
 
-  const handleAdjustTimer = async (orderId: string, minutes: number) => {
+  const handleAdjustTimer = async (orderId: string, minutes: number, isAbsolute: boolean = false) => {
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
-    const currentAt = order.auto_transition_at ? new Date(order.auto_transition_at) : new Date();
-    const newAt = new Date(currentAt.getTime() + minutes * 60000);
+    let newAt: Date;
+    if (isAbsolute) {
+      // Define o tempo exato a partir de agora
+      newAt = new Date(Date.now() + minutes * 60000);
+    } else {
+      // Ajusta o tempo existente
+      const currentAt = order.auto_transition_at ? new Date(order.auto_transition_at) : new Date();
+      // Garante que o ajuste não comece no passado
+      const baseDate = currentAt.getTime() < Date.now() ? new Date() : currentAt;
+      newAt = new Date(baseDate.getTime() + minutes * 60000);
+    }
+
     const newAtIso = newAt.toISOString();
 
-    // 1. ATUALIZAÇÃO OTIMISTA (INSTANTÂNEA NA TELA)
+    // Atualização otimista imediata
     setOrders(prev => prev.map(o => 
       o.id === orderId ? { ...o, auto_transition_at: newAtIso } : o
     ));
 
-    // 2. ATUALIZAÇÃO NO BANCO (EM SEGUNDO PLANO)
     try {
       const { error } = await supabase
         .from('orders')
@@ -117,8 +124,8 @@ const MerchantOrdersPage = () => {
 
       if (error) throw error;
     } catch (err) {
-      showError("Erro ao salvar ajuste de tempo.");
-      fetchOrders(); // Reverte para o estado do servidor em caso de erro
+      showError("Erro ao salvar tempo.");
+      fetchOrders();
     }
   };
 
@@ -155,7 +162,6 @@ const MerchantOrdersPage = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6">
-        {/* NOVOS */}
         <div className="space-y-4">
           <h2 className="font-black text-blue-600 text-[10px] uppercase tracking-widest flex items-center gap-2 px-2">
             <span className="h-2 w-2 bg-blue-500 rounded-full" /> Recebidos ({orders.filter(o => o.status === "PENDING").length})
@@ -165,14 +171,13 @@ const MerchantOrdersPage = () => {
               key={order.id} 
               order={order} 
               onAction={() => updateOrderStatus(order.id, "PREPARING")} 
-              onAdjustTimer={(mins) => handleAdjustTimer(order.id, mins)}
+              onAdjustTimer={(mins, isAbs) => handleAdjustTimer(order.id, mins, isAbs)}
               actionLabel="Aceitar Pedido"
               variant="blue"
             />
           ))}
         </div>
 
-        {/* EM PREPARO */}
         <div className="space-y-4">
           <h2 className="font-black text-orange-500 text-[10px] uppercase tracking-widest flex items-center gap-2 px-2">
             <span className="h-2 w-2 bg-orange-500 rounded-full animate-pulse" /> Em Preparo ({orders.filter(o => o.status === "PREPARING").length})
@@ -182,7 +187,7 @@ const MerchantOrdersPage = () => {
               key={order.id} 
               order={order} 
               onAction={() => updateOrderStatus(order.id, "WAITING_FOR_DRIVER")} 
-              onAdjustTimer={(mins) => handleAdjustTimer(order.id, mins)}
+              onAdjustTimer={(mins, isAbs) => handleAdjustTimer(order.id, mins, isAbs)}
               actionLabel="Chamar Entregador"
               variant="orange"
               showTimer
@@ -191,7 +196,6 @@ const MerchantOrdersPage = () => {
           ))}
         </div>
 
-        {/* AGUARDANDO ENTREGADOR */}
         <div className="space-y-4">
           <h2 className="font-black text-indigo-600 text-[10px] uppercase tracking-widest flex items-center gap-2 px-2">
             <span className="h-2 w-2 bg-indigo-500 rounded-full" /> Aguardando Coleta ({orders.filter(o => o.status === "WAITING_FOR_DRIVER").length})
@@ -201,14 +205,13 @@ const MerchantOrdersPage = () => {
               key={order.id} 
               order={order} 
               onAction={() => updateOrderStatus(order.id, "OUT_FOR_DELIVERY")} 
-              onAdjustTimer={(mins) => handleAdjustTimer(order.id, mins)}
+              onAdjustTimer={(mins, isAbs) => handleAdjustTimer(order.id, mins, isAbs)}
               actionLabel="Entregar para Motoboy"
               variant="indigo"
             />
           ))}
         </div>
 
-        {/* SAIU PARA ENTREGA */}
         <div className="space-y-4">
           <h2 className="font-black text-green-600 text-[10px] uppercase tracking-widest flex items-center gap-2 px-2">
             <span className="h-2 w-2 bg-green-500 rounded-full" /> Em Rota ({orders.filter(o => o.status === "OUT_FOR_DELIVERY").length})
@@ -218,7 +221,7 @@ const MerchantOrdersPage = () => {
               key={order.id} 
               order={order} 
               onAction={() => {}}
-              onAdjustTimer={(mins) => handleAdjustTimer(order.id, mins)}
+              onAdjustTimer={(mins, isAbs) => handleAdjustTimer(order.id, mins, isAbs)}
               actionLabel="Em Trânsito..."
               variant="green"
               disabled
