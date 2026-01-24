@@ -85,15 +85,22 @@ const MerchantOrdersPage = () => {
     }
     
     try {
+      // 1. Atualização otimista local
+      setOrders(prevOrders => prevOrders.map(order => 
+        order.id === orderId ? { ...order, ...updatePayload } : order
+      ));
+
+      // 2. Atualização no banco de dados
       const { error } = await supabase
         .from('orders')
         .update(updatePayload)
         .eq('id', orderId);
 
       if (error) throw error;
-      // Removido showSuccess("Pedido atualizado!") para evitar repetição
     } catch (err: any) {
       showError("Erro ao atualizar status.");
+      // O listener de tempo real deve reverter o estado se a atualização falhar, mas um fetch manual pode ser mais seguro aqui.
+      fetchOrders(); 
     }
   };
 
