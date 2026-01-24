@@ -73,10 +73,21 @@ const MerchantOrdersPage = () => {
   }, []);
 
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
+    let updatePayload: any = { status: newStatus };
+
+    if (newStatus === 'PREPARING') {
+      // Set initial timer for 15 minutes when moving to PREPARING
+      const autoTransitionAt = new Date(Date.now() + 15 * 60000).toISOString();
+      updatePayload = { status: newStatus, auto_transition_at: autoTransitionAt };
+    } else {
+      // Clear timer for other transitions
+      updatePayload = { status: newStatus, auto_transition_at: null };
+    }
+    
     try {
       const { error } = await supabase
         .from('orders')
-        .update({ status: newStatus, auto_transition_at: null }) // Limpa o cronômetro ao mudar manual
+        .update(updatePayload)
         .eq('id', orderId);
 
       if (error) throw error;
