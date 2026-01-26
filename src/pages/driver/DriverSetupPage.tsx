@@ -405,7 +405,7 @@ const DriverSetupPage = () => {
                       <div className="text-center">
                         <p className="font-bold text-gray-700">Documento do Veículo (CRLV)</p>
                         <p className="text-xs text-gray-400">
-                          {documents.vehicleDocUrl ? "Documento anexado" : "Envie o documento atualizado"}
+                          {documents.vehicleDocUrl ? "Documento anexado" : "JPG, PNG ou PDF até 5MB"}
                         </p>
                       </div>
                     </div>
