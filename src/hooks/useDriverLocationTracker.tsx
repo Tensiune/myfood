@@ -19,7 +19,8 @@ const MOCK_LOCATIONS = [
 // This hook simulates the background tracking required for drivers.
 // In a real Capacitor app, this would integrate with a native plugin.
 export function useDriverLocationTracker(isActive: boolean) {
-  const [currentLocation, setCurrentLocation] = useState<[number, number] | null>(null);
+  // Default to a central location if not tracking or initialized
+  const [currentLocation, setCurrentLocation] = useState<[number, number]>([-23.5505, -46.6333]);
   const [isTracking, setIsTracking] = useState(false);
   const [driverId, setDriverId] = useState<string | null>(null);
 
