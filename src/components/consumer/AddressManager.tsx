@@ -146,6 +146,12 @@ const AddressManager: React.FC = () => {
         finalAddress = { ...finalAddress, lat, lng };
     }
 
+    // CRITICAL CHECK: Ensure we have coordinates before saving
+    if (!finalAddress.lat || !finalAddress.lng) {
+        showError("Não foi possível obter as coordenadas do endereço. Tente novamente ou ajuste o CEP.");
+        return;
+    }
+
     if (editingId) {
       updateAddress(editingId, finalAddress);
       showSuccess("Endereço atualizado!");
