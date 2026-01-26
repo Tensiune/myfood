@@ -17,11 +17,13 @@ import {
   FileText, 
   Car, 
   Loader2,
-  ExternalLink
+  ExternalLink,
+  Lock
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/lib/supabase";
+import { getSecureUrl } from "@/lib/storage";
 
 const ValidateDriversPage = () => {
   const [drivers, setDrivers] = useState<any[]>([]);
@@ -47,6 +49,23 @@ const ValidateDriversPage = () => {
   useEffect(() => {
     fetchDrivers();
   }, []);
+
+  const handleViewDocument = async (path: string) => {
+      if (!path) return;
+      
+      // Se o path já for uma URL completa (legado), tenta abrir direto
+      if (path.startsWith('http')) {
+          window.open(path, '_blank');
+          return;
+      }
+
+      const secureUrl = await getSecureUrl('driver-documents', path);
+      if (secureUrl) {
+          window.open(secureUrl, '_blank');
+      } else {
+          showError("Não foi possível gerar um link seguro para este documento.");
+      }
+  };
 
   const handleAction = async (userId: string, newStatus: 'APPROVED' | 'REJECTED') => {
     setProcessingId(userId);
@@ -80,7 +99,7 @@ const ValidateDriversPage = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-indigo-900">Validar Entregadores</h1>
-          <p className="text-gray-500">Analise documentos e dados de veículos de novos parceiros.</p>
+          <p className="text-gray-500">Analise documentos e dados de veículos com segurança.</p>
         </div>
         <Badge className="bg-blue-600 text-white px-4 py-1.5 rounded-full">{drivers.length} Pendentes</Badge>
       </div>
@@ -131,7 +150,6 @@ const ValidateDriversPage = () => {
                         
                         <ScrollArea className="flex-1 p-8 bg-white">
                           <div className="space-y-8 pb-8">
-                            {/* Seção: Perfil */}
                             <div className="flex items-center gap-4 bg-blue-50 p-6 rounded-3xl">
                               <div className="bg-white p-4 rounded-2xl shadow-sm"><User className="h-10 w-10 text-blue-600" /></div>
                               <div>
@@ -140,7 +158,6 @@ const ValidateDriversPage = () => {
                               </div>
                             </div>
 
-                            {/* Seção: Dados Pessoais e Endereço */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div className="p-5 bg-gray-50 rounded-2xl space-y-2">
                                 <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">
@@ -162,7 +179,6 @@ const ValidateDriversPage = () => {
                               </div>
                             </div>
 
-                            {/* Seção: Veículo */}
                             <div className="p-6 border-2 border-blue-100 rounded-3xl bg-blue-50/20">
                               <h5 className="font-black text-blue-900 text-sm uppercase tracking-widest mb-4 flex items-center gap-2">
                                 <Car className="h-4 w-4" /> Informações do Veículo
@@ -174,28 +190,46 @@ const ValidateDriversPage = () => {
                               </div>
                             </div>
 
-                            {/* Seção: Documentos (Links) */}
                             <div className="space-y-4">
-                              <h5 className="font-black text-gray-900 text-sm uppercase tracking-widest flex items-center gap-2">
-                                <FileText className="h-4 w-4 text-indigo-500" /> Documentos Anexados
-                              </h5>
+                              <div className="flex items-center justify-between">
+                                <h5 className="font-black text-gray-900 text-sm uppercase tracking-widest flex items-center gap-2">
+                                    <FileText className="h-4 w-4 text-indigo-500" /> Documentos Pessoais
+                                </h5>
+                                <Badge variant="outline" className="text-[10px] gap-1 border-indigo-100 text-indigo-600">
+                                    <Lock className="h-2 w-2" /> Acesso Protegido
+                                </Badge>
+                              </div>
+                              
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 {driver.metadata?.documents?.cnhUrl && (
-                                  <a href={driver.metadata.documents.cnhUrl} target="_blank" rel="noreferrer" className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-2xl hover:border-blue-400 transition-colors group">
-                                    <span className="font-bold text-sm text-gray-700">CNH (Motorista)</span>
-                                    <ExternalLink className="h-4 w-4 text-gray-400 group-hover:text-blue-600" />
-                                  </a>
+                                  <Button 
+                                    variant="outline" 
+                                    className="h-16 rounded-2xl flex items-center justify-between px-4 border-gray-100 hover:border-blue-400 hover:bg-blue-50 transition-all group"
+                                    onClick={() => handleViewDocument(driver.metadata.documents.cnhUrl)}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-gray-100 rounded-xl group-hover:bg-white"><FileText className="h-4 w-4 text-gray-500" /></div>
+                                        <span className="font-bold text-sm text-gray-700">Ver CNH</span>
+                                    </div>
+                                    <ExternalLink className="h-4 w-4 text-gray-300 group-hover:text-blue-600" />
+                                  </Button>
                                 )}
                                 {driver.metadata?.documents?.vehicleDocUrl && (
-                                  <a href={driver.metadata.documents.vehicleDocUrl} target="_blank" rel="noreferrer" className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-2xl hover:border-blue-400 transition-colors group">
-                                    <span className="font-bold text-sm text-gray-700">CRLV (Veículo)</span>
-                                    <ExternalLink className="h-4 w-4 text-gray-400 group-hover:text-blue-600" />
-                                  </a>
+                                  <Button 
+                                    variant="outline" 
+                                    className="h-16 rounded-2xl flex items-center justify-between px-4 border-gray-100 hover:border-blue-400 hover:bg-blue-50 transition-all group"
+                                    onClick={() => handleViewDocument(driver.metadata.documents.vehicleDocUrl)}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-gray-100 rounded-xl group-hover:bg-white"><Car className="h-4 w-4 text-gray-500" /></div>
+                                        <span className="font-bold text-sm text-gray-700">Ver CRLV</span>
+                                    </div>
+                                    <ExternalLink className="h-4 w-4 text-gray-300 group-hover:text-blue-600" />
+                                  </Button>
                                 )}
                               </div>
                             </div>
 
-                            {/* Ações Finais */}
                             <div className="flex gap-4 pt-4 border-t border-gray-100">
                               <Button 
                                 className="flex-1 bg-red-500 hover:bg-red-600 rounded-2xl gap-2 h-14 font-bold" 
