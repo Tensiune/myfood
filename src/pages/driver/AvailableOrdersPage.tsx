@@ -52,26 +52,47 @@ const AvailableOrdersPage = () => {
     const merchantMeta = order.merchant.metadata || {};
     const storeAddress = merchantMeta.store_details?.address || merchantMeta.address || {};
     
-    const storeLat = parseFloat(storeAddress.lat) || 0;
-    const storeLng = parseFloat(storeAddress.lng) || 0;
-    
-    const deliveryLat = order.delivery_address?.lat || 0;
-    const deliveryLng = order.delivery_address?.lng || 0;
+    // Função auxiliar para parsear coordenadas de forma segura
+    const safeParseFloat = (value: any): number | null => {
+      if (value === null || value === undefined) return null;
+      const parsed = parseFloat(String(value));
+      return isNaN(parsed) ? null : parsed;
+    };
 
-    // Distance calculations using current driver location
-    const distanceToStore = calculateDistance(currentDriverLat, currentDriverLng, storeLat, storeLng);
-    const deliveryDistance = calculateDistance(storeLat, storeLng, deliveryLat, deliveryLng);
+    const storeLat = safeParseFloat(storeAddress.lat);
+    const storeLng = safeParseFloat(storeAddress.lng);
+    
+    const deliveryLat = safeParseFloat(order.delivery_address?.lat);
+    const deliveryLng = safeParseFloat(order.delivery_address?.lng);
+
+    let distanceToStore = 'N/A';
+    let deliveryDistance = 'N/A';
+
+    // 1. Calcular distância do motorista até a loja
+    if (storeLat !== null && storeLng !== null) {
+        const dist = calculateDistance(currentDriverLat, currentDriverLng, storeLat, storeLng);
+        distanceToStore = dist.toFixed(1);
+    }
+
+    // 2. Calcular distância da loja até o cliente
+    if (storeLat !== null && storeLng !== null && deliveryLat !== null && deliveryLng !== null) {
+        const dist = calculateDistance(storeLat, storeLng, deliveryLat, deliveryLng);
+        deliveryDistance = dist.toFixed(1);
+    }
 
     return {
         id: order.id,
         storeName: order.merchant.store_name || 'Loja Parceira',
         storeNeighborhood: storeAddress.neighborhood || 'N/A',
         deliveryNeighborhood: order.delivery_address?.neighborhood || 'N/A',
-        distanceToStore: distanceToStore.toFixed(1),
-        deliveryDistance: deliveryDistance.toFixed(1),
+        distanceToStore,
+        deliveryDistance,
         earnings: (parseFloat(order.total) * 0.15 + 5).toFixed(2), // Mock earnings calculation
         itemCount: order.items.reduce((sum: number, item: any) => sum + item.quantity, 0),
-        storeLat, storeLng, deliveryLat, deliveryLng
+        storeLat: storeLat || 0, 
+        storeLng: storeLng || 0, 
+        deliveryLat: deliveryLat || 0, 
+        deliveryLng: deliveryLng || 0
     };
   }, []);
 
@@ -93,7 +114,13 @@ const AvailableOrdersPage = () => {
       const mappedOrders = (data || []).map(order => mapOrderData(order, currentDriverLat, currentDriverLng));
       
       // Sort by distance to store (closest first)
-      mappedOrders.sort((a, b) => parseFloat(a.distanceToStore) - parseFloat(b.distanceToStore));
+      mappedOrders.sort((a, b) => {
+        const distA = parseFloat(a.distanceToStore);
+        const distB = parseFloat(b.distanceToStore);
+        if (isNaN(distA)) return 1;
+        if (isNaN(distB)) return -1;
+        return distA - distB;
+      });
 
       setAvailableOrders(mappedOrders);
     } catch (err: any) {
@@ -110,6 +137,7 @@ const AvailableOrdersPage = () => {
 
   // Efeito para buscar pedidos quando a localização do motorista for atualizada
   useEffect(() => {
+    // Só busca se a localização for válida (não 0,0)
     if (driverLat !== 0 && driverLng !== 0) {
       fetchAvailableOrders(driverLat, driverLng);
     }
