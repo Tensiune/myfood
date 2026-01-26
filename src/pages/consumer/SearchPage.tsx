@@ -58,8 +58,8 @@ const SearchPage = () => {
           category: meta.category || "Restaurantes",
           is_open: m.is_open,
           location: { 
-            lat: lat, 
-            lng: lng 
+            lat: isNaN(lat) ? 0 : lat, 
+            lng: isNaN(lng) ? 0 : lng 
           },
           logistics: { 
             radius: deliveryArea.radius || 5, 

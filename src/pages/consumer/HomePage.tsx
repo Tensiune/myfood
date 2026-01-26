@@ -45,17 +45,21 @@ const HomePage = () => {
           const storeDetails = meta.store_details || {};
           const deliveryArea = meta.delivery_area || { radius: 5, exclusionZones: [] };
           const addr = storeDetails.address || meta.address || {};
+          
+          // Garante que lat/lng sejam números válidos, usando fallback para 0 se necessário
+          const lat = parseFloat(addr.lat) || 0;
+          const lng = parseFloat(addr.lng) || 0;
 
           return {
             id: m.id,
-            name: m.store_name || storeDetails.name || "Nova Loja",
+            name: m.store_name || storeDetails.name || "Loja",
             cuisine: meta.category || "Restaurante",
             imageUrl: storeDetails.imageUrl || "https://via.placeholder.com/400x200/indigo/FFFFFF?text=" + encodeURIComponent(m.store_name || "Loja"),
             rating: 5.0,
             deliveryTime: "30-45 min",
             location: { 
-              lat: addr.lat || -23.5505, 
-              lng: addr.lng || -46.6333 
+              lat: isNaN(lat) ? 0 : lat, 
+              lng: isNaN(lng) ? 0 : lng 
             },
             logistics: { 
               radius: deliveryArea.radius || 5, 
