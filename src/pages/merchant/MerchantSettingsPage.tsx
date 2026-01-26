@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { 
   Store, 
   Map, 
+  MapPin,
   Clock, 
   CreditCard, 
   Save, 
