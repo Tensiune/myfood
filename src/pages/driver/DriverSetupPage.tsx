@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +47,7 @@ const DriverSetupPage = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
   const [loadingCep, setLoadingCep] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
 
@@ -83,6 +84,27 @@ const DriverSetupPage = () => {
     account: "",
     pix: ""
   });
+
+  // Carregar dados existentes ao montar o componente
+  useEffect(() => {
+    const fetchCurrentData = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.user_metadata) {
+          const meta = user.user_metadata;
+          if (meta.address) setAddress(meta.address);
+          if (meta.vehicle) setVehicle(meta.vehicle);
+          if (meta.documents) setDocuments(meta.documents);
+          if (meta.bank_info) setBank(meta.bank_info);
+        }
+      } catch (err) {
+        console.error("Erro ao carregar dados do entregador:", err);
+      } finally {
+        setInitializing(false);
+      }
+    };
+    fetchCurrentData();
+  }, []);
 
   const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
     const cep = e.target.value.replace(/\D/g, "");
@@ -121,8 +143,6 @@ const DriverSetupPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado.");
 
-      // Enviamos para o bucket PRIVADO 'driver-documents'
-      // O caminho começa com o ID do usuário para respeitar as políticas de RLS
       const url = await uploadFile(file, `${user.id}`, "driver-documents");
       
       if (url) {
@@ -202,6 +222,15 @@ const DriverSetupPage = () => {
       setLoading(false);
     }
   };
+
+  if (initializing) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
+        <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
+        <p className="text-gray-500 font-bold">Recuperando seus dados...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col p-4 py-12">
