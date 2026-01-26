@@ -118,7 +118,7 @@ const HomePage = () => {
 
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-indigo-700">Categorias</h2>
-        <Carousel opts={{ align: "start" }} className="w-full">
+        <Carousel opts={{ align: "start" }} className="w-full relative">
           <CarouselContent className="-ml-2">
             {categories.map((category, index) => (
               <CarouselItem key={index} className="pl-2 basis-1/3 sm:basis-1/4 md:basis-1/5 lg:basis-1/6">
@@ -126,8 +126,11 @@ const HomePage = () => {
               </CarouselItem>
             ))}
           </CarouselContent>
-          <CarouselPrevious className="hidden sm:flex" />
-          <CarouselNext className="hidden sm:flex" />
+          {/* Removendo a classe 'hidden sm:flex' para garantir que os botões sejam renderizados e funcionais, 
+              e ajustando o posicionamento para que fiquem visíveis fora do conteúdo do carrossel. 
+              O componente CarouselNext/Previous já lida com o posicionamento absoluto. */}
+          <CarouselPrevious className="absolute left-0 top-1/2 -translate-y-1/2 z-10 hidden sm:flex" />
+          <CarouselNext className="absolute right-0 top-1/2 -translate-y-1/2 z-10 hidden sm:flex" />
         </Carousel>
       </section>
 
