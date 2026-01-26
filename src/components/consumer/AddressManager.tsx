@@ -25,6 +25,26 @@ const AddressManager: React.FC = () => {
   });
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  const geocodeAddress = useCallback(async (addr: Partial<Address>): Promise<{ lat?: number, lng?: number }> => {
+    if (!addr.street || !addr.city) return {};
+    
+    const fullAddress = `${addr.street}, ${addr.number || ''}, ${addr.city}, ${addr.state || 'Brasil'}`;
+    
+    try {
+      const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`);
+      const geoData = await geoRes.json();
+      
+      if (geoData && geoData.length > 0) {
+        const lat = parseFloat(geoData[0].lat);
+        const lng = parseFloat(geoData[0].lon);
+        return { lat, lng };
+      }
+    } catch (error) {
+      console.error("Failed to geocode address:", error);
+    }
+    return {};
+  }, []);
+
   const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
     const cep = e.target.value.replace(/\D/g, "");
     if (cep.length === 8) {
@@ -36,12 +56,23 @@ const AddressManager: React.FC = () => {
         if (data.erro) {
           showError("CEP não encontrado.");
         } else {
-          setCurrentAddress(prev => ({
-            ...prev,
+          const newAddress = {
+            ...currentAddress,
             street: data.logradouro,
             neighborhood: data.bairro,
             city: data.localidade,
             state: data.uf,
+            zipCode: cep,
+          };
+          
+          // Tenta geocodificar imediatamente após o CEP
+          const { lat, lng } = await geocodeAddress(newAddress);
+          
+          setCurrentAddress(prev => ({
+            ...prev,
+            ...newAddress,
+            lat,
+            lng
           }));
           setShowSuggestions(false);
         }
@@ -84,30 +115,42 @@ const AddressManager: React.FC = () => {
     if (name === "street") setShowSuggestions(true);
   };
 
-  const selectSuggestion = (suggestion: any) => {
-    setCurrentAddress(prev => ({
-      ...prev,
+  const selectSuggestion = async (suggestion: any) => {
+    const newAddress: Partial<Address> = {
+      ...currentAddress,
       street: suggestion.address.road || suggestion.display_name.split(",")[0],
-      neighborhood: suggestion.address.suburb || suggestion.address.neighbourhood || prev.neighborhood,
-      city: suggestion.address.city || suggestion.address.town || prev.city,
-      state: suggestion.address.state_code || prev.state,
-    }));
+      neighborhood: suggestion.address.suburb || suggestion.address.neighbourhood || currentAddress.neighborhood,
+      city: suggestion.address.city || suggestion.address.town || currentAddress.city,
+      state: suggestion.address.state_code || currentAddress.state,
+      lat: parseFloat(suggestion.lat),
+      lng: parseFloat(suggestion.lon),
+    };
+    
+    setCurrentAddress(newAddress);
     setShowSuggestions(false);
     setStreetSuggestions([]);
   };
 
-  const handleSaveAddress = () => {
+  const handleSaveAddress = async () => {
     if (!currentAddress.street || !currentAddress.number || !currentAddress.neighborhood ||
         !currentAddress.city || !currentAddress.state || !currentAddress.zipCode) {
       showError("Por favor, preencha todos os campos obrigatórios.");
       return;
     }
+    
+    let finalAddress = currentAddress;
+    
+    // Se lat/lng estiverem faltando, tenta geocodificar antes de salvar
+    if (!finalAddress.lat || !finalAddress.lng) {
+        const { lat, lng } = await geocodeAddress(finalAddress);
+        finalAddress = { ...finalAddress, lat, lng };
+    }
 
     if (editingId) {
-      updateAddress(editingId, currentAddress);
+      updateAddress(editingId, finalAddress);
       showSuccess("Endereço atualizado!");
     } else {
-      addAddress(currentAddress as Omit<Address, "id">);
+      addAddress(finalAddress as Omit<Address, "id">);
       showSuccess("Endereço adicionado!");
     }
 

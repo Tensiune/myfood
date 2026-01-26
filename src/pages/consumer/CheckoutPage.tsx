@@ -49,6 +49,7 @@ const CheckoutPage = () => {
       const userPhone = user.user_metadata?.phone || "0000";
       const code = userPhone.replace(/\D/g, "").slice(-4);
 
+      // Garantimos que o selectedAddress (que agora é geocodificado) seja salvo
       const { error } = await supabase
         .from('orders')
         .insert({
@@ -57,7 +58,7 @@ const CheckoutPage = () => {
           items: items,
           total: total,
           payment_method: selectedPaymentType,
-          delivery_address: selectedAddress,
+          delivery_address: selectedAddress, // selectedAddress agora inclui lat/lng
           status: 'PENDING',
           confirmation_code: code
         });
