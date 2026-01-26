@@ -32,6 +32,9 @@ const LoginPage = () => {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       
+      // Limpa o papel ativo para forçar o AuthGuard a ler os metadados do novo usuário
+      localStorage.removeItem('active_role');
+      
       showSuccess("Login realizado com sucesso!");
       // Navigate to root, where AuthGuard will take over and decide 
       // where to send the user based on their role/status

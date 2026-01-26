@@ -10,17 +10,9 @@ const getAvailableRoles = (user: User): UserRole[] => {
     const roles: UserRole[] = ['CONSUMER'];
     const metadataRole = user.user_metadata?.role;
 
-    if (metadataRole === 'ADMIN') {
-        roles.push('ADMIN');
-    }
-    
-    if (metadataRole === 'MERCHANT') {
-        roles.push('MERCHANT');
-    }
-    
-    if (metadataRole === 'DRIVER') {
-        roles.push('DRIVER');
-    }
+    if (metadataRole === 'ADMIN') roles.push('ADMIN');
+    if (metadataRole === 'MERCHANT') roles.push('MERCHANT');
+    if (metadataRole === 'DRIVER') roles.push('DRIVER');
     
     return Array.from(new Set(roles));
 };
@@ -35,7 +27,7 @@ const AuthGuard = () => {
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session) {
-        if (!location.pathname.startsWith("/login") && !location.pathname.includes("-register") && location.pathname !== "/forgot-password") {
+        if (!location.pathname.startsWith("/login") && !location.pathname.includes("-register") && location.pathname !== "/forgot-password" && location.pathname !== "/reset-password") {
             navigate("/login");
         }
         setLoading(false);
@@ -44,39 +36,38 @@ const AuthGuard = () => {
 
       const user = session.user;
       const availableRoles = getAvailableRoles(user);
-      const activeRole = localStorage.getItem('active_role') as UserRole | null;
+      const activeRoleFromStorage = localStorage.getItem('active_role') as UserRole | null;
       const path = location.pathname;
       
-      // If no active role is set or it's invalid for this user
+      // Inteligência de seleção de papel inicial
+      let activeRole = activeRoleFromStorage;
+      
       if (!activeRole || !availableRoles.includes(activeRole)) {
-        if (path !== "/select-role") {
-            // Intelligent redirect: if user has a professional role, prioritize it
-            const professionalRoles = availableRoles.filter(r => r !== 'CONSUMER');
-            
-            if (professionalRoles.length === 1) {
-                // Auto-select the only professional role available
-                const chosenRole = professionalRoles[0];
-                localStorage.setItem('active_role', chosenRole);
-                const targetPath = getRolePath(chosenRole, user);
-                navigate(targetPath);
-            } else if (availableRoles.length > 1) {
-                // Multiple roles (e.g. Admin + Merchant), let them choose
-                navigate("/select-role");
-            } else {
-                // Only consumer
-                localStorage.setItem('active_role', 'CONSUMER');
-                navigate("/");
-            }
-        }
-        setLoading(false);
-        return;
+          const professionalRoles = availableRoles.filter(r => r !== 'CONSUMER');
+          if (professionalRoles.length === 1) {
+              // Se tiver apenas um papel profissional, assume ele automaticamente
+              activeRole = professionalRoles[0];
+              localStorage.setItem('active_role', activeRole);
+          } else if (professionalRoles.length > 1) {
+              // Se tiver múltiplos, obriga a escolha
+              if (path !== "/select-role") {
+                  navigate("/select-role");
+                  setLoading(false);
+                  return;
+              }
+          } else {
+              // Apenas consumidor
+              activeRole = 'CONSUMER';
+              localStorage.setItem('active_role', 'CONSUMER');
+          }
       }
       
-      const expectedPrefix = getRolePrefix(activeRole);
+      const expectedPrefix = getRolePrefix(activeRole!);
       
-      // Enforce setup pages for both roles based on user metadata status
-      const isMerchantSetupRequired = activeRole === 'MERCHANT' && user.user_metadata?.status === 'NEEDS_SETUP';
-      const isDriverSetupRequired = activeRole === 'DRIVER' && user.user_metadata?.status === 'NEEDS_SETUP';
+      // Validação de Status (Setup Obrigatório)
+      const status = user.user_metadata?.status;
+      const isMerchantSetupRequired = activeRole === 'MERCHANT' && status === 'NEEDS_SETUP';
+      const isDriverSetupRequired = activeRole === 'DRIVER' && status === 'NEEDS_SETUP';
       
       if (isMerchantSetupRequired && path !== "/merchant/setup") {
           navigate("/merchant/setup");
@@ -90,29 +81,27 @@ const AuthGuard = () => {
           return;
       }
       
-      // EXCEÇÕES: Rotas compartilhadas que não precisam do prefixo do papel
+      // EXCEÇÕES: Rotas compartilhadas
       const isSharedRoute = 
         path === "/select-role" || 
         path === "/checkout" || 
         path.startsWith("/chat") || 
         path.startsWith("/track");
 
-      // Redirect if user is trying to access a prefix that doesn't match their active role
-      if (!path.startsWith(expectedPrefix) && !isSharedRoute) {
-          const targetPath = getRolePath(activeRole, user);
+      // Redirecionamento para o prefixo correto baseado no papel ATIVO
+      if (!path.startsWith(expectedPrefix) && !isSharedRoute && expectedPrefix !== '/') {
+          const targetPath = getRolePath(activeRole!, user);
           navigate(targetPath);
           setLoading(false);
           return;
       }
       
-      // Handle root path redirect
-      if (path === "/") {
-          const targetPath = getRolePath(activeRole, user);
-          if (targetPath !== "/") {
-              navigate(targetPath);
-              setLoading(false);
-              return;
-          }
+      // Se estiver na raiz e for profissional, manda pro dashboard dele
+      if (path === "/" && activeRole !== 'CONSUMER') {
+          const targetPath = getRolePath(activeRole!, user);
+          navigate(targetPath);
+          setLoading(false);
+          return;
       }
       
       setLoading(false);
@@ -129,9 +118,7 @@ const AuthGuard = () => {
       }
     });
 
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
+    return () => authListener.subscription.unsubscribe();
   }, [navigate, location.pathname]);
 
   const getRolePrefix = (role: UserRole) => {
@@ -145,10 +132,11 @@ const AuthGuard = () => {
   };
   
   const getRolePath = (role: UserRole, user: User) => {
+    const status = user.user_metadata?.status;
     switch (role) {
       case 'CONSUMER': return '/';
-      case 'MERCHANT': return user.user_metadata?.status === 'NEEDS_SETUP' ? '/merchant/setup' : '/merchant/dashboard';
-      case 'DRIVER': return user.user_metadata?.status === 'NEEDS_SETUP' ? '/driver/setup' : '/driver/orders';
+      case 'MERCHANT': return status === 'NEEDS_SETUP' ? '/merchant/setup' : '/merchant/dashboard';
+      case 'DRIVER': return status === 'NEEDS_SETUP' ? '/driver/setup' : '/driver/orders';
       case 'ADMIN': return '/admin/dashboard';
       default: return '/';
     }
@@ -160,8 +148,6 @@ const AuthGuard = () => {
         <Skeleton className="h-12 w-3/4 rounded-lg" />
         <Skeleton className="h-8 w-1/2 rounded-lg" />
         <div className="grid grid-cols-2 gap-4 w-full max-w-md">
-          <Skeleton className="h-24 rounded-xl" />
-          <Skeleton className="h-24 rounded-xl" />
           <Skeleton className="h-24 rounded-xl" />
           <Skeleton className="h-24 rounded-xl" />
         </div>

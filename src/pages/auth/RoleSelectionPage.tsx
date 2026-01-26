@@ -27,24 +27,13 @@ const RoleSelectionPage = () => {
       const roles: UserRole[] = ['CONSUMER'];
       const metadataRole = user.user_metadata?.role;
 
-      if (metadataRole === 'ADMIN') {
-        roles.push('ADMIN');
-      }
-      
-      if (metadataRole === 'MERCHANT') {
-        roles.push('MERCHANT');
-      }
-      
-      if (metadataRole === 'DRIVER') {
-        roles.push('DRIVER');
-      }
+      if (metadataRole === 'ADMIN') roles.push('ADMIN');
+      if (metadataRole === 'MERCHANT') roles.push('MERCHANT');
+      if (metadataRole === 'DRIVER') roles.push('DRIVER');
       
       const uniqueRoles = Array.from(new Set(roles));
       setAvailableRoles(uniqueRoles);
       setLoading(false);
-
-      // If only one role is available (excluding consumer usually), we could auto-redirect, 
-      // but let's keep it manual for safety unless it's just consumer.
     };
     fetchUserAndRoles();
   }, [navigate]);
@@ -70,14 +59,13 @@ const RoleSelectionPage = () => {
   };
 
   const getRolePath = (role: UserRole) => {
+    const status = user?.user_metadata?.status;
     switch (role) {
       case 'CONSUMER': return '/';
       case 'MERCHANT': 
-        const mStatus = user?.user_metadata?.status;
-        return mStatus === 'NEEDS_SETUP' ? '/merchant/setup' : '/merchant/dashboard';
+        return status === 'NEEDS_SETUP' ? '/merchant/setup' : '/merchant/dashboard';
       case 'DRIVER': 
-        const dStatus = user?.user_metadata?.status;
-        return dStatus === 'NEEDS_SETUP' ? '/driver/setup' : '/driver/orders';
+        return status === 'NEEDS_SETUP' ? '/driver/setup' : '/driver/orders';
       case 'ADMIN': return '/admin/dashboard';
       default: return '/';
     }
@@ -103,21 +91,20 @@ const RoleSelectionPage = () => {
         <CardHeader className="text-center space-y-2">
           <CardTitle className="text-3xl font-bold text-indigo-800">Selecione seu Perfil</CardTitle>
           <CardDescription className="text-gray-600">
-            Você tem acesso a múltiplos painéis. Escolha como deseja continuar.
+            Escolha como deseja acessar a plataforma agora.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {availableRoles.map((role) => {
             const Icon = getRoleIcon(role);
             const label = getRoleLabel(role);
-            
             const isRejected = (role === 'MERCHANT' || role === 'DRIVER') && user?.user_metadata?.status === 'REJECTED';
 
             return (
               <button
                 key={role}
                 onClick={() => handleRoleSelect(role)}
-                className="w-full"
+                className="w-full text-left"
                 disabled={isRejected}
               >
                 <div className={`flex items-center justify-between p-4 rounded-xl border transition-colors ${
@@ -133,14 +120,12 @@ const RoleSelectionPage = () => {
                       role === 'ADMIN' ? 'text-red-600' :
                       'text-indigo-600'
                     }`} />
-                    <div className="text-left">
+                    <div>
                         <span className="font-bold text-gray-800 block">{label}</span>
-                        {isRejected && (
-                            <span className="text-xs text-red-500 font-medium">Acesso Negado</span>
-                        )}
+                        {isRejected && <span className="text-[10px] text-red-500 font-bold uppercase">Acesso Negado</span>}
                     </div>
                   </div>
-                  <ArrowRight className="h-5 w-5 text-gray-500" />
+                  <ArrowRight className="h-5 w-5 text-gray-400" />
                 </div>
               </button>
             );
