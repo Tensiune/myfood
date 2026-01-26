@@ -18,7 +18,7 @@ import {
   ArrowLeft,
   Loader2,
   Check
-} from "lucide-react";
+} from "lucide-center";
 import { showError, showSuccess } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
@@ -130,10 +130,9 @@ const DriverSetupPage = () => {
         showSuccess(`${type === 'cnh' ? 'CNH' : 'CRLV'} enviado com sucesso!`);
       }
     } catch (err: any) {
-      // O erro já é tratado e mostrado pela função uploadImage
+      // Erro tratado no utility
     } finally {
       setUploadingDoc(null);
-      // Reseta o input para permitir enviar o mesmo arquivo se necessário
       if (e.target) e.target.value = "";
     }
   };
@@ -359,7 +358,7 @@ const DriverSetupPage = () => {
                       type="file" 
                       ref={cnhInputRef} 
                       className="hidden" 
-                      accept="image/*,.pdf,application/pdf"
+                      accept="image/*,application/pdf,.pdf"
                       onChange={(e) => handleFileUpload(e, 'cnh')}
                     />
                     
@@ -392,7 +391,7 @@ const DriverSetupPage = () => {
                         type="file" 
                         ref={vehicleInputRef} 
                         className="hidden" 
-                        accept="image/*,.pdf,application/pdf"
+                        accept="image/*,application/pdf,.pdf"
                         onChange={(e) => handleFileUpload(e, 'vehicle')}
                       />
                       
