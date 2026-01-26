@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import React, { useState, useRef } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,12 +16,14 @@ import {
   Upload,
   ArrowRight,
   ArrowLeft,
-  Loader2
+  Loader2,
+  Check
 } from "lucide-react";
 import { showError, showSuccess } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { uploadImage } from "@/lib/storage";
 
 const VEHICLE_TYPES = [
   { id: "bike", label: "Bicicleta", icon: Bike },
@@ -46,6 +48,10 @@ const DriverSetupPage = () => {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [loadingCep, setLoadingCep] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
+
+  const cnhInputRef = useRef<HTMLInputElement>(null);
+  const vehicleInputRef = useRef<HTMLInputElement>(null);
 
   // Form states
   const [address, setAddress] = useState({
@@ -64,6 +70,11 @@ const DriverSetupPage = () => {
     brand: "",
     model: "",
     color: ""
+  });
+
+  const [documents, setDocuments] = useState({
+    cnhUrl: "",
+    vehicleDocUrl: ""
   });
 
   const [bank, setBank] = useState({
@@ -101,6 +112,30 @@ const DriverSetupPage = () => {
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cnh' | 'vehicle') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingDoc(type);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado.");
+
+      const url = await uploadImage(file, `drivers/${user.id}/docs`);
+      if (url) {
+        setDocuments(prev => ({
+          ...prev,
+          [type === 'cnh' ? 'cnhUrl' : 'vehicleDocUrl']: url
+        }));
+        showSuccess(`${type === 'cnh' ? 'CNH' : 'CRLV'} enviado com sucesso!`);
+      }
+    } catch (err: any) {
+      showError("Erro ao enviar documento.");
+    } finally {
+      setUploadingDoc(null);
+    }
+  };
+
   const handleNext = () => {
     if (step === 1) {
       if (!address.street || !address.number || !address.city) {
@@ -114,6 +149,15 @@ const DriverSetupPage = () => {
       }
       if (vehicle.type !== 'bike' && (!vehicle.plate || !vehicle.brand || !vehicle.model)) {
         showError("Preencha os dados do veículo.");
+        return;
+      }
+    } else if (step === 3) {
+      if (!documents.cnhUrl) {
+        showError("O envio da CNH é obrigatório.");
+        return;
+      }
+      if (vehicle.type !== 'bike' && !documents.vehicleDocUrl) {
+        showError("O envio do documento do veículo é obrigatório.");
         return;
       }
     } else if (step === 4) {
@@ -139,6 +183,7 @@ const DriverSetupPage = () => {
           status: 'PENDING',
           address,
           vehicle,
+          documents,
           bank_info: bank,
           setup_completed_at: new Date().toISOString()
         }
@@ -259,6 +304,7 @@ const DriverSetupPage = () => {
                     return (
                       <button
                         key={v.id}
+                        type="button"
                         onClick={() => setVehicle({...vehicle, type: v.id})}
                         className={cn(
                           "flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all gap-2",
@@ -299,20 +345,68 @@ const DriverSetupPage = () => {
                 </div>
 
                 <div className="space-y-4">
-                  <div className="p-6 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center gap-3 hover:border-indigo-400 transition-colors cursor-pointer">
-                    <Upload className="h-8 w-8 text-gray-300" />
+                  {/* CNH Upload */}
+                  <div 
+                    onClick={() => cnhInputRef.current?.click()}
+                    className={cn(
+                      "p-6 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 transition-colors cursor-pointer relative overflow-hidden",
+                      documents.cnhUrl ? "border-green-400 bg-green-50" : "border-gray-200 hover:border-indigo-400"
+                    )}
+                  >
+                    <input 
+                      type="file" 
+                      ref={cnhInputRef} 
+                      className="hidden" 
+                      accept="image/*,application/pdf"
+                      onChange={(e) => handleFileUpload(e, 'cnh')}
+                    />
+                    
+                    {uploadingDoc === 'cnh' ? (
+                      <Loader2 className="h-8 w-8 text-indigo-600 animate-spin" />
+                    ) : documents.cnhUrl ? (
+                      <CheckCircle2 className="h-8 w-8 text-green-500" />
+                    ) : (
+                      <Upload className="h-8 w-8 text-gray-300" />
+                    )}
+                    
                     <div className="text-center">
                       <p className="font-bold text-gray-700">CNH (Frente e Verso)</p>
-                      <p className="text-xs text-gray-400">JPG, PNG ou PDF até 5MB</p>
+                      <p className="text-xs text-gray-400">
+                        {documents.cnhUrl ? "Documento anexado" : "JPG, PNG ou PDF até 5MB"}
+                      </p>
                     </div>
                   </div>
 
+                  {/* Vehicle Doc Upload (CRLV) */}
                   {vehicle.type !== 'bike' && (
-                    <div className="p-6 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center gap-3 hover:border-indigo-400 transition-colors cursor-pointer">
-                      <Upload className="h-8 w-8 text-gray-300" />
+                    <div 
+                      onClick={() => vehicleInputRef.current?.click()}
+                      className={cn(
+                        "p-6 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 transition-colors cursor-pointer relative overflow-hidden",
+                        documents.vehicleDocUrl ? "border-green-400 bg-green-50" : "border-gray-200 hover:border-indigo-400"
+                      )}
+                    >
+                      <input 
+                        type="file" 
+                        ref={vehicleInputRef} 
+                        className="hidden" 
+                        accept="image/*,application/pdf"
+                        onChange={(e) => handleFileUpload(e, 'vehicle')}
+                      />
+                      
+                      {uploadingDoc === 'vehicle' ? (
+                        <Loader2 className="h-8 w-8 text-indigo-600 animate-spin" />
+                      ) : documents.vehicleDocUrl ? (
+                        <CheckCircle2 className="h-8 w-8 text-green-500" />
+                      ) : (
+                        <Upload className="h-8 w-8 text-gray-300" />
+                      )}
+                      
                       <div className="text-center">
                         <p className="font-bold text-gray-700">Documento do Veículo (CRLV)</p>
-                        <p className="text-xs text-gray-400">Envie o documento atualizado</p>
+                        <p className="text-xs text-gray-400">
+                          {documents.vehicleDocUrl ? "Documento anexado" : "Envie o documento atualizado"}
+                        </p>
                       </div>
                     </div>
                   )}
