@@ -13,7 +13,8 @@ import {
   X,
   ShieldCheck,
   Bell,
-  BarChart3
+  BarChart3,
+  Bike
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
@@ -56,6 +57,7 @@ const DashboardLayout = () => {
   const adminLinks = [
     { label: "Visão Geral", path: "/admin/dashboard", icon: LayoutDashboard },
     { label: "Validar Lojistas", path: "/admin/merchants", icon: ShieldCheck },
+    { label: "Validar Entregadores", path: "/admin/drivers", icon: Bike },
     { label: "Usuários", path: "/admin/users", icon: Users },
   ];
 

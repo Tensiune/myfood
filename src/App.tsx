@@ -30,6 +30,7 @@ import InboxPage from "./pages/consumer/InboxPage";
 import ChatPage from "./pages/consumer/ChatPage";
 import OrderTrackingPage from "./pages/consumer/OrderTrackingPage";
 import ValidateMerchantsPage from "./pages/admin/ValidateMerchantsPage";
+import ValidateDriversPage from "./pages/admin/ValidateDriversPage";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import MerchantOrdersPage from "./pages/merchant/MerchantOrdersPage";
 import AvailableOrdersPage from "./pages/driver/AvailableOrdersPage";
@@ -98,6 +99,7 @@ const App = () => (
                     {/* Admin Routes */}
                     <Route path="/admin/dashboard" element={<AdminDashboard />} />
                     <Route path="/admin/merchants" element={<ValidateMerchantsPage />} />
+                    <Route path="/admin/drivers" element={<ValidateDriversPage />} />
                     <Route path="/admin/users" element={<PlaceholderPage title="Gestão de Usuários" />} />
                   </Route>
 
