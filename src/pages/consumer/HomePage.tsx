@@ -8,7 +8,7 @@ import WelcomeHeader from "@/components/consumer/WelcomeHeader";
 import SearchBar from "@/components/consumer/SearchBar";
 import { useAddresses } from "@/context/AddressContext";
 import { canDeliver } from "@/utils/geo";
-import { MapPin, Info, Loader2, Store } from "lucide-react";
+import { MapPin, Info, Loader2, Store, Utensils, ShoppingCart, Croissant, Pill, GlassWater, Cake } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/lib/supabase";
 
@@ -19,12 +19,12 @@ const HomePage = () => {
   const { selectedAddress } = useAddresses();
 
   const categories = [
-    { name: "Restaurantes", imageUrl: "https://via.placeholder.com/100/FFD700/FFFFFF?text=Rest" },
-    { name: "Mercados", imageUrl: "https://via.placeholder.com/100/32CD32/FFFFFF?text=Merc" },
-    { name: "Padarias", imageUrl: "https://via.placeholder.com/100/DAA520/FFFFFF?text=Pade" },
-    { name: "Farmácias", imageUrl: "https://via.placeholder.com/100/8A2BE2/FFFFFF?text=Farm" },
-    { name: "Bebidas", imageUrl: "https://via.placeholder.com/100/1E90FF/FFFFFF?text=Beb" },
-    { name: "Doces", imageUrl: "https://via.placeholder.com/100/FF69B4/FFFFFF?text=Doce" },
+    { name: "Restaurantes", Icon: Utensils },
+    { name: "Mercados", Icon: ShoppingCart },
+    { name: "Padarias", Icon: Croissant },
+    { name: "Farmácias", Icon: Pill },
+    { name: "Bebidas", Icon: GlassWater },
+    { name: "Doces", Icon: Cake },
   ];
 
   useEffect(() => {
@@ -122,7 +122,7 @@ const HomePage = () => {
           <CarouselContent className="-ml-2">
             {categories.map((category, index) => (
               <CarouselItem key={index} className="pl-2 basis-1/3 sm:basis-1/4 md:basis-1/5 lg:basis-1/6">
-                <CategoryCard name={category.name} imageUrl={category.imageUrl} />
+                <CategoryCard name={category.name} Icon={category.Icon} />
               </CarouselItem>
             ))}
           </CarouselContent>
