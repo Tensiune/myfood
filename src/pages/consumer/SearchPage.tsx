@@ -40,7 +40,13 @@ const SearchPage = () => {
         const meta = m.metadata || {};
         const storeDetails = meta.store_details || {};
         const deliveryArea = meta.delivery_area || { radius: 5, exclusionZones: [] };
+        
+        // Prioriza o endereço de store_details, mas usa o endereço do metadata se store_details não tiver
         const addr = storeDetails.address || meta.address || {};
+        
+        // Garante que lat/lng sejam números válidos, usando fallback para 0 se necessário
+        const lat = parseFloat(addr.lat) || 0;
+        const lng = parseFloat(addr.lng) || 0;
 
         return {
           id: m.id,
@@ -52,8 +58,8 @@ const SearchPage = () => {
           category: meta.category || "Restaurantes",
           is_open: m.is_open,
           location: { 
-            lat: addr.lat || -23.5505, 
-            lng: addr.lng || -46.6333 
+            lat: lat, 
+            lng: lng 
           },
           logistics: { 
             radius: deliveryArea.radius || 5, 
@@ -83,6 +89,9 @@ const SearchPage = () => {
     return allMerchants.filter((restaurant) => {
       // 1. Filtragem por localização (apenas se o endereço estiver selecionado)
       if (hasLocation) {
+        // Se a loja não tem coordenadas válidas, ela não pode ser filtrada por localização, então a excluímos
+        if (restaurant.location.lat === 0 || restaurant.location.lng === 0) return false;
+        
         const canDeliverToAddress = canDeliver(
           customerLat, 
           customerLng, 
