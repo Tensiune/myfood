@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { showSuccess, showError } from "@/utils/toast";
+import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { 
   CheckCircle2, 
   XCircle, 
@@ -23,7 +23,6 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/lib/supabase";
-import { getSecureUrl } from "@/lib/storage";
 
 const ValidateDriversPage = () => {
   const [drivers, setDrivers] = useState<any[]>([]);
@@ -53,17 +52,21 @@ const ValidateDriversPage = () => {
   const handleViewDocument = async (path: string) => {
       if (!path) return;
       
-      // Se o path já for uma URL completa (legado), tenta abrir direto
-      if (path.startsWith('http')) {
-          window.open(path, '_blank');
-          return;
-      }
+      const tid = showLoading("Gerando acesso seguro...");
+      try {
+          // Chamada para a Edge Function que tem privilégios de administrador
+          const { data, error } = await supabase.functions.invoke('get-secure-document', {
+              body: { filePath: path }
+          });
 
-      const secureUrl = await getSecureUrl('driver-documents', path);
-      if (secureUrl) {
-          window.open(secureUrl, '_blank');
-      } else {
-          showError("Não foi possível gerar um link seguro para este documento.");
+          if (error || !data?.signedUrl) throw new Error(error?.message || "Não foi possível gerar o link.");
+
+          window.open(data.signedUrl, '_blank');
+      } catch (err: any) {
+          console.error(err);
+          showError("Erro de acesso: Verifique se o documento existe no servidor.");
+      } finally {
+          dismissToast(tid);
       }
   };
 
@@ -99,7 +102,7 @@ const ValidateDriversPage = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-indigo-900">Validar Entregadores</h1>
-          <p className="text-gray-500">Analise documentos e dados de veículos com segurança.</p>
+          <p className="text-gray-500">Analise documentos com visualização protegida.</p>
         </div>
         <Badge className="bg-blue-600 text-white px-4 py-1.5 rounded-full">{drivers.length} Pendentes</Badge>
       </div>
@@ -196,7 +199,7 @@ const ValidateDriversPage = () => {
                                     <FileText className="h-4 w-4 text-indigo-500" /> Documentos Pessoais
                                 </h5>
                                 <Badge variant="outline" className="text-[10px] gap-1 border-indigo-100 text-indigo-600">
-                                    <Lock className="h-2 w-2" /> Acesso Protegido
+                                    <Lock className="h-2 w-2" /> Visualização Protegida
                                 </Badge>
                               </div>
                               
