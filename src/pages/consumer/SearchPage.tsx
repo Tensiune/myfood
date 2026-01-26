@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Input } from "@/components/ui/input";
-import { Search, Filter, Star, Clock, Info, Store, Loader2 } from "lucide-react";
+import { Search, Filter, Star, Clock, Info, Store, Loader2, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import RestaurantCard from "@/components/consumer/RestaurantCard";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import { showError } from "@/utils/toast";
 import { useAddresses } from "@/context/AddressContext";
@@ -41,29 +43,26 @@ const SearchPage = () => {
         const storeDetails = meta.store_details || {};
         const deliveryArea = meta.delivery_area || { radius: 5, exclusionZones: [] };
         
-        // Prioriza o endereço de store_details, mas usa o endereço do metadata se store_details não tiver
         const addr = storeDetails.address || meta.address || {};
-        
-        // Garante que lat/lng sejam números válidos, usando fallback para 0 se necessário
-        const lat = parseFloat(addr.lat) || 0;
-        const lng = parseFloat(addr.lng) || 0;
+        const lat = parseFloat(addr.lat);
+        const lng = parseFloat(addr.lng);
 
         return {
           id: m.id,
           name: m.store_name || storeDetails.name || "Loja Parceira",
           cuisine: meta.category || "Restaurante",
           imageUrl: storeDetails.imageUrl || "https://via.placeholder.com/400x200/indigo/FFFFFF?text=" + encodeURIComponent(m.store_name || "Loja"),
-          rating: 4.5, // Mock rating for now
-          deliveryTime: "30-45 min", // Mock delivery time for now
+          rating: 4.5,
+          deliveryTime: "30-45 min",
           category: meta.category || "Restaurantes",
-          is_open: m.is_open,
+          is_open: m.is_open ?? false,
           location: { 
             lat: isNaN(lat) ? 0 : lat, 
             lng: isNaN(lng) ? 0 : lng 
           },
           logistics: { 
-            radius: deliveryArea.radius || 5, 
-            exclusionZones: deliveryArea.exclusionZones || [] 
+            radius: parseFloat(deliveryArea.radius) || 5, 
+            exclusionZones: Array.isArray(deliveryArea.exclusionZones) ? deliveryArea.exclusionZones : [] 
           }
         };
       });
@@ -84,46 +83,46 @@ const SearchPage = () => {
   const filteredRestaurants = useMemo(() => {
     const customerLat = selectedAddress?.lat;
     const customerLng = selectedAddress?.lng;
-    const hasLocation = customerLat && customerLng;
 
     return allMerchants.filter((restaurant) => {
-      // 1. Filtragem por localização (apenas se o endereço estiver selecionado)
-      if (hasLocation) {
-        // Se a loja não tem coordenadas válidas, ela não pode ser filtrada por localização, então a excluímos
-        if (restaurant.location.lat === 0 || restaurant.location.lng === 0) return false;
+      try {
+        // 1. Filtragem por localização
+        if (customerLat != null && customerLng != null) {
+          if (restaurant.location.lat === 0 || restaurant.location.lng === 0) return false;
+          
+          const canDeliverToAddress = canDeliver(
+            customerLat, 
+            customerLng, 
+            restaurant.location.lat, 
+            restaurant.location.lng, 
+            restaurant.logistics.radius, 
+            restaurant.logistics.exclusionZones
+          );
+          if (!canDeliverToAddress) return false;
+        }
+
+        // 2. Filtragem por termo de busca
+        const matchesSearchTerm = restaurant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                  restaurant.cuisine.toLowerCase().includes(searchTerm.toLowerCase());
+        if (!matchesSearchTerm) return false;
         
-        const canDeliverToAddress = canDeliver(
-          customerLat!, // Afirma que é number
-          customerLng!, // Afirma que é number
-          restaurant.location.lat, 
-          restaurant.location.lng, 
-          restaurant.logistics.radius, 
-          restaurant.logistics.exclusionZones
-        );
-        if (!canDeliverToAddress) return false;
+        // 3. Filtragem por categoria
+        const matchesCategory = filterCategory === "all" || 
+                                restaurant.category.toLowerCase() === filterCategory.toLowerCase();
+        if (!matchesCategory) return false;
+        
+        // 4. Filtragem por avaliação
+        const matchesRating = filterRating === "all" || restaurant.rating >= parseFloat(filterRating);
+        if (!matchesRating) return false;
+
+        return true;
+      } catch (e) {
+        console.error("Erro ao filtrar restaurante:", restaurant.name, e);
+        return false;
       }
-
-      // 2. Filtragem por termo de busca
-      const matchesSearchTerm = restaurant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                restaurant.cuisine.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      // 3. Filtragem por categoria
-      const matchesCategory = filterCategory === "all" || restaurant.category.toLowerCase() === filterCategory.toLowerCase();
-      
-      // 4. Filtragem por avaliação
-      const matchesRating = filterRating === "all" || restaurant.rating >= parseFloat(filterRating);
-
-      // 5. Filtragem por tempo de entrega (mantendo a lógica mockada)
-      const matchesDeliveryTime = filterDeliveryTime === "all" ||
-                                  (filterDeliveryTime === "short" && parseInt(restaurant.deliveryTime.split('-')[0]) <= 30) ||
-                                  (filterDeliveryTime === "medium" && parseInt(restaurant.deliveryTime.split('-')[0]) > 30 && parseInt(restaurant.deliveryTime.split('-')[0]) <= 45) ||
-                                  (filterDeliveryTime === "long" && parseInt(restaurant.deliveryTime.split('-')[0]) > 45);
-
-      return matchesSearchTerm && matchesCategory && matchesRating && matchesDeliveryTime;
     });
-  }, [allMerchants, searchTerm, filterCategory, filterRating, filterDeliveryTime, selectedAddress]);
+  }, [allMerchants, searchTerm, filterCategory, filterRating, selectedAddress]);
 
-  // Extrai categorias únicas para o filtro
   const uniqueCategories = useMemo(() => {
     const cats = allMerchants.map(m => m.category).filter(Boolean);
     return Array.from(new Set(cats));
@@ -208,23 +207,6 @@ const SearchPage = () => {
                   </div>
                 </RadioGroup>
               </div>
-
-              <Separator />
-
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">Tempo de Entrega</h3>
-                <Select value={filterDeliveryTime} onValueChange={setFilterDeliveryTime}>
-                  <SelectTrigger className="w-full rounded-lg border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400">
-                    <SelectValue placeholder="Selecione o tempo" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-lg shadow-md">
-                    <SelectItem value="all">Qualquer</SelectItem>
-                    <SelectItem value="short">Até 30 min</SelectItem>
-                    <SelectItem value="medium">30-45 min</SelectItem>
-                    <SelectItem value="long">Mais de 45 min</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
           </SheetContent>
         </Sheet>
@@ -234,8 +216,8 @@ const SearchPage = () => {
         <h2 className="text-2xl font-semibold text-indigo-700">Resultados da Busca</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredRestaurants.length > 0 ? (
-            filteredRestaurants.map((restaurant, index) => (
-              <div key={index} className={cn(!restaurant.is_open && "opacity-50 grayscale")}>
+            filteredRestaurants.map((restaurant) => (
+              <div key={restaurant.id} className={cn(!restaurant.is_open && "opacity-50 grayscale")}>
                 <RestaurantCard
                   id={restaurant.id}
                   name={restaurant.name}
