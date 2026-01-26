@@ -130,9 +130,11 @@ const DriverSetupPage = () => {
         showSuccess(`${type === 'cnh' ? 'CNH' : 'CRLV'} enviado com sucesso!`);
       }
     } catch (err: any) {
-      showError("Erro ao enviar documento.");
+      // O erro já é tratado e mostrado pela função uploadImage
     } finally {
       setUploadingDoc(null);
+      // Reseta o input para permitir enviar o mesmo arquivo se necessário
+      if (e.target) e.target.value = "";
     }
   };
 
@@ -357,7 +359,7 @@ const DriverSetupPage = () => {
                       type="file" 
                       ref={cnhInputRef} 
                       className="hidden" 
-                      accept="image/*,application/pdf"
+                      accept="image/*,.pdf,application/pdf"
                       onChange={(e) => handleFileUpload(e, 'cnh')}
                     />
                     
@@ -390,7 +392,7 @@ const DriverSetupPage = () => {
                         type="file" 
                         ref={vehicleInputRef} 
                         className="hidden" 
-                        accept="image/*,application/pdf"
+                        accept="image/*,.pdf,application/pdf"
                         onChange={(e) => handleFileUpload(e, 'vehicle')}
                       />
                       
