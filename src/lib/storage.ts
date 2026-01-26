@@ -3,9 +3,6 @@ import { showError } from "@/utils/toast";
 
 /**
  * Faz o upload de um arquivo para um bucket específico do Supabase Storage.
- * @param file O arquivo a ser enviado.
- * @param path O caminho dentro do bucket (ex: 'userId/docs').
- * @param bucket O nome do bucket (padrão: 'merchant-images').
  */
 export async function uploadFile(
   file: File, 
@@ -32,10 +29,6 @@ export async function uploadFile(
       });
 
     if (uploadError) throw uploadError;
-
-    // Se o bucket for público, pegamos a URL pública.
-    // Se for privado (como o de documentos), pegamos o caminho relativo para salvar no banco.
-    // No caso de documentos privados, o ideal é salvar o path e gerar uma URL assinada quando for visualizar.
     
     const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
     return data.publicUrl;
@@ -52,3 +45,6 @@ export async function uploadFile(
     return null;
   }
 }
+
+// Alias para manter compatibilidade com o componente de produtos
+export const uploadImage = uploadFile;
