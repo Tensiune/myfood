@@ -23,7 +23,7 @@ import { showError, showSuccess } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { uploadImage } from "@/lib/storage";
+import { uploadFile } from "@/lib/storage";
 
 const VEHICLE_TYPES = [
   { id: "bike", label: "Bicicleta", icon: Bike },
@@ -121,7 +121,10 @@ const DriverSetupPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado.");
 
-      const url = await uploadImage(file, `drivers/${user.id}/docs`);
+      // Enviamos para o bucket PRIVADO 'driver-documents'
+      // O caminho começa com o ID do usuário para respeitar as políticas de RLS
+      const url = await uploadFile(file, `${user.id}`, "driver-documents");
+      
       if (url) {
         setDocuments(prev => ({
           ...prev,
@@ -130,10 +133,9 @@ const DriverSetupPage = () => {
         showSuccess(`${type === 'cnh' ? 'CNH' : 'CRLV'} enviado com sucesso!`);
       }
     } catch (err: any) {
-      // O erro já é tratado e mostrado pela função uploadImage
+      showError("Falha no envio. Verifique se o arquivo é válido.");
     } finally {
       setUploadingDoc(null);
-      // Reseta o input para permitir enviar o mesmo arquivo se necessário
       if (e.target) e.target.value = "";
     }
   };
@@ -347,7 +349,6 @@ const DriverSetupPage = () => {
                 </div>
 
                 <div className="space-y-4">
-                  {/* CNH Upload */}
                   <div 
                     onClick={() => cnhInputRef.current?.click()}
                     className={cn(
@@ -359,7 +360,7 @@ const DriverSetupPage = () => {
                       type="file" 
                       ref={cnhInputRef} 
                       className="hidden" 
-                      accept="image/*,.pdf,application/pdf"
+                      accept=".pdf,application/pdf,image/*"
                       onChange={(e) => handleFileUpload(e, 'cnh')}
                     />
                     
@@ -374,12 +375,11 @@ const DriverSetupPage = () => {
                     <div className="text-center">
                       <p className="font-bold text-gray-700">CNH (Frente e Verso)</p>
                       <p className="text-xs text-gray-400">
-                        {documents.cnhUrl ? "Documento anexado" : "JPG, PNG ou PDF até 5MB"}
+                        {documents.cnhUrl ? "Documento anexado" : "PDF, JPG ou PNG até 5MB"}
                       </p>
                     </div>
                   </div>
 
-                  {/* Vehicle Doc Upload (CRLV) */}
                   {vehicle.type !== 'bike' && (
                     <div 
                       onClick={() => vehicleInputRef.current?.click()}
@@ -392,7 +392,7 @@ const DriverSetupPage = () => {
                         type="file" 
                         ref={vehicleInputRef} 
                         className="hidden" 
-                        accept="image/*,.pdf,application/pdf"
+                        accept=".pdf,application/pdf,image/*"
                         onChange={(e) => handleFileUpload(e, 'vehicle')}
                       />
                       
@@ -407,7 +407,7 @@ const DriverSetupPage = () => {
                       <div className="text-center">
                         <p className="font-bold text-gray-700">Documento do Veículo (CRLV)</p>
                         <p className="text-xs text-gray-400">
-                          {documents.vehicleDocUrl ? "Documento anexado" : "JPG, PNG ou PDF até 5MB"}
+                          {documents.vehicleDocUrl ? "Documento anexado" : "PDF, JPG ou PNG até 5MB"}
                         </p>
                       </div>
                     </div>
