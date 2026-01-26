@@ -93,8 +93,8 @@ const SearchPage = () => {
         if (restaurant.location.lat === 0 || restaurant.location.lng === 0) return false;
         
         const canDeliverToAddress = canDeliver(
-          customerLat, 
-          customerLng, 
+          customerLat!, // Afirma que é number
+          customerLng!, // Afirma que é number
           restaurant.location.lat, 
           restaurant.location.lng, 
           restaurant.logistics.radius, 

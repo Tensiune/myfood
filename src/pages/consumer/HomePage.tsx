@@ -81,12 +81,15 @@ const HomePage = () => {
 
   // Filtragem baseada em localização
   const availableRestaurants = useMemo(() => {
-    if (!selectedAddress?.lat || !selectedAddress?.lng) return restaurants;
+    const customerLat = selectedAddress?.lat;
+    const customerLng = selectedAddress?.lng;
+    
+    if (!customerLat || !customerLng) return restaurants;
 
     return restaurants.filter(rest => 
       canDeliver(
-        selectedAddress.lat!, 
-        selectedAddress.lng!, 
+        customerLat!, 
+        customerLng!, 
         rest.location.lat, 
         rest.location.lng, 
         rest.logistics.radius, 
