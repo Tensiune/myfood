@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Input } from "@/components/ui/input";
-import { Search, Filter, Star, Clock } from "lucide-react";
+import { Search, Filter, Star, Clock, Info, Store, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import RestaurantCard from "@/components/consumer/RestaurantCard";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -10,88 +10,137 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { supabase } from "@/lib/supabase";
+import { showError } from "@/utils/toast";
+import { useAddresses } from "@/context/AddressContext";
+import { canDeliver } from "@/utils/geo";
+import { cn } from "@/lib/utils";
 
 const SearchPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterRating, setFilterRating] = useState("all");
   const [filterDeliveryTime, setFilterDeliveryTime] = useState("all");
+  const [allMerchants, setAllMerchants] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { selectedAddress } = useAddresses();
 
-  const allRestaurants = [
-    {
-      id: "1",
-      name: "Restaurante Sabor",
-      cuisine: "Culinária Brasileira",
-      imageUrl: "https://via.placeholder.com/400x200/FF6347/FFFFFF?text=Sabor",
-      rating: 4.5,
-      deliveryTime: "30-45 min",
-      category: "Restaurantes",
-    },
-    {
-      id: "2",
-      name: "Pizzaria Delícia",
-      cuisine: "Pizzas e Massas",
-      imageUrl: "https://via.placeholder.com/400x200/FFA500/FFFFFF?text=Pizza",
-      rating: 4.8,
-      deliveryTime: "20-35 min",
-      category: "Restaurantes",
-    },
-    {
-      id: "3",
-      name: "Sushi Express",
-      cuisine: "Comida Japonesa",
-      imageUrl: "https://via.placeholder.com/400x200/4682B4/FFFFFF?text=Sushi",
-      rating: 4.7,
-      deliveryTime: "35-50 min",
-      category: "Restaurantes",
-    },
-    {
-      id: "4",
-      name: "Hamburgueria Top",
-      cuisine: "Hambúrgueres Artesanais",
-      imageUrl: "https://via.placeholder.com/400x200/8B4513/FFFFFF?text=Burger",
-      rating: 4.6,
-      deliveryTime: "25-40 min",
-      category: "Restaurantes",
-    },
-    {
-      id: "5",
-      name: "Mercado Fresco",
-      cuisine: "Supermercado",
-      imageUrl: "https://via.placeholder.com/400x200/32CD32/FFFFFF?text=Mercado",
-      rating: 4.2,
-      deliveryTime: "40-60 min",
-      category: "Mercados",
-    },
-    {
-      id: "6",
-      name: "Padaria Doce Pão",
-      cuisine: "Pães e Doces",
-      imageUrl: "https://via.placeholder.com/400x200/DAA520/FFFFFF?text=Padaria",
-      rating: 4.0,
-      deliveryTime: "20-30 min",
-      category: "Padarias",
-    },
-  ];
+  const fetchMerchants = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Busca todos os lojistas APROVADOS
+      const { data, error } = await supabase
+        .from('merchant_applications')
+        .select('*')
+        .eq('status', 'APPROVED');
 
-  const filteredRestaurants = allRestaurants.filter((restaurant) => {
-    const matchesSearchTerm = restaurant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                              restaurant.cuisine.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = filterCategory === "all" || restaurant.category === filterCategory;
-    const matchesRating = filterRating === "all" || restaurant.rating >= parseFloat(filterRating);
+      if (error) throw error;
 
-    // Simple delivery time filter (can be made more complex)
-    const matchesDeliveryTime = filterDeliveryTime === "all" ||
-                                (filterDeliveryTime === "short" && parseInt(restaurant.deliveryTime.split('-')[0]) <= 30) ||
-                                (filterDeliveryTime === "medium" && parseInt(restaurant.deliveryTime.split('-')[0]) > 30 && parseInt(restaurant.deliveryTime.split('-')[0]) <= 45) ||
-                                (filterDeliveryTime === "long" && parseInt(restaurant.deliveryTime.split('-')[0]) > 45);
+      const mappedMerchants = (data || []).map(m => {
+        const meta = m.metadata || {};
+        const storeDetails = meta.store_details || {};
+        const deliveryArea = meta.delivery_area || { radius: 5, exclusionZones: [] };
+        const addr = storeDetails.address || meta.address || {};
 
-    return matchesSearchTerm && matchesCategory && matchesRating && matchesDeliveryTime;
-  });
+        return {
+          id: m.id,
+          name: m.store_name || storeDetails.name || "Loja Parceira",
+          cuisine: meta.category || "Restaurante",
+          imageUrl: storeDetails.imageUrl || "https://via.placeholder.com/400x200/indigo/FFFFFF?text=" + encodeURIComponent(m.store_name || "Loja"),
+          rating: 4.5, // Mock rating for now
+          deliveryTime: "30-45 min", // Mock delivery time for now
+          category: meta.category || "Restaurantes",
+          is_open: m.is_open,
+          location: { 
+            lat: addr.lat || -23.5505, 
+            lng: addr.lng || -46.6333 
+          },
+          logistics: { 
+            radius: deliveryArea.radius || 5, 
+            exclusionZones: deliveryArea.exclusionZones || [] 
+          }
+        };
+      });
+
+      setAllMerchants(mappedMerchants);
+    } catch (err) {
+      console.error("Erro ao buscar lojas:", err);
+      showError("Erro ao carregar lojas disponíveis.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMerchants();
+  }, [fetchMerchants]);
+
+  const filteredRestaurants = useMemo(() => {
+    const customerLat = selectedAddress?.lat;
+    const customerLng = selectedAddress?.lng;
+    const hasLocation = customerLat && customerLng;
+
+    return allMerchants.filter((restaurant) => {
+      // 1. Filtragem por localização (apenas se o endereço estiver selecionado)
+      if (hasLocation) {
+        const canDeliverToAddress = canDeliver(
+          customerLat, 
+          customerLng, 
+          restaurant.location.lat, 
+          restaurant.location.lng, 
+          restaurant.logistics.radius, 
+          restaurant.logistics.exclusionZones
+        );
+        if (!canDeliverToAddress) return false;
+      }
+
+      // 2. Filtragem por termo de busca
+      const matchesSearchTerm = restaurant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                restaurant.cuisine.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      // 3. Filtragem por categoria
+      const matchesCategory = filterCategory === "all" || restaurant.category.toLowerCase() === filterCategory.toLowerCase();
+      
+      // 4. Filtragem por avaliação
+      const matchesRating = filterRating === "all" || restaurant.rating >= parseFloat(filterRating);
+
+      // 5. Filtragem por tempo de entrega (mantendo a lógica mockada)
+      const matchesDeliveryTime = filterDeliveryTime === "all" ||
+                                  (filterDeliveryTime === "short" && parseInt(restaurant.deliveryTime.split('-')[0]) <= 30) ||
+                                  (filterDeliveryTime === "medium" && parseInt(restaurant.deliveryTime.split('-')[0]) > 30 && parseInt(restaurant.deliveryTime.split('-')[0]) <= 45) ||
+                                  (filterDeliveryTime === "long" && parseInt(restaurant.deliveryTime.split('-')[0]) > 45);
+
+      return matchesSearchTerm && matchesCategory && matchesRating && matchesDeliveryTime;
+    });
+  }, [allMerchants, searchTerm, filterCategory, filterRating, filterDeliveryTime, selectedAddress]);
+
+  // Extrai categorias únicas para o filtro
+  const uniqueCategories = useMemo(() => {
+    const cats = allMerchants.map(m => m.category).filter(Boolean);
+    return Array.from(new Set(cats));
+  }, [allMerchants]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
+        <p className="text-gray-500 font-bold">Buscando lojas aprovadas...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-20">
       <h1 className="text-4xl font-bold text-indigo-800 text-center">Buscar Estabelecimentos</h1>
+
+      {!selectedAddress && (
+        <Alert className="bg-brand-accent/10 border-brand-accent/50 rounded-2xl">
+          <MapPin className="h-4 w-4 text-brand-accent" />
+          <AlertDescription className="text-sm font-medium text-indigo-900">
+            Selecione um endereço para filtrar as lojas que entregam em sua região.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="flex items-center space-x-2">
         <div className="relative flex-grow">
@@ -122,18 +171,12 @@ const SearchPage = () => {
                     <RadioGroupItem value="all" id="category-all" />
                     <Label htmlFor="category-all">Todas</Label>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="Restaurantes" id="category-restaurants" />
-                    <Label htmlFor="category-restaurants">Restaurantes</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="Mercados" id="category-markets" />
-                    <Label htmlFor="category-markets">Mercados</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="Padarias" id="category-bakeries" />
-                    <Label htmlFor="category-bakeries">Padarias</Label>
-                  </div>
+                  {uniqueCategories.map(cat => (
+                    <div key={cat} className="flex items-center space-x-2">
+                      <RadioGroupItem value={cat} id={`category-${cat}`} />
+                      <Label htmlFor={`category-${cat}`} className="capitalize">{cat}</Label>
+                    </div>
+                  ))}
                 </RadioGroup>
               </div>
 
@@ -183,15 +226,21 @@ const SearchPage = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredRestaurants.length > 0 ? (
             filteredRestaurants.map((restaurant, index) => (
-              <RestaurantCard
-                key={index}
-                id={restaurant.id}
-                name={restaurant.name}
-                cuisine={restaurant.cuisine}
-                imageUrl={restaurant.imageUrl}
-                rating={restaurant.rating}
-                deliveryTime={restaurant.deliveryTime}
-              />
+              <div key={index} className={cn(!restaurant.is_open && "opacity-50 grayscale")}>
+                <RestaurantCard
+                  id={restaurant.id}
+                  name={restaurant.name}
+                  cuisine={restaurant.cuisine}
+                  imageUrl={restaurant.imageUrl}
+                  rating={restaurant.rating}
+                  deliveryTime={restaurant.deliveryTime}
+                />
+                {!restaurant.is_open && (
+                  <Badge className="mt-1 bg-red-500 text-white rounded-full text-xs font-bold w-full justify-center">
+                    Fechado
+                  </Badge>
+                )}
+              </div>
             ))
           ) : (
             <p className="text-center text-gray-600 col-span-full">Nenhum estabelecimento encontrado com os filtros aplicados.</p>

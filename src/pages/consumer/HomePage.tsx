@@ -118,17 +118,17 @@ const HomePage = () => {
 
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-indigo-700">Categorias</h2>
-        {/* Adicionando padding horizontal para dar espaço aos botões em telas maiores */}
-        <div className="relative px-8 sm:px-10"> 
-          <Carousel opts={{ align: "start" }} className="w-full">
-            <CarouselContent className="-ml-2">
+        {/* Removendo padding do container e ajustando o carrossel para usar margens negativas para o conteúdo */}
+        <div className="relative"> 
+          <Carousel opts={{ align: "start" }} className="w-full max-w-full mx-auto">
+            <CarouselContent className="-ml-4"> {/* Aumentando a margem negativa para compensar o padding dos itens */}
               {categories.map((category, index) => (
-                <CarouselItem key={index} className="pl-2 basis-1/3 sm:basis-1/4 md:basis-1/5 lg:basis-1/6">
+                <CarouselItem key={index} className="pl-4 basis-1/3 sm:basis-1/4 md:basis-1/5 lg:basis-1/6">
                   <CategoryCard name={category.name} Icon={category.Icon} />
                 </CarouselItem>
               ))}
             </CarouselContent>
-            {/* Posicionando os botões fora do CarouselContent, mas dentro do novo div pai com padding */}
+            {/* Posicionando os botões nas laterais, garantindo que não sobreponham o conteúdo clicável */}
             <CarouselPrevious className="absolute left-0 top-1/2 -translate-y-1/2 z-10 hidden sm:flex" />
             <CarouselNext className="absolute right-0 top-1/2 -translate-y-1/2 z-10 hidden sm:flex" />
           </Carousel>
