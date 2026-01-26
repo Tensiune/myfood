@@ -30,13 +30,14 @@ import InboxPage from "./pages/consumer/InboxPage";
 import ChatPage from "./pages/consumer/ChatPage";
 import OrderTrackingPage from "./pages/consumer/OrderTrackingPage";
 import ValidateMerchantsPage from "./pages/admin/ValidateMerchantsPage";
-import AdminDashboard from "./pages/admin/AdminDashboard"; // Novo Import
+import AdminDashboard from "./pages/admin/AdminDashboard";
 import MerchantOrdersPage from "./pages/merchant/MerchantOrdersPage";
 import AvailableOrdersPage from "./pages/driver/AvailableOrdersPage";
 import NavigationPage from "./pages/driver/NavigationPage";
 import MerchantMenuPage from "./pages/merchant/MerchantMenuPage";
 import MerchantReportsPage from "./pages/merchant/MerchantReportsPage";
 import MerchantSetupPage from "./pages/merchant/MerchantSetupPage";
+import MerchantSettingsPage from "./pages/merchant/MerchantSettingsPage";
 import DriverSetupPage from "./pages/driver/DriverSetupPage";
 import DriverProfilePage from "./pages/driver/DriverProfilePage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
@@ -91,7 +92,7 @@ const App = () => (
                     <Route path="/merchant/dashboard" element={<MerchantOrdersPage />} />
                     <Route path="/merchant/menu" element={<MerchantMenuPage />} />
                     <Route path="/merchant/reports" element={<MerchantReportsPage />} />
-                    <Route path="/merchant/settings" element={<PlaceholderPage title="Configurações da Loja" />} />
+                    <Route path="/merchant/settings" element={<MerchantSettingsPage />} />
                     <Route path="/merchant/setup" element={<MerchantSetupPage />} />
                     
                     {/* Admin Routes */}
