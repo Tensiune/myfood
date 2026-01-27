@@ -5,13 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
 
 // Coordenadas de simulação (próximas ao centro de SP, usadas para testes de distância)
-// Estas coordenadas simulam o movimento do entregador quando ele está "Online".
-const MOCK_LOCATIONS = [
-  [-23.5505, -46.6333], // Ponto 1 (Perto da loja mockada)
-  [-23.5515, -46.6343], // Ponto 2
-  [-23.5495, -46.6323], // Ponto 3
-  [-23.5505, -46.6353], // Ponto 4
-];
+// ATUALIZADO para a localização solicitada pelo usuário: -22.119707, -51.428802
+const FIXED_MOCK_LOCATION: [number, number] = [-22.119707, -51.428802];
 
 // This hook simulates the background tracking required for drivers.
 // In a real Capacitor app, this would integrate with a native plugin.
@@ -57,13 +52,11 @@ export function useDriverLocationTracker(isActive: boolean) {
     }
 
     setIsTracking(true);
-    let mockIndex = 0;
     
     const initialUpdate = () => {
-      const [lat, lng] = MOCK_LOCATIONS[mockIndex % MOCK_LOCATIONS.length];
+      const [lat, lng] = FIXED_MOCK_LOCATION;
       setCurrentLocation([lat, lng]);
       updateLocationInDb(lat, lng);
-      mockIndex++;
     };
     
     initialUpdate();
