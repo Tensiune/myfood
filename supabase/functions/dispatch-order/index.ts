@@ -26,11 +26,15 @@ serve(async (req) => {
       .single()
 
     if (orderError || !order) throw new Error("Pedido não encontrado")
-    if (order.driver_id || order.status === 'CANCELLED') return new Response(JSON.stringify({ status: 'already_handled' }), { headers: corsHeaders })
+    if (order.driver_id || order.status === 'CANCELLED') {
+        console.log(`[dispatch-order] Pedido ${orderId} já atribuído ou cancelado.`);
+        return new Response(JSON.stringify({ status: 'already_handled' }), { headers: corsHeaders })
+    }
 
-    // Busca robusta de coordenadas
+    // Busca robusta de coordenadas da loja
     const meta = order.merchant?.metadata || {}
-    const addr = meta.store_details?.address || meta.address || {}
+    const storeDetails = meta.store_details || {}
+    const addr = storeDetails.address || meta.address || {}
     const storeLat = parseFloat(addr.lat)
     const storeLng = parseFloat(addr.lng)
 
@@ -41,43 +45,65 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: 'merchant_no_location' }), { status: 200, headers: corsHeaders })
     }
 
-    // 2. Buscar entregadores ativos
+    // 2. Buscar entregadores ativos e não bloqueados
     const now = new Date().toISOString()
-    const { data: drivers } = await supabaseAdmin
+    const { data: drivers, error: driversError } = await supabaseAdmin
       .from('driver_applications')
-      .select('id, full_name')
+      .select('id, full_name, consecutive_refusals, blocked_until')
       .eq('status', 'APPROVED')
       .or(`blocked_until.lt.${now},blocked_until.is.null`)
 
+    if (driversError) throw driversError
     if (!drivers || drivers.length === 0) {
-        console.log("[dispatch-order] Nenhum entregador aprovado no sistema.");
+        console.log("[dispatch-order] Nenhum entregador aprovado ou disponível.");
         return new Response(JSON.stringify({ success: false, reason: 'no_drivers_approved' }), { headers: corsHeaders })
     }
 
     const refusedIds = order.refused_drivers_ids || []
     const availableDrivers = drivers.filter(d => !refusedIds.includes(d.id))
+    
+    console.log(`[dispatch-order] Entregadores disponíveis (não recusaram): ${availableDrivers.length}`);
 
     // 3. Cruzar com localizações GPS
-    const { data: locations } = await supabaseAdmin
+    const { data: locations, error: locationsError } = await supabaseAdmin
       .from('driver_locations')
-      .select('*')
+      .select('driver_id, latitude, longitude')
       .in('driver_id', availableDrivers.map(d => d.id))
 
-    // 4. Ranking
+    if (locationsError) throw locationsError
+
+    // 4. Ranking e Filtragem por Proximidade (5km)
+    const MAX_DISTANCE_KM = 5.0; // Usando 5km conforme sua observação
+    
     const rankedDrivers = availableDrivers.map(driver => {
       const loc = locations?.find(l => l.driver_id === driver.id)
-      if (!loc) return { ...driver, score: -1, distance: 999 }
+      
+      if (!loc) {
+        console.log(`[dispatch-order] Entregador ${driver.full_name} (${driver.id}) sem localização GPS.`);
+        return { ...driver, score: -1, distance: 999 }
+      }
 
-      const dist = calculateDistance(storeLat, storeLng, parseFloat(loc.latitude), parseFloat(loc.longitude))
-      return { ...driver, score: (20 - dist), distance: dist }
+      const driverLat = parseFloat(loc.latitude)
+      const driverLng = parseFloat(loc.longitude)
+      
+      if (isNaN(driverLat) || isNaN(driverLng)) {
+        console.log(`[dispatch-order] Entregador ${driver.full_name} (${driver.id}) com coordenadas inválidas.`);
+        return { ...driver, score: -1, distance: 999 }
+      }
+
+      const dist = calculateDistance(storeLat, storeLng, driverLat, driverLng)
+      
+      console.log(`[dispatch-order] Entregador ${driver.full_name} (${driver.id}) Distância: ${dist.toFixed(2)} km`);
+      
+      return { ...driver, score: (MAX_DISTANCE_KM - dist), distance: dist }
     })
-    .filter(d => d.distance <= 10.0 && d.score !== -1) // Aumentado para 10km para testes
+    .filter(d => d.distance <= MAX_DISTANCE_KM && d.score !== -1)
     .sort((a, b) => b.score - a.score)
 
     const nextDriver = rankedDrivers[0]
 
     if (nextDriver) {
-      const expiresAt = new Date(Date.now() + 65000).toISOString() // 65s para margem de erro
+      const expiresAt = new Date(Date.now() + 65000).toISOString() // 65s para aceitar
       
       const { error: updateError } = await supabaseAdmin
         .from('orders')
@@ -92,7 +118,7 @@ serve(async (req) => {
       
       return new Response(JSON.stringify({ success: true, driverId: nextDriver.id }), { headers: corsHeaders })
     } else {
-      console.log(`[dispatch-order] Nenhum entregador num raio de 10km para o pedido ${orderId}`);
+      console.log(`[dispatch-order] Nenhum entregador num raio de ${MAX_DISTANCE_KM}km para o pedido ${orderId}`);
       return new Response(JSON.stringify({ success: false, reason: 'no_drivers_nearby' }), { headers: corsHeaders })
     }
 

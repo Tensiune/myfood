@@ -27,7 +27,7 @@ export function useDriverLocationTracker(isActive: boolean) {
   const updateLocationInDb = useCallback(async (lat: number, lng: number) => {
     if (!driverId) return;
     
-    console.log(`[DriverTracker] Attempting DB update for ${driverId}: ${lat}, ${lng}`); // Added log
+    // console.log(`[DriverTracker] Attempting DB update for ${driverId}: ${lat}, ${lng}`); // Removed excessive log
 
     const { error } = await supabase
       .from('driver_locations')
@@ -59,9 +59,10 @@ export function useDriverLocationTracker(isActive: boolean) {
       updateLocationInDb(lat, lng);
     };
     
+    // 1. Executa a primeira atualização imediatamente (síncrona)
     initialUpdate();
 
-    // Simula location updates every 5 seconds
+    // 2. Simula location updates a cada 5 segundos
     const interval = setInterval(initialUpdate, 5000);
 
     return () => {
