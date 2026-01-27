@@ -10,7 +10,6 @@ import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { calculateDistance } from "@/utils/geo";
 import { useDriverLocationTracker } from "@/hooks/useDriverLocationTracker";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 interface AvailableOrder {
   id: string;
@@ -29,14 +28,12 @@ interface AvailableOrder {
 
 const AvailableOrdersPage = () => {
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
   const [driverStatus, setDriverStatus] = useState<string | null>(null);
   const [availableOrders, setAvailableOrders] = useState<AvailableOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   
-  // Use a localização do hook (mesmo que mockada, é a fonte de dados)
-  const { currentLocation, isTracking } = useDriverLocationTracker(true);
+  const { currentLocation } = useDriverLocationTracker(true);
   const [driverLat, driverLng] = currentLocation;
 
   const fetchDriverStatus = useCallback(async () => {
@@ -49,48 +46,49 @@ const AvailableOrdersPage = () => {
   }, []);
 
   const mapOrderData = useCallback((order: any, currentDriverLat: number, currentDriverLng: number): AvailableOrder => {
-    const merchantMeta = order.merchant.metadata || {};
+    const merchantMeta = order.merchant?.metadata || {};
     const storeDetails = merchantMeta.store_details || {};
     const storeAddress = storeDetails.address || merchantMeta.address || {};
     
-    // Função auxiliar para parsear coordenadas de forma segura
     const safeParseFloat = (value: any): number | null => {
       if (value === null || value === undefined || value === '') return null;
       const parsed = parseFloat(String(value));
       return isNaN(parsed) ? null : parsed;
     };
 
-    // Extração de coordenadas da Loja
     const storeLat = safeParseFloat(storeAddress.lat);
     const storeLng = safeParseFloat(storeAddress.lng);
-    
-    // Extração de coordenadas do Cliente (Delivery Address)
     const deliveryLat = safeParseFloat(order.delivery_address?.lat);
     const deliveryLng = safeParseFloat(order.delivery_address?.lng);
 
     let distanceToStore = 'N/A';
     let deliveryDistance = 'N/A';
 
-    // 1. Calcular distância do motorista até a loja
+    // 1. Distância Entregador -> Loja
     if (storeLat !== null && storeLng !== null && currentDriverLat !== 0 && currentDriverLng !== 0) {
         const dist = calculateDistance(currentDriverLat, currentDriverLng, storeLat, storeLng);
         distanceToStore = dist.toFixed(1);
     }
 
-    // 2. Calcular distância da loja até o cliente
+    // 2. Distância Loja -> Cliente
     if (storeLat !== null && storeLng !== null && deliveryLat !== null && deliveryLng !== null) {
         const dist = calculateDistance(storeLat, storeLng, deliveryLat, deliveryLng);
         deliveryDistance = dist.toFixed(1);
     }
 
+    // Calcular total de itens (soma das quantidades)
+    const items = Array.isArray(order.items) ? order.items : [];
+    const totalItems = items.reduce((acc: number, item: any) => acc + (parseInt(item.quantity) || 1), 0);
+
     return {
         id: order.id,
-        storeName: order.merchant.store_name || 'Loja Parceira',
+        storeName: order.merchant?.store_name || 'Loja Parceira',
         storeNeighborhood: storeAddress.neighborhood || 'N/A',
         deliveryNeighborhood: order.delivery_address?.neighborhood || 'N/A',
         distanceToStore,
         deliveryDistance,
-        earnings: (parseFloat(order.total) * 0.15 + 5).toFixed(2), // Mock earnings calculation
+        earnings: (parseFloat(order.total) * 0.15 + 5).toFixed(2),
+        itemCount: totalItems,
         storeLat: storeLat || 0, 
         storeLng: storeLng || 0, 
         deliveryLat: deliveryLat || 0, 
@@ -115,11 +113,9 @@ const AvailableOrdersPage = () => {
 
       const mappedOrders = (data || []).map(order => mapOrderData(order, currentDriverLat, currentDriverLng));
       
-      // Sort by distance to store (closest first)
       mappedOrders.sort((a, b) => {
         const distA = parseFloat(a.distanceToStore);
         const distB = parseFloat(b.distanceToStore);
-        // Coloca N/A (NaN) no final da lista
         if (isNaN(distA)) return 1;
         if (isNaN(distB)) return -1;
         return distA - distB;
@@ -127,8 +123,7 @@ const AvailableOrdersPage = () => {
 
       setAvailableOrders(mappedOrders);
     } catch (err: any) {
-      showError("Erro ao carregar pedidos disponíveis.");
-      console.error(err);
+      showError("Erro ao carregar pedidos.");
     } finally {
       setLoading(false);
     }
@@ -138,80 +133,34 @@ const AvailableOrdersPage = () => {
     fetchDriverStatus();
   }, [fetchDriverStatus]);
 
-  // Efeito para buscar pedidos quando a localização do motorista for atualizada
   useEffect(() => {
-    // Só busca se a localização for válida (não 0,0)
     if (driverLat !== 0 && driverLng !== 0) {
       fetchAvailableOrders(driverLat, driverLng);
     }
   }, [driverLat, driverLng, fetchAvailableOrders]);
 
-  // Efeito para Realtime: Remover pedidos aceitos por outros
-  useEffect(() => {
-    const channel = supabase
-      .channel('available-orders-updates')
-      .on(
-        'postgres_changes',
-        { 
-          event: 'UPDATE', 
-          schema: 'public', 
-          table: 'orders',
-          filter: 'status=eq.OUT_FOR_DELIVERY' // Filtra apenas pedidos que saíram para entrega
-        },
-        (payload) => {
-          const acceptedOrderId = payload.new.id;
-          
-          // Se o pedido aceito não for o que este motorista aceitou (para evitar race condition)
-          if (payload.new.driver_id !== supabase.auth.getUser().data.user?.id) {
-            setAvailableOrders(prev => {
-              const isRemoved = prev.some(o => o.id === acceptedOrderId);
-              if (isRemoved) {
-                showError(`Pedido #${acceptedOrderId.slice(0, 6)} foi aceito por outro entregador.`);
-              }
-              return prev.filter(o => o.id !== acceptedOrderId);
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, []);
-
-
   const handleAcceptOrder = async (orderId: string) => {
     const driverId = await fetchDriverStatus();
     if (!driverId || driverStatus !== 'APPROVED') {
-      showError("Você não está autorizado a aceitar pedidos.");
+      showError("Sua conta precisa estar aprovada.");
       return;
     }
 
     setAcceptingId(orderId);
     try {
-      // Update order status and assign driver_id
       const { error } = await supabase
         .from('orders')
-        .update({ 
-          status: 'OUT_FOR_DELIVERY', 
-          driver_id: driverId 
-        })
+        .update({ status: 'OUT_FOR_DELIVERY', driver_id: driverId })
         .eq('id', orderId)
-        .eq('status', 'WAITING_FOR_DRIVER') // Optimistic locking check
+        .eq('status', 'WAITING_FOR_DRIVER')
         .is('driver_id', null);
 
       if (error) throw error;
 
-      showSuccess(`Pedido ${orderId.slice(0, 6)} aceito! Navegando para a loja.`);
-      
-      // Remove accepted order from list locally
-      setAvailableOrders(prev => prev.filter(o => o.id !== orderId));
-      
-      // Navigate to navigation page
+      showSuccess("Pedido aceito!");
       navigate(`/driver/map?orderId=${orderId}`);
-
     } catch (error: any) {
-      showError("Falha ao aceitar pedido. Ele pode ter sido aceito por outro entregador.");
-      // Re-fetch to update the list
+      showError("O pedido não está mais disponível.");
       fetchAvailableOrders(driverLat, driverLng);
     } finally {
       setAcceptingId(null);
@@ -219,42 +168,27 @@ const AvailableOrdersPage = () => {
   };
   
   const handleRejectOrder = (orderId: string) => {
-    // Simplesmente remove da lista localmente. 
-    // O pedido permanece no banco para outros motoristas.
     setAvailableOrders(prev => prev.filter(o => o.id !== orderId));
-    showSuccess("Pedido recusado. Ele será oferecido a outros parceiros.");
   };
 
   if (loading || driverLat === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] py-20">
         <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
-        <p className="text-gray-500 font-bold">Buscando sua localização e novas entregas...</p>
+        <p className="text-gray-500 font-bold">Localizando entregas próximas...</p>
       </div>
     );
   }
 
-  if (driverStatus === 'PENDING' || driverStatus === 'NEEDS_SETUP' || driverStatus === 'REJECTED') {
+  if (driverStatus !== 'APPROVED') {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-6 space-y-6">
         <div className="bg-yellow-100 p-6 rounded-full">
           <Clock className="h-16 w-16 text-yellow-600 animate-pulse" />
         </div>
-        <div className="space-y-2">
-          <h1 className="text-3xl font-black text-indigo-900">Perfil em Análise</h1>
-          <p className="text-gray-500 max-w-sm mx-auto">
-            Recebemos seus dados! Você receberá uma notificação assim que for aprovado.
-          </p>
-        </div>
-        <Card className="p-4 bg-indigo-50 border-indigo-100 rounded-2xl flex items-start gap-3 text-left">
-          <AlertCircle className="h-5 w-5 text-indigo-600 mt-1 shrink-0" />
-          <p className="text-xs text-indigo-800 font-medium">
-            O prazo médio de aprovação é de 24 a 48 horas úteis.
-          </p>
-        </Card>
-        <Button variant="outline" className="rounded-xl border-indigo-200" onClick={() => navigate("/driver/setup")}>
-          Revisar meus dados
-        </Button>
+        <h1 className="text-3xl font-black text-indigo-900">Perfil em Análise</h1>
+        <p className="text-gray-500 max-w-sm">Você será avisado assim que sua conta for liberada para entregas.</p>
+        <Button variant="outline" onClick={() => navigate("/driver/setup")}>Revisar Dados</Button>
       </div>
     );
   }
@@ -262,16 +196,14 @@ const AvailableOrdersPage = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black text-indigo-900">Disponíveis</h1>
-        <Badge className="bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/10 border-none px-3">
-          {availableOrders.length} pedidos
-        </Badge>
+        <h1 className="text-2xl font-black text-indigo-900">Pedidos Disponíveis</h1>
+        <Badge className="bg-indigo-100 text-indigo-700 border-none">{availableOrders.length} novos</Badge>
       </div>
 
       <div className="space-y-4">
         {availableOrders.length > 0 ? (
           availableOrders.map((order) => (
-            <Card key={order.id} className="rounded-3xl border-none shadow-md overflow-hidden bg-white">
+            <Card key={order.id} className="rounded-[2rem] border-none shadow-md overflow-hidden bg-white">
               <CardContent className="p-5 space-y-4">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
@@ -311,20 +243,13 @@ const AvailableOrdersPage = () => {
                     <span className="text-xs font-bold uppercase">{order.itemCount} item{order.itemCount !== 1 ? 's' : ''}</span>
                   </div>
                   <div className="flex gap-2">
-                    <Button 
-                      onClick={() => handleRejectOrder(order.id)}
-                      variant="outline"
-                      size="icon"
-                      className="rounded-xl border-red-100 text-red-500 hover:bg-red-50"
-                    >
-                      <XCircle className="h-4 w-4" />
-                    </Button>
+                    <Button onClick={() => handleRejectOrder(order.id)} variant="ghost" className="rounded-xl text-red-400">Recusar</Button>
                     <Button 
                       onClick={() => handleAcceptOrder(order.id)}
-                      className="rounded-xl bg-brand-accent hover:bg-brand-accent/90 text-white font-bold px-6 shadow-lg shadow-brand-accent/20"
+                      className="rounded-xl bg-brand-accent hover:bg-brand-accent/90 text-white font-bold px-6"
                       disabled={acceptingId === order.id}
                     >
-                      {acceptingId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ArrowRight className="ml-2 h-4 w-4" /> Aceitar</>}
+                      {acceptingId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Aceitar"}
                     </Button>
                   </div>
                 </div>
@@ -334,7 +259,7 @@ const AvailableOrdersPage = () => {
         ) : (
           <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-100">
             <Bike className="h-16 w-16 text-gray-100 mx-auto mb-4" />
-            <p className="text-gray-400 font-bold">Nenhum pedido disponível no momento.</p>
+            <p className="text-gray-400 font-bold">Nenhum pedido na sua área no momento.</p>
           </div>
         )}
       </div>
