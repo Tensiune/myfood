@@ -11,11 +11,26 @@ import { Button } from "@/components/ui/button";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { Card, CardContent } from "@/components/ui/card";
 
+// URL de um som de notificação padrão
+const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3";
+
 const MerchantOrdersPage = () => {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<any[]>([]);
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Inicializa o áudio
+  useEffect(() => {
+    audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
+  }, []);
+
+  const playNotificationSound = () => {
+    if (audioRef.current) {
+      audioRef.current.play().catch(err => console.error("Erro ao tocar som (bloqueio do navegador):", err));
+    }
+  };
 
   const fetchOrders = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -23,7 +38,6 @@ const MerchantOrdersPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. Status da loja
       const { data: merchantData } = await supabase
         .from('merchant_applications')
         .select('is_open')
@@ -31,7 +45,6 @@ const MerchantOrdersPage = () => {
         .single();
       if (merchantData) setIsStoreOpen(merchantData.is_open);
 
-      // 2. Buscar pedidos - Usando sintaxe explícita para o Join
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
         .select(`
@@ -49,7 +62,6 @@ const MerchantOrdersPage = () => {
       setOrders(ordersData || []);
     } catch (err: any) {
       console.error("[MerchantOrders] Erro na consulta:", err);
-      // Fallback: Tenta buscar sem o driver se o join falhar por cache do esquema
       if (err.message?.includes('relationship')) {
           const { data: fallbackData } = await supabase
             .from('orders')
@@ -77,7 +89,14 @@ const MerchantOrdersPage = () => {
         .on(
           'postgres_changes', 
           { event: '*', schema: 'public', table: 'orders', filter: `merchant_id=eq.${user.id}` }, 
-          () => fetchOrders(true)
+          (payload) => {
+            // Toca o som apenas se for um NOVO pedido (INSERT)
+            if (payload.eventType === 'INSERT') {
+              playNotificationSound();
+              showSuccess("Novo pedido recebido!");
+            }
+            fetchOrders(true);
+          }
         )
         .subscribe();
 
