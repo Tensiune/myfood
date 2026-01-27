@@ -21,16 +21,40 @@ const ConsumerLayout = () => {
   const location = useLocation();
   const { getItemCount } = useCart();
   const { selectedAddress } = useAddresses();
-  const { unreadCount } = useNotifications();
+  const { unreadCount, addNotification } = useNotifications();
   const cartItemCount = getItemCount();
 
   useEffect(() => {
-    const fetchUser = async () => {
+    const fetchUserAndSetupRealtime = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
+
+      if (user) {
+        // Monitorar pedidos em tempo real para este usuário
+        const channel = supabase
+          .channel(`consumer_notifs_${user.id}`)
+          .on(
+            'postgres_changes', 
+            { event: 'UPDATE', schema: 'public', table: 'orders', filter: `customer_id=eq.${user.id}` }, 
+            (payload) => {
+              // Se o status mudou para CANCELLED (Recusado pela loja)
+              if (payload.new.status === 'CANCELLED' && payload.old.status !== 'CANCELLED') {
+                addNotification({
+                  title: "Pedido Recusado",
+                  message: "Lamentamos, mas a loja não consegue atender seu pedido agora. Que tal tentar outra loja ou pedir novamente mais tarde?",
+                  type: "info",
+                  link: "/orders"
+                });
+              }
+            }
+          )
+          .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+      }
     };
-    fetchUser();
-  }, [navigate]);
+    fetchUserAndSetupRealtime();
+  }, [addNotification]);
 
   const navItems = [
     { path: "/", icon: Home, label: "Início" },
