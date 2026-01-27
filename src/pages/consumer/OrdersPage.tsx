@@ -3,11 +3,12 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, Clock, Loader2, ChevronRight, Key, Bike, XCircle } from "lucide-react";
+import { Package, Clock, Loader2, Key, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { showSuccess, showError, showLoading } from "@/utils/toast";
+import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
+import { cn } from "@/lib/utils";
 
 const OrdersPage = () => {
   const [orders, setOrders] = useState<any[]>([]);
@@ -73,7 +74,6 @@ const OrdersPage = () => {
   }
 
   // Filtramos apenas pedidos que não foram finalizados (DELIVERED)
-  // Mantemos o CANCELLED na lista de ativos/recentes para que o usuário veja a recusa
   const recentOrders = orders.filter(o => o.status !== "DELIVERED");
 
   return (
@@ -83,7 +83,7 @@ const OrdersPage = () => {
       {recentOrders.map((order) => (
         <Card key={order.id} className={cn(
           "rounded-3xl border-none shadow-md overflow-hidden bg-white animate-in fade-in slide-in-from-bottom-2",
-          order.status === 'CANCELLED' && "opacity-90"
+          order.status === 'CANCELLED' && "opacity-90 border-l-4 border-l-red-500"
         )}>
           <CardContent className="p-5 space-y-4">
             <div className="flex justify-between items-start">
