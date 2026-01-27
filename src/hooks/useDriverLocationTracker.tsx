@@ -4,16 +4,13 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
 
-// Mock location data for simulation purposes (simulating movement)
+// Coordenadas de simulação (próximas ao centro de SP, usadas para testes de distância)
+// Estas coordenadas simulam o movimento do entregador quando ele está "Online".
 const MOCK_LOCATIONS = [
-  [-23.5505, -46.6333], // São Paulo center
-  [-23.5510, -46.6340],
-  [-23.5515, -46.6347],
-  [-23.5520, -46.6354],
-  [-23.5525, -46.6361],
-  [-23.5530, -46.6368],
-  [-23.5535, -46.6375],
-  [-23.5540, -46.6382],
+  [-23.5505, -46.6333], // Ponto 1 (Perto da loja mockada)
+  [-23.5515, -46.6343], // Ponto 2
+  [-23.5495, -46.6323], // Ponto 3
+  [-23.5505, -46.6353], // Ponto 4
 ];
 
 // This hook simulates the background tracking required for drivers.
@@ -34,6 +31,8 @@ export function useDriverLocationTracker(isActive: boolean) {
 
   const updateLocationInDb = useCallback(async (lat: number, lng: number) => {
     if (!driverId) return;
+    
+    console.log(`[DriverTracker] Attempting DB update for ${driverId}: ${lat}, ${lng}`); // Added log
 
     const { error } = await supabase
       .from('driver_locations')
@@ -60,7 +59,6 @@ export function useDriverLocationTracker(isActive: boolean) {
     setIsTracking(true);
     let mockIndex = 0;
     
-    // Dispara a primeira atualização imediatamente
     const initialUpdate = () => {
       const [lat, lng] = MOCK_LOCATIONS[mockIndex % MOCK_LOCATIONS.length];
       setCurrentLocation([lat, lng]);
