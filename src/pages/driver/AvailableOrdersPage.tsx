@@ -64,7 +64,8 @@ const AvailableOrdersPage = () => {
       // Busca oferta inicial
       await findActiveOffer(id);
 
-      // ESCUTA EM TEMPO REAL: Quando o campo current_driver_offered_id mudar para o ID deste entregador
+      // ESCUTA EM TEMPO REAL: Escuta qualquer alteração na tabela orders e re-executa a busca
+      // Isso garante que a oferta seja detectada, mesmo que o filtro RLS seja o único a funcionar.
       const channel = supabase
         .channel('driver_radar')
         .on(
@@ -72,12 +73,14 @@ const AvailableOrdersPage = () => {
           { 
             event: 'UPDATE', 
             schema: 'public', 
-            table: 'orders', 
-            filter: `current_driver_offered_id=eq.${id}` 
+            table: 'orders'
           }, 
           (payload) => {
-            console.log("Nova oferta detectada via Realtime:", payload.new);
-            findActiveOffer(id);
+            // Verifica se o payload é relevante para este motorista antes de buscar
+            if (payload.new.current_driver_offered_id === driverId) {
+                console.log("Nova oferta detectada via Realtime:", payload.new);
+                findActiveOffer(driverId);
+            }
           }
         )
         .subscribe();
@@ -98,7 +101,7 @@ const AvailableOrdersPage = () => {
     } else if (offer && timeLeft === 0) {
       handleReject(true); // Expiração automática
     }
-  }, [timeLeft, offer]);
+  }, [timeLeft, offer, handleReject]); // Adicionado handleReject como dependência
 
   const handleAccept = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -125,7 +128,7 @@ const AvailableOrdersPage = () => {
     }
   };
 
-  const handleReject = async (isAuto = false) => {
+  const handleReject = useCallback(async (isAuto = false) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user || !offer) return;
 
@@ -155,7 +158,7 @@ const AvailableOrdersPage = () => {
     
     // Chama a Edge Function para passar o pedido ao próximo entregador do ranking
     supabase.functions.invoke('dispatch-order', { body: { orderId: offer.id } });
-  };
+  }, [offer, driverStats]);
 
   if (loading) return <div className="p-20 text-center"><Loader2 className="animate-spin mx-auto text-indigo-600" /></div>;
 
