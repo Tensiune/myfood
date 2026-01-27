@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, RefreshCcw, User, Clock } from "lucide-react";
+import { Loader2, RefreshCcw, User, Clock, BellRing } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -18,17 +18,21 @@ const MerchantOrdersPage = () => {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<any[]>([]);
-  const channelRef = useRef<RealtimeChannel | null>(null);
+  const [audioEnabled, setAudioEnabled] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Inicializa o áudio
   useEffect(() => {
     audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
+    audioRef.current.load();
   }, []);
 
   const playNotificationSound = () => {
     if (audioRef.current) {
-      audioRef.current.play().catch(err => console.error("Erro ao tocar som (bloqueio do navegador):", err));
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(err => {
+        console.warn("[MerchantOrders] Áudio bloqueado pelo navegador. Clique na página para habilitar.", err);
+      });
     }
   };
 
@@ -38,6 +42,7 @@ const MerchantOrdersPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // Status da loja
       const { data: merchantData } = await supabase
         .from('merchant_applications')
         .select('is_open')
@@ -45,6 +50,7 @@ const MerchantOrdersPage = () => {
         .single();
       if (merchantData) setIsStoreOpen(merchantData.is_open);
 
+      // Busca pedidos com dados do entregador
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
         .select(`
@@ -58,55 +64,62 @@ const MerchantOrdersPage = () => {
         .order('created_at', { ascending: false });
 
       if (ordersError) throw ordersError;
-      
       setOrders(ordersData || []);
     } catch (err: any) {
       console.error("[MerchantOrders] Erro na consulta:", err);
-      if (err.message?.includes('relationship')) {
-          const { data: fallbackData } = await supabase
-            .from('orders')
-            .select('*')
-            .eq('merchant_id', user.id)
-            .order('created_at', { ascending: false });
-          if (fallbackData) setOrders(fallbackData);
-      }
+      // Fallback caso a relação driver_id falhe
+      const { data: fallbackData } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('merchant_id', user.id)
+        .order('created_at', { ascending: false });
+      if (fallbackData) setOrders(fallbackData);
       
-      if (!isSilent) showError("Sincronizando dados...");
+      if (!isSilent) showError("Erro ao sincronizar pedidos.");
     } finally {
       if (!isSilent) setLoading(false);
     }
   }, []);
 
+  // Lógica de Realtime corrigida
   useEffect(() => {
-    fetchOrders();
+    let channel: RealtimeChannel;
 
-    const setupRealtime = async () => {
+    const initRealtime = async () => {
+      await fetchOrders(); // Carga inicial
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const channel = supabase
-        .channel(`merchant-orders-${user.id}`)
+      channel = supabase
+        .channel(`merchant_orders_${user.id}`)
         .on(
-          'postgres_changes', 
-          { event: '*', schema: 'public', table: 'orders', filter: `merchant_id=eq.${user.id}` }, 
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'orders',
+            filter: `merchant_id=eq.${user.id}`,
+          },
           (payload) => {
-            // Toca o som apenas se for um NOVO pedido (INSERT)
+            console.log("[MerchantOrders] Mudança detectada:", payload.eventType);
+            
             if (payload.eventType === 'INSERT') {
               playNotificationSound();
               showSuccess("Novo pedido recebido!");
             }
+            
+            // Recarrega a lista para refletir mudanças de status/vínculo de motorista
             fetchOrders(true);
           }
         )
         .subscribe();
-
-      channelRef.current = channel;
     };
 
-    setupRealtime();
+    initRealtime();
 
     return () => {
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [fetchOrders]);
 
@@ -161,6 +174,18 @@ const MerchantOrdersPage = () => {
     }
   };
 
+  // Função para habilitar áudio no primeiro clique do usuário
+  const enableAudio = () => {
+    if (!audioEnabled) {
+      if (audioRef.current) {
+          audioRef.current.play().then(() => {
+              audioRef.current?.pause();
+              setAudioEnabled(true);
+          }).catch(() => {});
+      }
+    }
+  };
+
   const renderOrderList = (title: string, color: string, filter: (o: any) => boolean, action: (o: any) => React.ReactNode) => {
     const filtered = orders.filter(filter);
     return (
@@ -176,7 +201,7 @@ const MerchantOrdersPage = () => {
           </div>
         ) : (
           filtered.map(order => (
-            <Card key={order.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden">
+            <Card key={order.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden animate-in fade-in slide-in-from-top-1">
               <CardContent className="p-5 space-y-4">
                 <div className="flex justify-between items-start">
                   <span className="text-[10px] font-black text-gray-400">#{order.id.slice(0, 6)}</span>
@@ -215,11 +240,19 @@ const MerchantOrdersPage = () => {
   };
 
   return (
-    <div className="space-y-8 pb-10">
+    <div className="space-y-8 pb-10" onClick={enableAudio}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div><h1 className="text-4xl font-black text-indigo-900">Pedidos</h1><p className="text-gray-500 text-sm">Gerencie suas vendas aqui.</p></div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="icon" className="rounded-full h-12 w-12 border-gray-100" onClick={() => fetchOrders()}>
+        <div>
+          <h1 className="text-4xl font-black text-indigo-900">Pedidos</h1>
+          <p className="text-gray-500 text-sm">Gerencie suas vendas em tempo real.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {!audioEnabled && (
+            <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 gap-2 px-3 py-1.5 rounded-full animate-bounce">
+              <BellRing className="h-3 w-3" /> Clique para ativar som
+            </Badge>
+          )}
+          <Button variant="outline" size="icon" className="rounded-full h-12 w-12 border-gray-100 bg-white" onClick={() => fetchOrders()}>
             <RefreshCcw className={cn("h-5 w-5", loading && "animate-spin")} />
           </Button>
           <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-3xl shadow-sm border border-gray-100">
