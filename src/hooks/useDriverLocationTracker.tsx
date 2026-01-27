@@ -19,8 +19,8 @@ const MOCK_LOCATIONS = [
 // This hook simulates the background tracking required for drivers.
 // In a real Capacitor app, this would integrate with a native plugin.
 export function useDriverLocationTracker(isActive: boolean) {
-  // Default to a central location if not tracking or initialized
-  const [currentLocation, setCurrentLocation] = useState<[number, number]>([-23.5505, -46.6333]);
+  // Inicializa com [0, 0] para forçar a espera pela primeira localização real/simulada
+  const [currentLocation, setCurrentLocation] = useState<[number, number]>([0, 0]);
   const [isTracking, setIsTracking] = useState(false);
   const [driverId, setDriverId] = useState<string | null>(null);
 
@@ -52,19 +52,26 @@ export function useDriverLocationTracker(isActive: boolean) {
   useEffect(() => {
     if (!isActive || !driverId || localStorage.getItem('driver_location_permission') !== 'granted') {
       setIsTracking(false);
+      // Se desativado, volta para o fallback inicial
+      setCurrentLocation([0, 0]);
       return;
     }
 
     setIsTracking(true);
     let mockIndex = 0;
-
-    // Simulate location updates every 5 seconds
-    const interval = setInterval(() => {
+    
+    // Dispara a primeira atualização imediatamente
+    const initialUpdate = () => {
       const [lat, lng] = MOCK_LOCATIONS[mockIndex % MOCK_LOCATIONS.length];
       setCurrentLocation([lat, lng]);
       updateLocationInDb(lat, lng);
       mockIndex++;
-    }, 5000);
+    };
+    
+    initialUpdate();
+
+    // Simula location updates every 5 seconds
+    const interval = setInterval(initialUpdate, 5000);
 
     return () => {
       clearInterval(interval);
