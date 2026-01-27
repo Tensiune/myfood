@@ -53,6 +53,73 @@ const AvailableOrdersPage = () => {
     setLoading(false);
   }, []);
 
+  const handleReject = useCallback(async (isAuto = false) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !offer) return;
+
+    // 1. Registra recusa para não ofertar novamente
+    const newRefused = [...(offer.refused_drivers_ids || []), user.id];
+    await supabase.from('orders').update({ 
+      current_driver_offered_id: null,
+      offer_expires_at: null,
+      refused_drivers_ids: newRefused
+    }).eq('id', offer.id);
+
+    // 2. Penalidade
+    const nextRefusals = (driverStats?.consecutive_refusals || 0) + 1;
+    let updates: any = { consecutive_refusals: nextRefusals };
+    
+    if (nextRefusals >= 3) {
+      const blockedUntil = new Date(Date.now() + 15 * 60000).toISOString();
+      updates.blocked_until = blockedUntil;
+      updates.consecutive_refusals = 0;
+      showError("Radar bloqueado por 15 min devido a múltiplas recusas.");
+    } else {
+      showError(isAuto ? "Oferta expirada." : "Oferta recusada.");
+    }
+
+    await supabase.from('driver_applications').update(updates).eq('id', user.id);
+    setOffer(null);
+    
+    // Chama a Edge Function para passar o pedido ao próximo entregador do ranking
+    supabase.functions.invoke('dispatch-order', { body: { orderId: offer.id } });
+  }, [offer, driverStats]);
+
+  const handleAccept = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    // Tenta assumir o pedido (transação atômica simulada pelo .is('driver_id', null))
+    const { error } = await supabase
+      .from('orders')
+      .update({ 
+        driver_id: user?.id, 
+        current_driver_offered_id: null,
+        offer_expires_at: null,
+        status: 'WAITING_FOR_DRIVER' // Move status para aguardando coleta
+      })
+      .eq('id', offer.id)
+      .is('driver_id', null);
+
+    if (error) {
+      showError("Tarde demais! Outro entregador aceitou ou a oferta expirou.");
+      setOffer(null);
+    } else {
+      await supabase.from('driver_applications').update({ consecutive_refusals: 0 }).eq('id', user?.id);
+      showSuccess("Pedido aceito! Dirija-se ao restaurante.");
+      navigate(`/driver/map?orderId=${offer.id}`);
+    }
+  };
+
+  // Timer regressivo rígido de 60s
+  useEffect(() => {
+    if (timeLeft > 0 && offer) {
+      const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
+      return () => clearTimeout(timer);
+    } else if (offer && timeLeft === 0) {
+      handleReject(true); // Agora handleReject está definido
+    }
+  }, [timeLeft, offer, handleReject]);
+
   useEffect(() => {
     let driverId: string | null = null;
 
@@ -92,73 +159,6 @@ const AvailableOrdersPage = () => {
 
     setup();
   }, [fetchDriverData, findActiveOffer]);
-
-  // Timer regressivo rígido de 60s
-  useEffect(() => {
-    if (timeLeft > 0 && offer) {
-      const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
-      return () => clearTimeout(timer);
-    } else if (offer && timeLeft === 0) {
-      handleReject(true); // Expiração automática
-    }
-  }, [timeLeft, offer, handleReject]); // Adicionado handleReject como dependência
-
-  const handleAccept = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    // Tenta assumir o pedido (transação atômica simulada pelo .is('driver_id', null))
-    const { error } = await supabase
-      .from('orders')
-      .update({ 
-        driver_id: user?.id, 
-        current_driver_offered_id: null,
-        offer_expires_at: null,
-        status: 'WAITING_FOR_DRIVER' // Move status para aguardando coleta
-      })
-      .eq('id', offer.id)
-      .is('driver_id', null);
-
-    if (error) {
-      showError("Tarde demais! Outro entregador aceitou ou a oferta expirou.");
-      setOffer(null);
-    } else {
-      await supabase.from('driver_applications').update({ consecutive_refusals: 0 }).eq('id', user?.id);
-      showSuccess("Pedido aceito! Dirija-se ao restaurante.");
-      navigate(`/driver/map?orderId=${offer.id}`);
-    }
-  };
-
-  const handleReject = useCallback(async (isAuto = false) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user || !offer) return;
-
-    // 1. Registra recusa para não ofertar novamente
-    const newRefused = [...(offer.refused_drivers_ids || []), user.id];
-    await supabase.from('orders').update({ 
-      current_driver_offered_id: null,
-      offer_expires_at: null,
-      refused_drivers_ids: newRefused
-    }).eq('id', offer.id);
-
-    // 2. Penalidade
-    const nextRefusals = (driverStats?.consecutive_refusals || 0) + 1;
-    let updates: any = { consecutive_refusals: nextRefusals };
-    
-    if (nextRefusals >= 3) {
-      const blockedUntil = new Date(Date.now() + 15 * 60000).toISOString();
-      updates.blocked_until = blockedUntil;
-      updates.consecutive_refusals = 0;
-      showError("Radar bloqueado por 15 min devido a múltiplas recusas.");
-    } else {
-      showError(isAuto ? "Oferta expirada." : "Oferta recusada.");
-    }
-
-    await supabase.from('driver_applications').update(updates).eq('id', user.id);
-    setOffer(null);
-    
-    // Chama a Edge Function para passar o pedido ao próximo entregador do ranking
-    supabase.functions.invoke('dispatch-order', { body: { orderId: offer.id } });
-  }, [offer, driverStats]);
 
   if (loading) return <div className="p-20 text-center"><Loader2 className="animate-spin mx-auto text-indigo-600" /></div>;
 
