@@ -50,18 +50,21 @@ const AvailableOrdersPage = () => {
 
   const mapOrderData = useCallback((order: any, currentDriverLat: number, currentDriverLng: number): AvailableOrder => {
     const merchantMeta = order.merchant.metadata || {};
-    const storeAddress = merchantMeta.store_details?.address || merchantMeta.address || {};
+    const storeDetails = merchantMeta.store_details || {};
+    const storeAddress = storeDetails.address || merchantMeta.address || {};
     
     // Função auxiliar para parsear coordenadas de forma segura
     const safeParseFloat = (value: any): number | null => {
-      if (value === null || value === undefined) return null;
+      if (value === null || value === undefined || value === '') return null;
       const parsed = parseFloat(String(value));
       return isNaN(parsed) ? null : parsed;
     };
 
+    // Extração de coordenadas da Loja
     const storeLat = safeParseFloat(storeAddress.lat);
     const storeLng = safeParseFloat(storeAddress.lng);
     
+    // Extração de coordenadas do Cliente (Delivery Address)
     const deliveryLat = safeParseFloat(order.delivery_address?.lat);
     const deliveryLng = safeParseFloat(order.delivery_address?.lng);
 
@@ -69,7 +72,7 @@ const AvailableOrdersPage = () => {
     let deliveryDistance = 'N/A';
 
     // 1. Calcular distância do motorista até a loja
-    if (storeLat !== null && storeLng !== null) {
+    if (storeLat !== null && storeLng !== null && currentDriverLat !== 0 && currentDriverLng !== 0) {
         const dist = calculateDistance(currentDriverLat, currentDriverLng, storeLat, storeLng);
         distanceToStore = dist.toFixed(1);
     }
@@ -88,7 +91,6 @@ const AvailableOrdersPage = () => {
         distanceToStore,
         deliveryDistance,
         earnings: (parseFloat(order.total) * 0.15 + 5).toFixed(2), // Mock earnings calculation
-        itemCount: order.items.reduce((sum: number, item: any) => sum + item.quantity, 0),
         storeLat: storeLat || 0, 
         storeLng: storeLng || 0, 
         deliveryLat: deliveryLat || 0, 
@@ -117,6 +119,7 @@ const AvailableOrdersPage = () => {
       mappedOrders.sort((a, b) => {
         const distA = parseFloat(a.distanceToStore);
         const distB = parseFloat(b.distanceToStore);
+        // Coloca N/A (NaN) no final da lista
         if (isNaN(distA)) return 1;
         if (isNaN(distB)) return -1;
         return distA - distB;
