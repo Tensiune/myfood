@@ -2,15 +2,17 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Volume2, VolumeX } from "lucide-react";
+import { Loader2, Volume2, VolumeX, AlertCircle } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import AcceptanceTimer from "@/components/merchant/AcceptanceTimer";
 
-const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3";
+// SOM MAIS INTENSO: Alarme Digital Repetitivo
+const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
 
 const MerchantOrdersPage = () => {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
@@ -23,13 +25,14 @@ const MerchantOrdersPage = () => {
     if (!audioRef.current) {
       audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
       audioRef.current.preload = "auto";
+      audioRef.current.loop = false; // Toca uma vez por evento, mas o som escolhido é longo e agudo
     }
   }, []);
 
   const playAlert = useCallback(() => {
     if (audioEnabled && audioRef.current) {
       audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(e => console.warn("[Audio] Bloqueado pelo navegador:", e));
+      audioRef.current.play().catch(e => console.warn("[Audio] Bloqueado:", e));
     }
   }, [audioEnabled]);
 
@@ -76,19 +79,14 @@ const MerchantOrdersPage = () => {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'orders', filter: `merchant_id=eq.${user.id}` },
           (payload) => {
-            console.log("%c[REALTIME EVENT]", "color: #6366f1; font-weight: bold", payload.eventType, payload.new.id);
-            
             if (payload.eventType === 'INSERT') {
               playAlert();
-              showSuccess("Novo pedido recebido!");
+              showSuccess("URGENTE: Novo pedido recebido!");
             }
-            
             fetchOrders(true);
           }
         )
-        .subscribe((status) => {
-          console.log("[Realtime Status]:", status);
-        });
+        .subscribe();
     };
 
     setupRealtime();
@@ -99,18 +97,14 @@ const MerchantOrdersPage = () => {
     if (audioEnabled) {
       setAudioEnabled(false);
       showSuccess("Alertas sonoros desativados.");
-      return;
-    }
-
-    // Tenta "desbloquear" o áudio com interação
-    if (audioRef.current) {
-      audioRef.current.play()
-        .then(() => {
+    } else {
+      if (audioRef.current) {
+        audioRef.current.play().then(() => {
           audioRef.current?.pause();
           setAudioEnabled(true);
-          showSuccess("Alertas sonoros ativos!");
-        })
-        .catch(() => showError("Clique novamente para autorizar o som no navegador."));
+          showSuccess("Alertas sonoros ativos (Volume Máximo)!");
+        }).catch(() => showError("Clique novamente para autorizar o som."));
+      }
     }
   };
 
@@ -143,9 +137,18 @@ const MerchantOrdersPage = () => {
           <div className="p-10 border-2 border-dashed border-gray-100 rounded-[2.5rem] text-center opacity-30">Vazio</div>
         ) : (
           filtered.map(o => (
-            <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden">
+            <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden animate-in slide-in-from-top-2">
               <CardContent className="p-5 space-y-4">
-                <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
+                <div className="flex justify-between items-start">
+                   <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
+                   {o.status === 'PENDING' && o.merchant_acceptance_deadline && (
+                     <AcceptanceTimer 
+                        deadline={o.merchant_acceptance_deadline} 
+                        onExpire={() => handleAction(o.id, 'CANCELLED')} 
+                     />
+                   )}
+                </div>
+
                 <div className="space-y-1">
                   {o.items.map((it: any, i: number) => (
                     <p key={i} className="text-sm font-bold text-gray-800"><span className="text-indigo-600">{it.quantity}x</span> {it.name}</p>
@@ -173,11 +176,11 @@ const MerchantOrdersPage = () => {
             variant={audioEnabled ? "outline" : "default"}
             className={cn(
               "rounded-2xl gap-2 h-12 px-6 transition-all", 
-              !audioEnabled ? "bg-brand-accent animate-bounce" : "border-indigo-100 text-indigo-600"
+              !audioEnabled ? "bg-red-500 animate-bounce" : "border-indigo-100 text-indigo-600"
             )}
           >
             {audioEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-            {audioEnabled ? "Desativar Som" : "Ativar Som"}
+            {audioEnabled ? "Som Ativo" : "ATIVAR ALARME"}
           </Button>
           
           <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-3xl shadow-sm border border-gray-100">
@@ -193,18 +196,21 @@ const MerchantOrdersPage = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
           {renderSection("Novos", "text-blue-600", o => o.status === "PENDING", o => (
             <div className="flex gap-2">
-              <Button variant="ghost" className="flex-1 text-red-500" onClick={() => handleAction(o.id, 'CANCELLED')}>Recusar</Button>
-              <Button className="flex-1 bg-blue-600 text-white font-bold" onClick={() => handleAction(o.id, 'PREPARING')}>Aceitar</Button>
+              <Button variant="ghost" className="flex-1 text-red-500 rounded-xl" onClick={() => handleAction(o.id, 'CANCELLED')}>Recusar</Button>
+              <Button className="flex-1 bg-blue-600 text-white font-bold rounded-xl h-12" onClick={() => handleAction(o.id, 'PREPARING')}>Aceitar</Button>
             </div>
           ))}
           {renderSection("Preparando", "text-orange-500", o => o.status === "PREPARING", o => (
-            <Button className="w-full bg-orange-500 text-white font-bold" onClick={() => handleAction(o.id, 'WAITING_FOR_DRIVER')}>Pronto</Button>
+            <Button className="w-full bg-orange-500 text-white font-bold rounded-xl h-12 shadow-lg shadow-orange-100" onClick={() => handleAction(o.id, 'WAITING_FOR_DRIVER')}>Pronto</Button>
           ))}
           {renderSection("Aguardando", "text-indigo-600", o => o.status === "WAITING_FOR_DRIVER", o => (
-             <div className="text-[10px] font-bold text-center text-gray-400 uppercase">Buscando Entregador...</div>
+             <div className="bg-indigo-50 p-3 rounded-2xl text-center">
+                <Loader2 className="h-4 w-4 animate-spin mx-auto text-indigo-400 mb-1" />
+                <span className="text-[10px] font-bold text-indigo-400 uppercase">Buscando Entregador...</span>
+             </div>
           ))}
           {renderSection("Finalizados", "text-green-600", o => ['OUT_FOR_DELIVERY', 'DELIVERED'].includes(o.status), o => (
-             <Badge className="w-full py-2 justify-center bg-green-100 text-green-700 border-none">{o.status === 'DELIVERED' ? 'Entregue' : 'Em Rota'}</Badge>
+             <Badge className="w-full py-3 justify-center bg-green-50 text-green-700 border-none rounded-xl text-xs font-bold">{o.status === 'DELIVERED' ? 'Entregue' : 'Em Rota'}</Badge>
           ))}
         </div>
       )}
