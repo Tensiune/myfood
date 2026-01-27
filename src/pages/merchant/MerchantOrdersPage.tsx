@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, RefreshCcw, XCircle, CheckCircle2, User, Phone, Key, Clock, AlertCircle } from "lucide-react";
+import { Loader2, RefreshCcw, User, Clock } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -31,12 +31,12 @@ const MerchantOrdersPage = () => {
         .single();
       if (merchantData) setIsStoreOpen(merchantData.is_open);
 
-      // 2. Buscar pedidos - Ajustado para buscar da tabela correta 'driver_applications'
+      // 2. Buscar pedidos - Usando sintaxe explícita para o Join
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
         .select(`
           *,
-          driver:driver_id (
+          driver:driver_applications!driver_id (
             full_name,
             phone
           )
@@ -44,15 +44,22 @@ const MerchantOrdersPage = () => {
         .eq('merchant_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (ordersError) {
-        console.error("Erro na consulta de pedidos:", ordersError);
-        throw ordersError;
-      }
+      if (ordersError) throw ordersError;
       
       setOrders(ordersData || []);
     } catch (err: any) {
-      console.error("[MerchantOrders] Erro crítico:", err);
-      if (!isSilent) showError("Erro ao sincronizar pedidos: " + (err.message || "Verifique sua conexão"));
+      console.error("[MerchantOrders] Erro na consulta:", err);
+      // Fallback: Tenta buscar sem o driver se o join falhar por cache do esquema
+      if (err.message?.includes('relationship')) {
+          const { data: fallbackData } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('merchant_id', user.id)
+            .order('created_at', { ascending: false });
+          if (fallbackData) setOrders(fallbackData);
+      }
+      
+      if (!isSilent) showError("Sincronizando dados...");
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -70,16 +77,7 @@ const MerchantOrdersPage = () => {
         .on(
           'postgres_changes', 
           { event: '*', schema: 'public', table: 'orders', filter: `merchant_id=eq.${user.id}` }, 
-          (payload) => {
-            if (payload.eventType === 'INSERT') {
-              new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
-              showSuccess("Novo pedido recebido!");
-              if (!payload.new.scheduled_at) {
-                supabase.functions.invoke('dispatch-order', { body: { orderId: payload.new.id } });
-              }
-            }
-            fetchOrders(true);
-          }
+          () => fetchOrders(true)
         )
         .subscribe();
 
@@ -102,17 +100,20 @@ const MerchantOrdersPage = () => {
     }).eq('id', orderId);
     
     if (error) showError("Falha ao aceitar pedido");
-    else fetchOrders(true);
+    else {
+      showSuccess("Pedido aceito!");
+      fetchOrders(true);
+    }
   };
 
   const handleReject = async (orderId: string) => {
-    if (!window.confirm("Deseja realmente recusar este pedido?")) return;
+    if (!window.confirm("Recusar este pedido?")) return;
     const { error } = await supabase.from('orders').update({ 
       status: 'CANCELLED',
       merchant_acceptance_deadline: null 
     }).eq('id', orderId);
     
-    if (error) showError("Falha ao recusar pedido");
+    if (error) showError("Falha ao recusar");
     else fetchOrders(true);
   };
 
@@ -122,8 +123,11 @@ const MerchantOrdersPage = () => {
       auto_transition_at: null 
     }).eq('id', orderId);
     
-    if (error) showError("Falha ao atualizar status");
-    else fetchOrders(true);
+    if (error) showError("Falha ao atualizar");
+    else {
+      showSuccess("Pedido pronto!");
+      fetchOrders(true);
+    }
   };
 
   const toggleStoreStatus = async (open: boolean) => {
@@ -131,7 +135,7 @@ const MerchantOrdersPage = () => {
     if (!user) return;
 
     const { error } = await supabase.from('merchant_applications').update({ is_open: open }).eq('id', user.id);
-    if (error) showError("Erro ao mudar status da loja");
+    if (error) showError("Erro ao mudar status");
     else {
       setIsStoreOpen(open);
       showSuccess(open ? "Loja Aberta!" : "Loja Fechada.");
@@ -149,17 +153,17 @@ const MerchantOrdersPage = () => {
         
         {filtered.length === 0 ? (
           <div className="p-8 border-2 border-dashed border-gray-100 rounded-[2rem] text-center">
-            <p className="text-[10px] font-bold text-gray-300 uppercase">Sem pedidos</p>
+            <p className="text-[10px] font-bold text-gray-300 uppercase">Vazio</p>
           </div>
         ) : (
           filtered.map(order => (
-            <Card key={order.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden animate-in fade-in">
+            <Card key={order.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden">
               <CardContent className="p-5 space-y-4">
                 <div className="flex justify-between items-start">
                   <span className="text-[10px] font-black text-gray-400">#{order.id.slice(0, 6)}</span>
                   {order.status === 'PENDING' && (
-                    <Badge variant="outline" className="text-red-500 border-red-100 bg-red-50">
-                      8 min para aceitar
+                    <Badge variant="outline" className="text-red-500 border-red-100 bg-red-50 animate-pulse">
+                      Urgente
                     </Badge>
                   )}
                 </div>
@@ -172,18 +176,12 @@ const MerchantOrdersPage = () => {
 
                 {order.driver_id && (
                   <div className="p-3 bg-indigo-50 rounded-2xl flex items-center gap-3 border border-indigo-100">
-                    <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center text-indigo-600 font-bold">
-                      {order.driver?.full_name?.charAt(0) || "D"}
+                    <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center">
+                      <User className="h-6 w-6 text-indigo-600" />
                     </div>
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <p className="text-[10px] font-bold text-indigo-400 uppercase">Entregador</p>
-                      <p className="font-bold text-indigo-900 text-xs truncate">{order.driver?.full_name || "Vinculado"}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">Coleta</p>
-                      <p className="font-black text-indigo-600 text-xs">
-                        *{order.driver?.phone?.slice(-4) || '----'}
-                      </p>
+                      <p className="font-bold text-indigo-900 text-xs truncate">{order.driver?.full_name || "A caminho..."}</p>
                     </div>
                   </div>
                 )}
@@ -200,7 +198,7 @@ const MerchantOrdersPage = () => {
   return (
     <div className="space-y-8 pb-10">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div><h1 className="text-4xl font-black text-indigo-900">Painel de Pedidos</h1><p className="text-gray-500 text-sm">Controle sua operação em tempo real.</p></div>
+        <div><h1 className="text-4xl font-black text-indigo-900">Pedidos</h1><p className="text-gray-500 text-sm">Gerencie suas vendas aqui.</p></div>
         <div className="flex items-center gap-3">
           <Button variant="outline" size="icon" className="rounded-full h-12 w-12 border-gray-100" onClick={() => fetchOrders()}>
             <RefreshCcw className={cn("h-5 w-5", loading && "animate-spin")} />
@@ -216,18 +214,18 @@ const MerchantOrdersPage = () => {
         {renderOrderList("Novos", "text-blue-600", o => o.status === "PENDING", o => (
           <div className="flex gap-2">
             <Button variant="ghost" className="flex-1 rounded-xl text-red-500 h-12" onClick={() => handleReject(o.id)}>Recusar</Button>
-            <Button className="flex-1 rounded-xl bg-blue-600 h-12" onClick={() => handleAccept(o.id)}>Aceitar</Button>
+            <Button className="flex-1 rounded-xl bg-blue-600 h-12 text-white font-bold" onClick={() => handleAccept(o.id)}>Aceitar</Button>
           </div>
         ))}
-        {renderOrderList("Em Preparo", "text-orange-500", o => o.status === "PREPARING", o => (
-          <Button className="w-full rounded-xl bg-orange-500 h-12" onClick={() => handleReady(o.id)}>Pronto para Entrega</Button>
+        {renderOrderList("Preparo", "text-orange-500", o => o.status === "PREPARING", o => (
+          <Button className="w-full rounded-xl bg-orange-500 h-12 text-white font-bold" onClick={() => handleReady(o.id)}>Pronto</Button>
         ))}
-        {renderOrderList("Aguardando Coleta", "text-indigo-600", o => o.status === "WAITING_FOR_DRIVER", o => (
+        {renderOrderList("Coleta", "text-indigo-600", o => o.status === "WAITING_FOR_DRIVER", o => (
           <div className="bg-indigo-50/50 p-4 rounded-2xl text-center border border-indigo-100/50">
-            <p className="text-xs font-bold text-indigo-800">{o.driver_id ? "Entregador a caminho" : "Buscando entregador..."}</p>
+            <p className="text-xs font-bold text-indigo-800">{o.driver_id ? "Motorista vinculado" : "Buscando entregador..."}</p>
           </div>
         ))}
-        {renderOrderList("Concluídos", "text-green-600", o => o.status === "OUT_FOR_DELIVERY" || o.status === "DELIVERED", o => (
+        {renderOrderList("Finalizados", "text-green-600", o => o.status === "OUT_FOR_DELIVERY" || o.status === "DELIVERED", o => (
            <Badge className="w-full py-3 rounded-xl border-none justify-center font-bold bg-green-100 text-green-700">
              {o.status === "DELIVERED" ? "Entregue" : "Em Rota"}
            </Badge>
