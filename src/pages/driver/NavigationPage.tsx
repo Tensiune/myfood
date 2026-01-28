@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, MapPin, Navigation, Phone, CheckCircle2, CornerUpRight, Key, Loader2, XCircle } from "lucide-react";
+import { ArrowLeft, MapPin, Navigation, Phone, CheckCircle2, CornerUpRight, Key, Loader2, AlertTriangle } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { OtpInput } from "@/components/shared/OtpInput";
@@ -24,11 +24,21 @@ const NavigationPage = () => {
   useEffect(() => {
     const fetchOrder = async () => {
       if (!orderId) return;
-      const { data } = await supabase.from('orders').select('*, merchant:merchant_id(*)').eq('id', orderId).single();
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*, merchant:merchant_id(*)')
+        .eq('id', orderId)
+        .single();
+        
+      if (error) {
+        showError("Não foi possível carregar os dados da rota.");
+        navigate("/driver/orders");
+        return;
+      }
       if (data) setOrder(data);
     };
     fetchOrder();
-  }, [orderId]);
+  }, [orderId, navigate]);
 
   const handleArrivedAtStore = () => {
     showSuccess("Você chegou na loja!");
@@ -40,47 +50,53 @@ const NavigationPage = () => {
   };
 
   const handleAbandonDelivery = async () => {
-    if (!window.confirm("Tem certeza que deseja desistir desta entrega? O pedido voltará para o radar de outros entregadores.")) return;
+    const confirmMessage = "⚠️ AVISO IMPORTANTE:\n\nTem certeza que deseja desistir desta entrega? \n\nAbandonar rotas em andamento pode fazer com que você deixe de ser priorizado em ofertas de próximas entregas pelo sistema.";
+    
+    if (!window.confirm(confirmMessage)) return;
     
     setCancelling(true);
     const tid = showLoading("Cancelando sua rota...");
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Usuário não identificado.");
+      if (!user || !order) throw new Error("Dados insuficientes para cancelar.");
 
-      // 1. Remove o driver e adiciona na lista de recusados
-      const updatedRefused = Array.from(new Set([...(order.refused_drivers_ids || []), user.id]));
+      // 1. Atualizar o pedido: Remove o driver, limpa ofertas e adiciona na lista de recusados
+      // Importante: fazemos o update completo em um único passo
+      const currentRefused = order.refused_drivers_ids || [];
+      const updatedRefused = Array.from(new Set([...currentRefused, user.id]));
       
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('orders')
         .update({
           driver_id: null,
           current_driver_offered_id: null,
           offer_expires_at: null,
           refused_drivers_ids: updatedRefused,
-          status: 'PREPARING' // Volta o status para permitir nova coleta
+          status: 'PREPARING' // Volta para preparando para que o lojista veja que está sem entregador
         })
         .eq('id', order.id);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      // 2. Avisa o sistema para buscar outro entregador imediatamente
+      // 2. Chamar a Edge Function para tentar despachar para outro entregador imediatamente
+      // Usamos invoke de forma assíncrona (não precisamos esperar o resultado aqui para liberar o app)
       supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } });
 
       dismissToast(tid);
-      showSuccess("Entrega cancelada com sucesso.");
+      showSuccess("Você abandonou a entrega.");
       navigate("/driver/orders");
     } catch (err: any) {
+      console.error("Erro ao cancelar:", err);
       dismissToast(tid);
-      showError("Erro ao desistir da entrega.");
+      showError("Erro ao desistir da entrega. Tente novamente.");
     } finally {
       setCancelling(false);
     }
   };
 
   const handleVerifyCode = async () => {
-    if (otpCode !== order.confirmation_code) {
+    if (otpCode !== order?.confirmation_code) {
       showError("Código incorreto. Peça ao cliente os 4 últimos dígitos do celular.");
       return;
     }
@@ -120,17 +136,9 @@ const NavigationPage = () => {
             </div>
           </div>
           
-          {step === "to_store" && (
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="text-white hover:bg-white/10 rounded-full"
-              onClick={handleAbandonDelivery}
-              disabled={cancelling}
-            >
-              <XCircle className="h-6 w-6" />
-            </Button>
-          )}
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="text-white hover:bg-white/10 rounded-full">
+            <ArrowLeft className="h-6 w-6" />
+          </Button>
         </div>
       </div>
 
@@ -169,16 +177,30 @@ const NavigationPage = () => {
                 {step === "to_store" ? order.merchant?.store_name : "Endereço do Cliente"}
               </h3>
               <p className="text-gray-500 text-sm">
-                {step === "to_store" ? `${order.merchant?.metadata?.address?.street}, ${order.merchant?.metadata?.address?.number}` : `${order.delivery_address?.street}, ${order.delivery_address?.number}`}
+                {step === "to_store" ? `${order.merchant?.metadata?.address?.street || ''}, ${order.merchant?.metadata?.address?.number || ''}` : `${order.delivery_address?.street || ''}, ${order.delivery_address?.number || ''}`}
               </p>
             </div>
           </div>
-          <Button 
-            className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg shadow-xl shadow-indigo-100"
-            onClick={step === "to_store" ? handleArrivedAtStore : handleArrivedAtClient}
-          >
-            {step === "to_store" ? "Cheguei na Loja" : "Cheguei no Cliente"}
-          </Button>
+
+          <div className="flex flex-col gap-3">
+            <Button 
+              className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg shadow-xl shadow-indigo-100"
+              onClick={step === "to_store" ? handleArrivedAtStore : handleArrivedAtClient}
+            >
+              {step === "to_store" ? "Cheguei na Loja" : "Cheguei no Cliente"}
+            </Button>
+
+            {step === "to_store" && (
+              <Button 
+                variant="destructive"
+                className="w-full h-12 rounded-xl font-bold bg-red-500 hover:bg-red-600 border-none flex items-center justify-center gap-2"
+                onClick={handleAbandonDelivery}
+                disabled={cancelling}
+              >
+                <AlertTriangle className="h-4 w-4" /> Desistir da Entrega
+              </Button>
+            )}
+          </div>
         </div>
       )}
     </div>
