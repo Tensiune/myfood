@@ -14,12 +14,10 @@ import {
   User,
   CheckCircle2,
   ArrowUp,
-  ArrowUpLeft,
-  ArrowUpRight,
-  ArrowRight,
-  ArrowLeft as ArrowLeftIcon,
   CornerUpRight,
-  CornerUpLeft
+  CornerUpLeft,
+  Plus,
+  Minus
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -40,14 +38,14 @@ const driverIcon = L.divIcon({
   iconAnchor: [20, 20],
 });
 
-// Componente para controlar a rotação e foco do mapa
-const NavigationController = ({ position, bearing }: { position: [number, number], bearing: number }) => {
+// Componente para controlar a rotação, foco e zoom do mapa
+const NavigationController = ({ position, bearing, zoom }: { position: [number, number], bearing: number, zoom: number }) => {
   const map = useMap();
   useEffect(() => {
     if (position[0] !== 0) {
-      map.flyTo(position, 18, { animate: true, duration: 1 });
+      map.flyTo(position, zoom, { animate: true, duration: 1 });
     }
-  }, [position, map]);
+  }, [position, zoom, map]);
   return null;
 };
 
@@ -61,20 +59,19 @@ const NavigationPage = () => {
   const [routePoints, setRoutePoints] = useState<[number, number][]>([]);
   const [nextInstruction, setNextInstruction] = useState<any>(null);
   const [bearing, setBearing] = useState(0);
+  const [mapZoom, setMapZoom] = useState(18);
   const [otpCode, setOtpCode] = useState("");
   const [loadingOrder, setLoadingOrder] = useState(true);
   const [finishing, setFinishing] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
 
   const { currentLocation } = useDriverLocationTracker(true);
   const prevPosRef = useRef<[number, number]>([0, 0]);
 
-  // Calcula o ângulo de direção (bearing) entre duas coordenadas
+  // Calcula o ângulo de direção (bearing)
   useEffect(() => {
     if (currentLocation[0] !== 0 && prevPosRef.current[0] !== 0) {
       const [lat1, lon1] = prevPosRef.current;
       const [lat2, lon2] = currentLocation;
-      
       const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
       const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
       const brng = (Math.atan2(y, x) * 180) / Math.PI;
@@ -98,7 +95,7 @@ const NavigationPage = () => {
           if (data.status === 'OUT_FOR_DELIVERY') setStep("to_client");
         }
       } catch (err) {
-        showError("Não foi possível carregar os dados da rota.");
+        showError("Erro ao carregar rota.");
         navigate("/driver/orders");
       } finally {
         setLoadingOrder(false);
@@ -119,43 +116,28 @@ const NavigationPage = () => {
 
   const targetPos = step === "to_store" ? storePos : clientPos;
 
-  // Busca a rota e instruções detalhadas
+  // Busca a rota
   useEffect(() => {
     const getDetailedRoute = async () => {
       if (currentLocation[0] === 0 || !targetPos) return;
-
       try {
         const url = `https://router.project-osrm.org/route/v1/driving/${currentLocation[1]},${currentLocation[0]};${targetPos[1]},${targetPos[0]}?overview=full&geometries=geojson&steps=true`;
         const response = await fetch(url);
         const data = await response.json();
-
-        if (data.routes && data.routes.length > 0) {
+        if (data.routes?.length > 0) {
           const route = data.routes[0];
           setRoutePoints(route.geometry.coordinates.map((c: any) => [c[1], c[0]]));
-          
-          // Pega a próxima manobra válida
-          if (route.legs[0]?.steps?.length > 1) {
-             setNextInstruction(route.legs[0].steps[1]);
-          }
+          if (route.legs[0]?.steps?.length > 1) setNextInstruction(route.legs[0].steps[1]);
         }
-      } catch (err) {
-        console.error("Erro ao buscar rota:", err);
-      }
+      } catch (e) {}
     };
-
     getDetailedRoute();
   }, [currentLocation, targetPos, step]);
 
   const getManeuverIcon = (type: string, modifier: string) => {
-    if (type === 'depart' || type === 'arrive') return <ArrowUp className="h-8 w-8" />;
     if (modifier?.includes('left')) return <CornerUpLeft className="h-8 w-8" />;
     if (modifier?.includes('right')) return <CornerUpRight className="h-8 w-8" />;
     return <ArrowUp className="h-8 w-8" />;
-  };
-
-  const handleArrivedAtStore = () => {
-    showSuccess("Chegada confirmada!");
-    setStep("to_client");
   };
 
   const handleVerifyCode = async () => {
@@ -176,72 +158,66 @@ const NavigationPage = () => {
     }
   };
 
-  if (loadingOrder) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900">
-        <Loader2 className="h-10 w-10 text-indigo-500 animate-spin mb-4" />
-        <p className="text-white font-bold">Iniciando navegação GPS...</p>
-      </div>
-    );
-  }
-
+  if (loadingOrder) return <div className="min-h-screen flex items-center justify-center bg-slate-900"><Loader2 className="animate-spin text-indigo-500" /></div>;
   if (!order) return null;
 
   return (
     <div className="fixed inset-0 bg-slate-900 flex flex-col z-50 overflow-hidden max-w-2xl mx-auto">
-      {/* Banner de Próxima Manobra (Estilo Google Maps) */}
+      {/* Banner de Instrução */}
       {step !== "confirm" && nextInstruction && (
-        <div className="absolute top-0 left-0 right-0 z-[1100] p-4 pointer-events-none">
-          <div className="bg-green-600 text-white rounded-3xl p-5 shadow-2xl flex items-center gap-6 animate-in slide-in-from-top-10 duration-500 pointer-events-auto">
-            <div className="p-3 bg-white/20 rounded-2xl">
-               {getManeuverIcon(nextInstruction.maneuver.type, nextInstruction.maneuver.modifier)}
-            </div>
+        <div className="absolute top-0 left-0 right-0 z-[1100] p-4">
+          <div className="bg-green-600 text-white rounded-3xl p-5 shadow-2xl flex items-center gap-6 animate-in slide-in-from-top-10">
+            <div className="p-3 bg-white/20 rounded-2xl">{getManeuverIcon(nextInstruction.maneuver.type, nextInstruction.maneuver.modifier)}</div>
             <div className="flex-1">
               <p className="text-xs font-black uppercase tracking-widest opacity-80">Próxima instrução</p>
-              <p className="text-xl font-black leading-tight">
-                {nextInstruction.name || "Siga em frente"}
-              </p>
-              <p className="text-sm font-bold opacity-90 mt-1">
-                A {(nextInstruction.distance).toFixed(0)} metros
-              </p>
+              <p className="text-xl font-black leading-tight truncate">{nextInstruction.name || "Siga em frente"}</p>
+              <p className="text-sm font-bold opacity-90">A {(nextInstruction.distance).toFixed(0)} metros</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Mapa Rotacionado */}
+      {/* Mapa */}
       <div className="flex-1 relative bg-slate-100 overflow-hidden">
-        <div 
-          className="w-full h-full transition-transform duration-1000 ease-out"
-          style={{ transform: `rotate(${-bearing}deg)`, transformOrigin: 'center' }}
-        >
+        <div className="w-full h-full transition-transform duration-1000 ease-out" style={{ transform: `rotate(${-bearing}deg)`, transformOrigin: 'center' }}>
           {step !== "confirm" && (
             <MapContainer 
               center={currentLocation[0] !== 0 ? currentLocation : storePos} 
-              zoom={18} 
-              style={{ height: '140%', width: '140%', margin: '-20%' }} // Margem extra para não mostrar bordas ao girar
+              zoom={mapZoom} 
+              style={{ height: '140%', width: '140%', margin: '-20%' }} 
               zoomControl={false}
-              scrollWheelZoom={false}
-              dragging={false}
+              dragging={true}
+              scrollWheelZoom={true}
             >
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <NavigationController position={currentLocation} bearing={bearing} />
-              
-              {currentLocation[0] !== 0 && (
-                <Marker position={currentLocation} icon={driverIcon} />
-              )}
-              
-              {routePoints.length > 0 && (
-                <Polyline 
-                  positions={routePoints} 
-                  pathOptions={{ color: '#4f46e5', weight: 8, opacity: 0.9 }} 
-                />
-              )}
+              <NavigationController position={currentLocation} bearing={bearing} zoom={mapZoom} />
+              {currentLocation[0] !== 0 && <Marker position={currentLocation} icon={driverIcon} />}
+              {routePoints.length > 0 && <Polyline positions={routePoints} pathOptions={{ color: '#4f46e5', weight: 8, opacity: 0.9 }} />}
             </MapContainer>
           )}
         </div>
 
-        {/* HUD de Status (Não rotaciona) */}
+        {/* HUD DE ZOOM FIXO (Não rotaciona) */}
+        {step !== "confirm" && (
+          <div className="absolute right-6 bottom-32 z-[1100] flex flex-col gap-3">
+             <Button 
+               size="icon" 
+               className="h-14 w-14 rounded-2xl bg-white text-indigo-900 shadow-2xl hover:bg-gray-50 border-none"
+               onClick={() => setMapZoom(prev => Math.min(prev + 1, 20))}
+             >
+               <Plus className="h-6 w-6" />
+             </Button>
+             <Button 
+               size="icon" 
+               className="h-14 w-14 rounded-2xl bg-white text-indigo-900 shadow-2xl hover:bg-gray-50 border-none"
+               onClick={() => setMapZoom(prev => Math.max(prev - 1, 14))}
+             >
+               <Minus className="h-6 w-6" />
+             </Button>
+          </div>
+        )}
+
+        {/* Confirmação */}
         {step === "confirm" && (
           <div className="absolute inset-0 h-full flex flex-col items-center justify-center p-6 bg-slate-800 z-[1200]">
             <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 space-y-6 text-center shadow-2xl">
@@ -249,19 +225,17 @@ const NavigationPage = () => {
                 <CheckCircle2 className="h-8 w-8 text-green-600" />
               </div>
               <h3 className="text-2xl font-black text-indigo-900">Confirmar Entrega</h3>
-              <div className="flex justify-center">
-                 <OtpInput length={4} value={otpCode} onChange={setOtpCode} />
-              </div>
+              <div className="flex justify-center"><OtpInput length={4} value={otpCode} onChange={setOtpCode} /></div>
               <Button className="w-full h-16 rounded-2xl bg-green-600 text-white font-black text-lg" onClick={handleVerifyCode} disabled={otpCode.length < 4 || finishing}>
                 {finishing ? <Loader2 className="animate-spin" /> : "Finalizar Pedido"}
               </Button>
-              <Button variant="ghost" className="text-gray-400 font-bold" onClick={() => setStep("to_client")}>Voltar ao Mapa</Button>
+              <Button variant="ghost" className="text-gray-400 font-bold" onClick={() => setStep("to_client")}>Voltar</Button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Footer Fixo */}
+      {/* Footer */}
       {step !== "confirm" && (
         <div className="p-6 bg-white rounded-t-[2.5rem] z-[1100] space-y-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
           <div className="flex items-center justify-between">
@@ -274,14 +248,9 @@ const NavigationPage = () => {
                   <p className="font-bold text-gray-900">{step === "to_store" ? "Coleta na Loja" : "Entrega ao Cliente"}</p>
                </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full h-12 w-12 text-gray-400">
-               <ArrowLeft className="h-6 w-6" />
-            </Button>
+            <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full h-12 w-12 text-gray-400"><ArrowLeft className="h-6 w-6" /></Button>
           </div>
-          <Button 
-            className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg shadow-xl active:scale-95 transition-transform" 
-            onClick={step === "to_store" ? handleArrivedAtStore : () => setStep("confirm")}
-          >
+          <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg" onClick={step === "to_store" ? () => setStep("to_client") : () => setStep("confirm")}>
             {step === "to_store" ? "Cheguei na Loja" : "Cheguei no Cliente"}
           </Button>
         </div>
