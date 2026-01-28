@@ -282,7 +282,7 @@ const AvailableOrdersPage = () => {
               </Badge>
             </div>
 
-            {/* Detalhes da Coleta (Loja) */}
+            {/* Detalhes da Coleta (Loja) - CORRIGIDO */}
             <div className="flex gap-4">
               <div className="flex flex-col items-center shrink-0">
                 <div className="p-2 bg-indigo-50 rounded-full"><Store className="h-4 w-4 text-indigo-600" /></div>
