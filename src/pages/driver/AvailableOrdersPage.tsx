@@ -24,7 +24,6 @@ const AvailableOrdersPage = () => {
 
   const checkNewOffers = useCallback(async (uid: string) => {
     try {
-      // REGRA: Se o banco diz que o pedido é seu, ele aparece.
       const { data, error } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(store_name)')
@@ -35,16 +34,12 @@ const AvailableOrdersPage = () => {
 
       if (data && data.length > 0) {
         const activeOffer = data[0];
-        
-        // Cálculo do tempo apenas para o cronômetro visual
         const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
         const diff = Math.floor((expiresAt - Date.now()) / 1000);
         
         setOffer(activeOffer);
-        // Se o tempo local estiver maluco, mostramos 30s fixos no visual para não confundir
-        setTimeLeft(diff > 0 ? diff : 30); 
+        setTimeLeft(diff > 0 ? diff : 0); 
       } else {
-        // Se o banco não retornou nada, limpamos a tela imediatamente
         setOffer(null);
       }
     } catch (err) {
@@ -65,19 +60,14 @@ const AvailableOrdersPage = () => {
 
       await checkNewOffers(user.id);
 
-      // Polling de segurança (Sincroniza o estado a cada 5s caso o Realtime falhe)
       pollingRef.current = setInterval(() => checkNewOffers(user.id), 5000);
       
-      // REALTIME: O sinal mestre do servidor
       const channel = supabase.channel(`radar_sync_${user.id}`)
         .on('postgres_changes', { 
           event: '*', 
           schema: 'public', 
           table: 'orders' 
-        }, (payload: any) => {
-          console.log("[Radar] Sinal do Servidor:", payload.eventType);
-          
-          // Se houve qualquer mudança na tabela de ordens, re-sincronizamos o estado local com o banco
+        }, () => {
           checkNewOffers(user.id);
         })
         .subscribe();
@@ -91,11 +81,14 @@ const AvailableOrdersPage = () => {
     initialize();
   }, [navigate, checkNewOffers]);
 
-  // Cronômetro APENAS VISUAL - Não remove o card da tela.
+  // Lógica do Timer e Recusa Automática
   useEffect(() => {
     if (offer && timeLeft > 0) {
       const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
       return () => clearTimeout(timer);
+    } else if (offer && timeLeft === 0) {
+       // O tempo acabou no celular. Avisamos o servidor para disparar o próximo.
+       handleReject();
     }
   }, [offer, timeLeft]);
 
@@ -110,7 +103,7 @@ const AvailableOrdersPage = () => {
       }).eq('id', offer.id).is('driver_id', null).select();
 
       if (error || !data || data.length === 0) {
-        showError("Este pedido já foi pego por outro entregador ou expirou.");
+        showError("Este pedido expirou ou outro entregador aceitou.");
         setOffer(null);
         return;
       }
@@ -121,17 +114,18 @@ const AvailableOrdersPage = () => {
 
   const handleReject = async () => {
     if (!driverId || !offer) return;
-    // Removemos localmente para feedback imediato
     const currentId = offer.id;
-    setOffer(null);
+    setOffer(null); // Feedback visual imediato
     
+    // 1. Registrar a recusa no banco
     const newRefused = [...(offer.refused_drivers_ids || []), driverId];
     await supabase.from('orders').update({ 
       current_driver_offered_id: null, 
+      offer_expires_at: null,
       refused_drivers_ids: newRefused 
     }).eq('id', currentId);
     
-    // Chama o despacho para o próximo motorista
+    // 2. Chamar o servidor para buscar o próximo da fila
     supabase.functions.invoke('dispatch-order', { body: { orderId: currentId } });
   };
 
@@ -183,7 +177,7 @@ const AvailableOrdersPage = () => {
                   {offer.merchant?.store_name || "Loja Parceira"}
                 </span>
                 <p className="text-xs text-gray-500 font-bold uppercase mt-1">
-                   Distância calculada pelo servidor
+                   Nova oferta disponível
                 </p>
               </div>
               <div className="text-right">
