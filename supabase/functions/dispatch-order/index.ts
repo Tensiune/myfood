@@ -21,11 +21,17 @@ serve(async (req) => {
     // 1. Buscar o pedido e sua localização (loja)
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .select('*, merchant:merchant_id(*)')
+      .select('*, merchant:merchant_applications(*)')
       .eq('id', orderId)
       .single()
 
     if (orderError || !order) throw new Error("Pedido não encontrado")
+    
+    // CRÍTICO: Se o pedido não estiver em um status que requer despacho, pare.
+    if (order.status !== 'PREPARING' && order.status !== 'WAITING_FOR_DRIVER') {
+        console.log(`[dispatch-order] Pedido ${orderId} não está em status de despacho (${order.status}). Abortando.`);
+        return new Response(JSON.stringify({ success: true, message: 'Order status does not require dispatch' }), { headers: corsHeaders });
+    }
 
     // Verificação de Timeout: Se já havia um motorista e o tempo passou, move para recusados
     if (order.current_driver_offered_id && order.offer_expires_at) {
