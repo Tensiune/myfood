@@ -9,6 +9,7 @@ import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { useDriverLocationTracker } from "@/hooks/useDriverLocationTracker";
+import { cn } from "@/lib/utils";
 
 const AvailableOrdersPage = () => {
   const navigate = useNavigate();
