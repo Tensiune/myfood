@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MapPin, CheckCircle2, Store, ShoppingBag, ArrowDownRight, Clock, Map } from "lucide-react";
+import { Loader2, MapPin, CheckCircle2, Store, ShoppingBag, ArrowDownRight, Clock, Map, XCircle } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
@@ -188,7 +188,9 @@ const AvailableOrdersPage = () => {
   };
 
   const handleAbandon = async (order: any) => {
-    if (!window.confirm("Deseja realmente desistir desta entrega?")) return;
+    const confirmation = window.confirm("ATENÇÃO: Desistir de uma entrega já aceita pode diminuir sua preferência no envio de novos pedidos. Tem certeza que deseja cancelar?");
+    if (!confirmation) return;
+    
     const tid = showLoading("Cancelando...");
     try {
       const { error } = await supabase.rpc('abandon_order', { p_order_id: order.id });
@@ -231,7 +233,13 @@ const AvailableOrdersPage = () => {
              </div>
 
              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1 rounded-xl text-red-500 border-red-100 hover:bg-red-50" onClick={() => handleAbandon(activeOrder)}>Desistir</Button>
+                <Button 
+                  variant="default" 
+                  className="flex-1 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold" 
+                  onClick={() => handleAbandon(activeOrder)}
+                >
+                  <XCircle className="h-4 w-4 mr-2" /> Cancelar Entrega
+                </Button>
                 <Button className="flex-2 rounded-xl bg-indigo-600 text-white font-bold" onClick={() => navigate(`/driver/map?orderId=${activeOrder.id}`)}>
                   <Map className="h-4 w-4 mr-2" /> Continuar Rota
                 </Button>

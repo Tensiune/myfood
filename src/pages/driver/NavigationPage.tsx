@@ -143,7 +143,9 @@ const NavigationPage = () => {
 
   const handleAbandonOrder = async () => {
     if (!order) return;
-    if (!window.confirm("Tem certeza que deseja desistir desta entrega? O pedido será devolvido para a loja e outro entregador será buscado.")) return;
+    
+    const confirmation = window.confirm("ATENÇÃO: Desistir de uma entrega já aceita pode diminuir sua preferência no envio de novos pedidos. Tem certeza que deseja cancelar?");
+    if (!confirmation) return;
 
     const tid = showLoading("Processando desistência...");
     try {
@@ -267,20 +269,15 @@ const NavigationPage = () => {
                   <p className="font-bold text-gray-900">{step === "to_store" ? "Coleta na Loja" : "Entrega ao Cliente"}</p>
                </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={handleAbandonOrder} 
-                className="rounded-full h-12 w-12 text-red-500 hover:bg-red-50"
-                title="Desistir da Entrega"
-              >
-                <XCircle className="h-6 w-6" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full h-12 w-12 text-gray-400">
-                <ArrowLeft className="h-6 w-6" />
-              </Button>
-            </div>
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={handleAbandonOrder} 
+              className="rounded-xl h-10 px-4 bg-red-500 hover:bg-red-600 text-white font-bold"
+              title="Desistir da Entrega"
+            >
+              <XCircle className="h-4 w-4 mr-2" /> Cancelar Entrega
+            </Button>
           </div>
           <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg" onClick={step === "to_store" ? () => setStep("to_client") : () => setStep("confirm")}>
             {step === "to_store" ? "Cheguei na Loja" : "Cheguei no Cliente"}
