@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Store, Package, Clock, Loader2, Bike, AlertTriangle, TrendingUp, RefreshCcw } from "lucide-react";
+import { Store, Clock, Loader2, Bike, AlertTriangle, TrendingUp, RefreshCcw, MapPin } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
@@ -19,21 +19,26 @@ const AvailableOrdersPage = () => {
   const [driverStats, setDriverStats] = useState<any>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
   
-  // Ref para evitar múltiplas subscrições simultâneas
   const channelRef = useRef<any>(null);
+  const pollingRef = useRef<any>(null);
 
-  // Ativa o rastreamento GPS
+  // 1. Inicia Rastreamento GPS (Essencial para receber ofertas)
   const { isTracking } = useDriverLocationTracker(true);
 
-  // Buscar oferta ativa de forma direta e sem filtros no JS para evitar erros de tipo
-  const findActiveOffer = useCallback(async (uid: string) => {
+  /**
+   * BUSCA ATIVA (O Coração da Visibilidade)
+   * Esta função é simplificada ao máximo para evitar falhas de filtro.
+   * Ela busca qualquer pedido onde o motorista logado seja o 'ofertado' atual.
+   */
+  const checkNewOffers = useCallback(async (uid: string) => {
     try {
+      // console.log("[Radar] Verificando ofertas para:", uid);
+      
       const { data, error } = await supabase
         .from('orders')
         .select('*, merchant:merchant_id(*)')
         .eq('current_driver_offered_id', uid)
-        .is('driver_id', null)
-        .not('status', 'in', '("DELIVERED","CANCELLED")')
+        .is('driver_id', null) // Se já tem driver_id, não é mais uma oferta
         .maybeSingle();
 
       if (error) throw error;
@@ -43,84 +48,100 @@ const AvailableOrdersPage = () => {
         const diff = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
         
         if (diff > 0) {
+          // Só atualiza se for um pedido novo ou se o tempo estiver muito diferente
           setOffer(data);
           setTimeLeft(diff);
-          console.log("[Radar] Oferta encontrada:", data.id);
         } else {
+          // Oferta expirada encontrada na busca
           setOffer(null);
         }
       } else {
+        // Nenhuma oferta ativa encontrada para este ID
         setOffer(null);
       }
     } catch (err) {
-      console.error("[Radar] Erro ao buscar oferta:", err);
+      console.error("[Radar] Falha na busca de oferta:", err);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const fetchDriverData = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-    
-    setDriverId(user.id);
-    
-    const { data } = await supabase
-      .from('driver_applications')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+  /**
+   * INICIALIZAÇÃO E SESSÃO
+   */
+  useEffect(() => {
+    const initialize = async () => {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
       
-    setDriverStats(data);
-    return user.id;
-  }, []);
-
-  // Rejeitar oferta
-  const handleReject = useCallback(async (isAuto = false) => {
-    if (!driverId || !offer) return;
-
-    console.log(`[Radar] Rejeitando oferta ${offer.id}. Auto: ${isAuto}`);
-
-    try {
-      const newRefused = [...(offer.refused_drivers_ids || []), driverId];
-      
-      // Remove a oferta de mim primeiro para atualizar a UI instantaneamente
-      const currentOfferId = offer.id;
-      setOffer(null);
-
-      // Atualiza no banco
-      await supabase
-        .from('orders')
-        .update({
-          current_driver_offered_id: null,
-          offer_expires_at: null,
-          refused_drivers_ids: newRefused
-        })
-        .eq('id', currentOfferId);
-
-      // Penalidade
-      const nextRefusals = (driverStats?.consecutive_refusals || 0) + 1;
-      let updates: any = { consecutive_refusals: nextRefusals };
-
-      if (nextRefusals >= 3) {
-        const blockedUntil = new Date(Date.now() + 15 * 60000).toISOString();
-        updates.blocked_until = blockedUntil;
-        updates.consecutive_refusals = 0;
-        showError("Radar bloqueado por 15 min devido a múltiplas recusas.");
-      } else {
-        if (!isAuto) showSuccess("Oferta recusada.");
+      if (!user) {
+        navigate("/login");
+        return;
       }
 
-      await supabase.from('driver_applications').update(updates).eq('id', driverId);
+      setDriverId(user.id);
 
-      // Chama o despacho novamente para o próximo da fila
-      supabase.functions.invoke('dispatch-order', { body: { orderId: currentOfferId } });
+      // Carrega status de bloqueio/refusas
+      const { data: stats } = await supabase
+        .from('driver_applications')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      setDriverStats(stats);
 
-    } catch (err) {
-      console.error("[Radar] Erro ao rejeitar:", err);
+      // Primeira busca imediata
+      await checkNewOffers(user.id);
+
+      // CONFIGURAÇÃO DE REDE DE SEGURANÇA (Polling a cada 10s)
+      // Se o Realtime falhar, o polling recupera o pedido em instantes.
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      pollingRef.current = setInterval(() => {
+        checkNewOffers(user.id);
+      }, 10000);
+
+      // CONFIGURAÇÃO REALTIME RESILIENTE
+      // Ouvimos todas as mudanças na tabela de pedidos. 
+      // O RLS do Supabase garante que o Gabriel só receba as linhas dele.
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
+      
+      channelRef.current = supabase
+        .channel(`driver_radar_resilient_${user.id}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'orders' },
+          (payload: any) => {
+            // Se eu recebi este evento, é porque o RLS permitiu (é para mim ou sou o ofertado)
+            // console.log("[Realtime] Evento recebido:", payload.eventType);
+            checkNewOffers(user.id);
+          }
+        )
+        .subscribe();
+    };
+
+    initialize();
+
+    return () => {
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [navigate, checkNewOffers]);
+
+  /**
+   * TIMER REGRESSIVO
+   */
+  useEffect(() => {
+    if (offer && timeLeft > 0) {
+      const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
+      return () => clearTimeout(timer);
+    } else if (offer && timeLeft === 0) {
+      // Quando o tempo acaba na tela, limpamos e deixamos o polling/realtime resolver o estado no banco
+      setOffer(null);
     }
-  }, [offer, driverStats, driverId]);
+  }, [offer, timeLeft]);
 
+  /**
+   * AÇÕES DO ENTREGADOR
+   */
   const handleAccept = async () => {
     if (!driverId || !offer) return;
 
@@ -134,79 +155,61 @@ const AvailableOrdersPage = () => {
           status: 'WAITING_FOR_DRIVER'
         })
         .eq('id', offer.id)
-        .is('driver_id', null) // Segurança atômica
+        .is('driver_id', null) // Garantia atômica: só aceita se ninguém aceitou antes
         .select();
 
       if (error || !data || data.length === 0) {
-        showError("Tarde demais! A oferta expirou ou outro aceitou.");
+        showError("Ops! A oferta expirou ou outro entregador aceitou antes.");
         setOffer(null);
         return;
       }
 
       await supabase.from('driver_applications').update({ consecutive_refusals: 0 }).eq('id', driverId);
-      showSuccess("Pedido aceito! Vá até a loja.");
+      showSuccess("Pedido aceito! Siga para o restaurante.");
       navigate(`/driver/map?orderId=${offer.id}`);
     } catch (err) {
-      showError("Erro ao aceitar pedido.");
+      showError("Erro ao processar aceite.");
     }
   };
 
-  // Ciclo de vida principal
-  useEffect(() => {
-    const setup = async () => {
-      const uid = await fetchDriverData();
-      if (!uid) return;
+  const handleReject = async () => {
+    if (!driverId || !offer) return;
 
-      // 1. Busca inicial forçada
-      await findActiveOffer(uid);
+    try {
+      const currentOfferId = offer.id;
+      const newRefused = [...(offer.refused_drivers_ids || []), driverId];
+      
+      setOffer(null); // Feedback visual instantâneo
 
-      // 2. Configura Realtime Resiliente
-      // Ouvimos todas as mudanças na tabela de pedidos. O RLS garante que só recebamos o que nos pertence.
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
+      await supabase
+        .from('orders')
+        .update({
+          current_driver_offered_id: null,
+          offer_expires_at: null,
+          refused_drivers_ids: newRefused
+        })
+        .eq('id', currentOfferId);
 
-      channelRef.current = supabase
-        .channel(`driver_radar_${uid}`)
-        .on(
-          'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'orders' },
-          (payload) => {
-            console.log("[Realtime] Mudança detectada no pedido:", payload.new.id);
-            
-            // Se o pedido foi ofertado para mim agora
-            if (payload.new.current_driver_offered_id === uid) {
-              findActiveOffer(uid);
-            } 
-            // Se eu tinha uma oferta e ela mudou (foi cancelada ou atribuída a outro)
-            else if (offer && payload.new.id === offer.id) {
-              if (payload.new.current_driver_offered_id !== uid) {
-                setOffer(null);
-              }
-            }
-          }
-        )
-        .subscribe((status) => {
-          console.log("[Realtime] Status da conexão:", status);
-        });
-    };
-
-    setup();
-
-    return () => {
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
-    };
-  }, [fetchDriverData, findActiveOffer]); // Dependências estáveis
-
-  // Timer regressivo
-  useEffect(() => {
-    if (timeLeft > 0 && offer) {
-      const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
-      return () => clearTimeout(timer);
-    } else if (offer && timeLeft === 0) {
-      handleReject(true);
+      // Penalidade e re-despacho (chama a edge function para o próximo motorista)
+      supabase.functions.invoke('dispatch-order', { body: { orderId: currentOfferId } });
+      
+      const nextRefusals = (driverStats?.consecutive_refusals || 0) + 1;
+      if (nextRefusals >= 3) {
+        const blockedUntil = new Date(Date.now() + 15 * 60000).toISOString();
+        await supabase.from('driver_applications').update({ blocked_until: blockedUntil, consecutive_refusals: 0 }).eq('id', driverId);
+        showError("Radar bloqueado por 15 min devido a múltiplas recusas.");
+        // Recarrega status
+        window.location.reload();
+      } else {
+        await supabase.from('driver_applications').update({ consecutive_refusals: nextRefusals }).eq('id', driverId);
+        showSuccess("Oferta recusada.");
+      }
+    } catch (err) {
+      console.error(err);
     }
-  }, [timeLeft, offer, handleReject]);
+  };
 
-  // UI de Bloqueio
+  // UI de Bloqueio (Punição por recusas)
   if (driverStats?.blocked_until && new Date(driverStats.blocked_until) > new Date()) {
     const remaining = Math.ceil((new Date(driverStats.blocked_until).getTime() - Date.now()) / 60000);
     return (
@@ -215,7 +218,7 @@ const AvailableOrdersPage = () => {
           <AlertTriangle className="h-12 w-12 text-red-500" />
         </div>
         <h2 className="text-3xl font-black text-gray-900">Radar Bloqueado</h2>
-        <p className="text-gray-500 mt-2">Muitas recusas consecutivas. Aguarde para voltar a receber pedidos.</p>
+        <p className="text-gray-500 mt-2">Você recusou muitos pedidos seguidos. Aguarde para voltar a receber ofertas.</p>
         <Badge variant="outline" className="text-red-500 border-red-200 h-10 px-6 rounded-full font-black text-lg">
           {remaining} min restantes
         </Badge>
@@ -232,7 +235,7 @@ const AvailableOrdersPage = () => {
             variant="ghost" 
             size="icon" 
             className="h-8 w-8 text-indigo-400" 
-            onClick={() => driverId && findActiveOffer(driverId)}
+            onClick={() => driverId && checkNewOffers(driverId)}
           >
             <RefreshCcw className={cn("h-4 w-4", loading && "animate-spin")} />
           </Button>
@@ -270,7 +273,7 @@ const AvailableOrdersPage = () => {
                 <div>
                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Coleta</p>
                   <p className="font-bold text-gray-700 leading-tight">
-                    {offer.merchant?.metadata?.address?.street}, {offer.merchant?.metadata?.address?.number}
+                    {offer.merchant?.metadata?.address?.street || "No restaurante"}, {offer.merchant?.metadata?.address?.number || ""}
                   </p>
                 </div>
               </div>
@@ -278,7 +281,9 @@ const AvailableOrdersPage = () => {
                 <div className="h-6 w-6 rounded-full bg-brand-accent flex items-center justify-center text-white text-[10px] font-bold shadow-md">2</div>
                 <div>
                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Entrega</p>
-                  <p className="font-bold text-gray-700 leading-tight">{offer.delivery_address?.neighborhood}</p>
+                  <p className="font-bold text-gray-700 leading-tight">
+                    {offer.delivery_address?.neighborhood || "Endereço do cliente"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -287,7 +292,7 @@ const AvailableOrdersPage = () => {
               <Button 
                 variant="ghost" 
                 className="flex-1 h-16 rounded-2xl text-red-500 font-bold hover:bg-red-50" 
-                onClick={() => handleReject()}
+                onClick={handleReject}
                 disabled={loading}
               >
                 Recusar
@@ -324,10 +329,10 @@ const AvailableOrdersPage = () => {
       
       <Card className="rounded-3xl bg-indigo-900 p-6 text-white border-none shadow-xl">
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-white/10 rounded-2xl"><TrendingUp className="text-indigo-300" /></div>
+          <div className="p-3 bg-white/10 rounded-2xl"><MapPin className="text-indigo-300" /></div>
           <div>
-            <p className="text-xs font-bold text-indigo-200 uppercase">Status</p>
-            <p className="text-sm font-medium">Sua conta Gabriel está ativa e pronta para receber ofertas reais.</p>
+            <p className="text-xs font-bold text-indigo-200 uppercase">Localização</p>
+            <p className="text-sm font-medium">Sua posição GPS está sendo transmitida para a central.</p>
           </div>
         </div>
       </Card>
