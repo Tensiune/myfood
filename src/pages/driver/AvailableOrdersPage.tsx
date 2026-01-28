@@ -56,6 +56,7 @@ const AvailableOrdersPage = () => {
         .eq('driver_id', uid)
         .neq('status', 'DELIVERED')
         .neq('status', 'CANCELLED')
+        .neq('status', 'PREPARING') // <-- CORREÇÃO: Exclui pedidos que voltaram para preparo após abandono
         .order('created_at', { ascending: false });
 
       if (accepted && accepted.length > 0) {
