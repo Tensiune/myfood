@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Store, Loader2, Bike, AlertTriangle, TrendingUp, RefreshCcw, MapPin, CheckCircle2, ShieldAlert } from "lucide-react";
+import { Loader2, MapPin, CheckCircle2, ShieldAlert } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
@@ -19,17 +19,15 @@ const AvailableOrdersPage = () => {
   const [driverStats, setDriverStats] = useState<any>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
   
-  const channelRef = useRef<any>(null);
   const pollingRef = useRef<any>(null);
-
   const { isTracking } = useDriverLocationTracker(true);
 
   const checkNewOffers = useCallback(async (uid: string) => {
     try {
-      // Simplificamos a query para o básico absoluto
+      // Busca simplificada sem joins complexos para garantir que o RLS não bloqueie a query inteira
       const { data, error } = await supabase
         .from('orders')
-        .select('*, merchant:merchant_id(*)')
+        .select('*')
         .eq('current_driver_offered_id', uid)
         .is('driver_id', null);
 
@@ -37,15 +35,21 @@ const AvailableOrdersPage = () => {
 
       if (data && data.length > 0) {
         const activeOffer = data[0];
-        const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
         
-        // CORREÇÃO DE TIME SYNC: Se a diferença for negativa mas menor que 60s, 
-        // assumimos que é erro de relógio e mostramos o pedido com tempo mínimo.
+        // Busca os dados do restaurante separadamente para evitar erro de join
+        const { data: merchantData } = await supabase
+          .from('merchant_applications')
+          .select('store_name')
+          .eq('id', activeOffer.merchant_id)
+          .single();
+
+        const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
         const diff = Math.floor((expiresAt - Date.now()) / 1000);
         
-        if (diff > -5) { // Tolerância de 5 segundos para relógios atrasados
-          setOffer(activeOffer);
-          setTimeLeft(Math.max(diff, 10)); // Garante pelo menos 10s na tela se houver erro de sync
+        // Se a oferta ainda é válida (ou acabou de expirar por erro de sync, damos 10s)
+        if (diff > -5) {
+          setOffer({ ...activeOffer, merchant: merchantData });
+          setTimeLeft(Math.max(diff, 15));
         } else {
           setOffer(null);
         }
@@ -53,7 +57,7 @@ const AvailableOrdersPage = () => {
         setOffer(null);
       }
     } catch (err) {
-      console.error("[Radar] Falha na busca:", err);
+      console.error("[Radar] Erro de busca:", err);
     } finally {
       setLoading(false);
     }
@@ -61,7 +65,6 @@ const AvailableOrdersPage = () => {
 
   useEffect(() => {
     const initialize = async () => {
-      setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { navigate("/login"); return; }
       setDriverId(user.id);
@@ -69,27 +72,23 @@ const AvailableOrdersPage = () => {
       const { data: stats } = await supabase.from('driver_applications').select('*').eq('id', user.id).single();
       setDriverStats(stats);
 
-      // Busca inicial imediata
       await checkNewOffers(user.id);
 
-      // Rede de segurança: busca a cada 5 segundos (mais agressivo para testes)
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      pollingRef.current = setInterval(() => checkNewOffers(user.id), 5000);
-
-      // Realtime: Escuta qualquer mudança na tabela orders que o RLS permitir
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
-      channelRef.current = supabase.channel(`radar_realtime_${user.id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-          checkNewOffers(user.id);
-        })
+      // Polling agressivo para testes
+      pollingRef.current = setInterval(() => checkNewOffers(user.id), 4000);
+      
+      // Canal de tempo real
+      const channel = supabase.channel(`radar_${user.id}`)
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => checkNewOffers(user.id))
         .subscribe();
+
+      return () => {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        supabase.removeChannel(channel);
+      };
     };
 
     initialize();
-    return () => {
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
   }, [navigate, checkNewOffers]);
 
   useEffect(() => {
@@ -112,13 +111,13 @@ const AvailableOrdersPage = () => {
       }).eq('id', offer.id).is('driver_id', null).select();
 
       if (error || !data || data.length === 0) {
-        showError("A oferta expirou ou foi aceita por outro entregador.");
+        showError("A oferta não está mais disponível.");
         setOffer(null);
         return;
       }
-      showSuccess("Entrega aceita! Siga para a loja.");
+      showSuccess("Pedido aceito!");
       navigate(`/driver/map?orderId=${offer.id}`);
-    } catch (err) { showError("Erro ao processar aceite."); }
+    } catch (err) { showError("Erro ao aceitar."); }
   };
 
   const handleReject = async () => {
@@ -130,14 +129,13 @@ const AvailableOrdersPage = () => {
       refused_drivers_ids: newRefused 
     }).eq('id', offer.id);
     
-    // Chama o próximo da fila
     supabase.functions.invoke('dispatch-order', { body: { orderId: offer.id } });
   };
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center px-1">
-        <h1 className="text-2xl font-black text-indigo-900">Radar de Pedidos</h1>
+        <h1 className="text-2xl font-black text-indigo-900">Radar</h1>
         <Badge className={cn(driverStats?.status === 'APPROVED' ? "bg-green-500" : "bg-orange-500")}>
           {driverStats?.status === 'APPROVED' ? 'Aprovado' : 'Em Análise'}
         </Badge>
@@ -149,8 +147,8 @@ const AvailableOrdersPage = () => {
             <MapPin className="h-4 w-4" />
           </div>
           <div>
-            <p className="text-[9px] font-black text-gray-400 uppercase">Localização</p>
-            <p className="text-xs font-bold">{isTracking ? "Transmitindo" : "Erro GPS"}</p>
+            <p className="text-[9px] font-black text-gray-400 uppercase">GPS</p>
+            <p className="text-xs font-bold">{isTracking ? "Transmitindo" : "Desconectado"}</p>
           </div>
         </div>
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
@@ -159,7 +157,7 @@ const AvailableOrdersPage = () => {
           </div>
           <div>
             <p className="text-[9px] font-black text-gray-400 uppercase">Sistema</p>
-            <p className="text-xs font-bold">{driverStats?.status === 'APPROVED' ? "Pronto" : "Aguardando"}</p>
+            <p className="text-xs font-bold">{driverStats?.status === 'APPROVED' ? "Pronto" : "Bloqueado"}</p>
           </div>
         </div>
       </div>
@@ -167,7 +165,7 @@ const AvailableOrdersPage = () => {
       {offer ? (
         <Card className="rounded-[2.5rem] border-4 border-brand-accent shadow-2xl bg-white overflow-hidden animate-in zoom-in-95">
           <div className="bg-brand-accent p-4 text-white flex justify-between items-center">
-            <span className="font-black text-sm uppercase">Oferta para Você!</span>
+            <span className="font-black text-sm uppercase">Nova Oferta!</span>
             <div className="bg-white text-brand-accent px-4 py-1 rounded-full font-black text-xl">
               0:{timeLeft < 10 ? '0' : ''}{timeLeft}
             </div>
@@ -176,19 +174,20 @@ const AvailableOrdersPage = () => {
             <div className="flex justify-between items-center">
               <div>
                 <span className="font-black text-xl text-gray-900 block">
-                  {offer.merchant?.store_name || "Nova Entrega"}
+                  {offer.merchant?.store_name || "Loja Parceira"}
                 </span>
-                <span className="text-xs text-gray-500 font-bold uppercase">
-                  {offer.items?.length || 0} Itens • Retirada próxima
-                </span>
+                <p className="text-xs text-gray-500 font-bold uppercase mt-1">
+                  Retirada em {offer.delivery_address?.neighborhood || "sua região"}
+                </p>
               </div>
-              <span className="text-2xl font-black text-green-600">
-                R$ {(offer.total * 0.15 + 5).toFixed(2)}
-              </span>
+              <div className="text-right">
+                <p className="text-[10px] font-black text-gray-400 uppercase">Ganhos</p>
+                <span className="text-2xl font-black text-green-600">R$ {(offer.total * 0.15 + 5).toFixed(2)}</span>
+              </div>
             </div>
             <div className="flex gap-3">
               <Button variant="ghost" className="flex-1 h-16 rounded-2xl text-red-500 font-bold" onClick={handleReject}>RECUSAR</Button>
-              <Button className="flex-2 h-16 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black text-xl shadow-lg shadow-green-100" onClick={handleAccept}>ACEITAR</Button>
+              <Button className="flex-2 h-16 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black text-xl shadow-lg" onClick={handleAccept}>ACEITAR</Button>
             </div>
           </CardContent>
         </Card>
@@ -198,7 +197,7 @@ const AvailableOrdersPage = () => {
           <p className="text-gray-400 font-black uppercase text-[10px] text-center px-8">
             {driverStats?.status !== 'APPROVED' 
               ? "Sua conta está em análise. Você será notificado quando for liberado." 
-              : "Aguardando novas ofertas de entrega na sua região..."}
+              : "Aguardando novos pedidos na sua região..."}
           </p>
         </div>
       )}
