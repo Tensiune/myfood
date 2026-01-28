@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User } from "lucide-react";
-import { showSuccess, showError } from "@/utils/toast";
+import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User, RotateCcw } from "lucide-react";
+import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { Switch } from "@/components/ui/switch";
@@ -90,9 +90,46 @@ const MerchantOrdersPage = () => {
     const { error } = await supabase.from('orders').update({ status: 'PREPARING' }).eq('id', id);
     if (!error) {
       showSuccess("Pedido aceito! Buscando entregador...");
-      // Inicia busca automática de entregador via Edge Function
       supabase.functions.invoke('dispatch-order', { body: { orderId: id } });
       fetchOrders(true);
+    }
+  };
+
+  const handleAction = async (id: string, status: string) => {
+      const { error } = await supabase.from('orders').update({ status }).eq('id', id);
+      if (!error) fetchOrders(true);
+  };
+
+  const handleRequestNewDriver = async (order: any) => {
+    if (!window.confirm("Deseja remover este entregador e buscar um novo? O entregador atual não poderá mais aceitar este pedido.")) return;
+    
+    const tid = showLoading("Processando nova busca...");
+    try {
+        const currentDriverId = order.driver_id;
+        const updatedRefused = Array.from(new Set([...(order.refused_drivers_ids || []), currentDriverId]));
+
+        const { error } = await supabase
+            .from('orders')
+            .update({
+                driver_id: null,
+                current_driver_offered_id: null,
+                offer_expires_at: null,
+                refused_drivers_ids: updatedRefused,
+                status: 'PREPARING'
+            })
+            .eq('id', order.id);
+
+        if (error) throw error;
+
+        // Dispara nova busca
+        supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } });
+
+        dismissToast(tid);
+        showSuccess("Novo entregador solicitado!");
+        fetchOrders(true);
+    } catch (err) {
+        dismissToast(tid);
+        showError("Erro ao solicitar novo entregador.");
     }
   };
 
@@ -144,12 +181,25 @@ const MerchantOrdersPage = () => {
                 {/* Info do Entregador (Se houver) */}
                 {o.driver && (
                   <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100 space-y-2">
-                     <div className="flex items-center gap-2">
-                        <div className="p-2 bg-white rounded-xl"><Bike className="h-4 w-4 text-indigo-600" /></div>
-                        <div>
-                           <p className="text-[10px] font-black text-indigo-400 uppercase">Entregador</p>
-                           <p className="text-xs font-bold text-indigo-900">{o.driver.full_name}</p>
+                     <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                           <div className="p-2 bg-white rounded-xl"><Bike className="h-4 w-4 text-indigo-600" /></div>
+                           <div>
+                              <p className="text-[10px] font-black text-indigo-400 uppercase">Entregador</p>
+                              <p className="text-xs font-bold text-indigo-900">{o.driver.full_name}</p>
+                           </div>
                         </div>
+                        {o.status === 'WAITING_FOR_DRIVER' && (
+                           <Button 
+                             variant="ghost" 
+                             size="icon" 
+                             className="h-8 w-8 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-full"
+                             title="Trocar Entregador"
+                             onClick={() => handleRequestNewDriver(o)}
+                           >
+                             <RotateCcw className="h-4 w-4" />
+                           </Button>
+                        )}
                      </div>
                   </div>
                 )}
@@ -168,7 +218,7 @@ const MerchantOrdersPage = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-black text-indigo-900 tracking-tighter">Painel de Pedidos</h1>
-          <p className="text-gray-500 text-sm">Despacho automático e verificação por código.</p>
+          <p className="text-gray-500 text-sm">Gerenciamento dinâmico de entregas e despacho.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Button onClick={() => setAudioEnabled(!audioEnabled)} variant={audioEnabled ? "outline" : "default"} className={cn("rounded-2xl gap-2 h-12 px-6", !audioEnabled ? "bg-red-500 animate-bounce" : "border-indigo-100 text-indigo-600")}>

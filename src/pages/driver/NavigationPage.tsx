@@ -5,8 +5,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, MapPin, Navigation, Phone, CheckCircle2, CornerUpRight, Key, Loader2 } from "lucide-react";
-import { showSuccess, showError } from "@/utils/toast";
+import { ArrowLeft, MapPin, Navigation, Phone, CheckCircle2, CornerUpRight, Key, Loader2, XCircle } from "lucide-react";
+import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { OtpInput } from "@/components/shared/OtpInput";
 
@@ -19,6 +19,7 @@ const NavigationPage = () => {
   const [order, setOrder] = useState<any>(null);
   const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     const fetchOrder = async () => {
@@ -36,6 +37,46 @@ const NavigationPage = () => {
 
   const handleArrivedAtClient = () => {
     setStep("confirm");
+  };
+
+  const handleAbandonDelivery = async () => {
+    if (!window.confirm("Tem certeza que deseja desistir desta entrega? O pedido voltará para o radar de outros entregadores.")) return;
+    
+    setCancelling(true);
+    const tid = showLoading("Cancelando sua rota...");
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não identificado.");
+
+      // 1. Remove o driver e adiciona na lista de recusados
+      const updatedRefused = Array.from(new Set([...(order.refused_drivers_ids || []), user.id]));
+      
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          driver_id: null,
+          current_driver_offered_id: null,
+          offer_expires_at: null,
+          refused_drivers_ids: updatedRefused,
+          status: 'PREPARING' // Volta o status para permitir nova coleta
+        })
+        .eq('id', order.id);
+
+      if (error) throw error;
+
+      // 2. Avisa o sistema para buscar outro entregador imediatamente
+      supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } });
+
+      dismissToast(tid);
+      showSuccess("Entrega cancelada com sucesso.");
+      navigate("/driver/orders");
+    } catch (err: any) {
+      dismissToast(tid);
+      showError("Erro ao desistir da entrega.");
+    } finally {
+      setCancelling(false);
+    }
   };
 
   const handleVerifyCode = async () => {
@@ -58,24 +99,38 @@ const NavigationPage = () => {
     }
   };
 
-  if (!order) return <div className="p-20 text-center">Carregando rota...</div>;
+  if (!order) return <div className="p-20 text-center text-indigo-600 font-bold">Carregando rota segura...</div>;
 
   return (
     <div className="fixed inset-0 bg-slate-900 flex flex-col z-50 overflow-hidden max-w-2xl mx-auto">
       {/* HUD Superior */}
       <div className="p-6 bg-indigo-600 text-white z-20 shadow-2xl">
-        <div className="flex items-center gap-4">
-          <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-md">
-            {step === "confirm" ? <Key className="h-10 w-10" /> : <CornerUpRight className="h-10 w-10" />}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-md">
+              {step === "confirm" ? <Key className="h-10 w-10" /> : <CornerUpRight className="h-10 w-10" />}
+            </div>
+            <div>
+              <h2 className="text-2xl font-black">
+                {step === "to_store" ? "Ir para Loja" : step === "to_client" ? "Ir para Cliente" : "Validar Código"}
+              </h2>
+              <p className="text-indigo-100 font-bold uppercase text-[10px]">
+                {step === "to_store" ? order.merchant?.store_name : "Finalizar Entrega"}
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-2xl font-black">
-              {step === "to_store" ? "Ir para Loja" : step === "to_client" ? "Ir para Cliente" : "Validar Código"}
-            </h2>
-            <p className="text-indigo-100 font-bold uppercase text-[10px]">
-              {step === "to_store" ? order.merchant?.store_name : "Finalizar Entrega"}
-            </p>
-          </div>
+          
+          {step === "to_store" && (
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="text-white hover:bg-white/10 rounded-full"
+              onClick={handleAbandonDelivery}
+              disabled={cancelling}
+            >
+              <XCircle className="h-6 w-6" />
+            </Button>
+          )}
         </div>
       </div>
 
@@ -104,20 +159,22 @@ const NavigationPage = () => {
       </div>
 
       {step !== "confirm" && (
-        <div className="p-6 bg-white rounded-t-[2.5rem] z-20 space-y-6">
-          <div>
-            <Badge className={step === "to_store" ? "bg-orange-500" : "bg-indigo-600"}>
-              {step === "to_store" ? "Retirada" : "Entrega"}
-            </Badge>
-            <h3 className="text-xl font-black text-gray-900 mt-2">
-              {step === "to_store" ? order.merchant?.store_name : "Cliente"}
-            </h3>
-            <p className="text-gray-500 text-sm">
-              {step === "to_store" ? `${order.merchant?.metadata?.address?.street}, ${order.merchant?.metadata?.address?.number}` : `${order.delivery_address?.street}, ${order.delivery_address?.number}`}
-            </p>
+        <div className="p-6 bg-white rounded-t-[2.5rem] z-20 space-y-6 shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
+          <div className="flex justify-between items-start">
+            <div>
+              <Badge className={step === "to_store" ? "bg-orange-500" : "bg-indigo-600"}>
+                {step === "to_store" ? "Retirada" : "Entrega"}
+              </Badge>
+              <h3 className="text-xl font-black text-gray-900 mt-2">
+                {step === "to_store" ? order.merchant?.store_name : "Endereço do Cliente"}
+              </h3>
+              <p className="text-gray-500 text-sm">
+                {step === "to_store" ? `${order.merchant?.metadata?.address?.street}, ${order.merchant?.metadata?.address?.number}` : `${order.delivery_address?.street}, ${order.delivery_address?.number}`}
+              </p>
+            </div>
           </div>
           <Button 
-            className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg"
+            className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg shadow-xl shadow-indigo-100"
             onClick={step === "to_store" ? handleArrivedAtStore : handleArrivedAtClient}
           >
             {step === "to_store" ? "Cheguei na Loja" : "Cheguei no Cliente"}
