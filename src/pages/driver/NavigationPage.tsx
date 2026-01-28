@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,10 +10,16 @@ import {
   Key, 
   Loader2, 
   AlertTriangle,
-  MapPin,
   Store,
   User,
-  CheckCircle2
+  CheckCircle2,
+  ArrowUp,
+  ArrowUpLeft,
+  ArrowUpRight,
+  ArrowRight,
+  ArrowLeft as ArrowLeftIcon,
+  CornerUpRight,
+  CornerUpLeft
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -31,32 +37,15 @@ const driverIcon = L.divIcon({
         </div>`,
   className: "custom-driver-icon",
   iconSize: [40, 40],
-  iconAnchor: [20, 40],
+  iconAnchor: [20, 20],
 });
 
-const storeIcon = L.divIcon({
-  html: `<div class="bg-orange-500 p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-        </div>`,
-  className: "custom-store-icon",
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
-});
-
-const clientIcon = L.divIcon({
-  html: `<div class="bg-green-600 p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        </div>`,
-  className: "custom-client-icon",
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
-});
-
-const RecenterMap = ({ position }: { position: [number, number] }) => {
+// Componente para controlar a rotação e foco do mapa
+const NavigationController = ({ position, bearing }: { position: [number, number], bearing: number }) => {
   const map = useMap();
   useEffect(() => {
     if (position[0] !== 0) {
-      map.flyTo(position, map.getZoom());
+      map.flyTo(position, 18, { animate: true, duration: 1 });
     }
   }, [position, map]);
   return null;
@@ -70,12 +59,29 @@ const NavigationPage = () => {
   const [step, setStep] = useState<"to_store" | "to_client" | "confirm">("to_store");
   const [order, setOrder] = useState<any>(null);
   const [routePoints, setRoutePoints] = useState<[number, number][]>([]);
+  const [nextInstruction, setNextInstruction] = useState<any>(null);
+  const [bearing, setBearing] = useState(0);
   const [otpCode, setOtpCode] = useState("");
   const [loadingOrder, setLoadingOrder] = useState(true);
   const [finishing, setFinishing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
   const { currentLocation } = useDriverLocationTracker(true);
+  const prevPosRef = useRef<[number, number]>([0, 0]);
+
+  // Calcula o ângulo de direção (bearing) entre duas coordenadas
+  useEffect(() => {
+    if (currentLocation[0] !== 0 && prevPosRef.current[0] !== 0) {
+      const [lat1, lon1] = prevPosRef.current;
+      const [lat2, lon2] = currentLocation;
+      
+      const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
+      const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
+      const brng = (Math.atan2(y, x) * 180) / Math.PI;
+      setBearing((brng + 360) % 360);
+    }
+    prevPosRef.current = currentLocation;
+  }, [currentLocation]);
 
   useEffect(() => {
     const fetchOrder = async () => {
@@ -113,57 +119,43 @@ const NavigationPage = () => {
 
   const targetPos = step === "to_store" ? storePos : clientPos;
 
-  // BUSCA A ROTA REAL NA API OSRM
+  // Busca a rota e instruções detalhadas
   useEffect(() => {
-    const getStreetRoute = async () => {
+    const getDetailedRoute = async () => {
       if (currentLocation[0] === 0 || !targetPos) return;
 
       try {
-        // OSRM usa formato [longitude, latitude]
-        const url = `https://router.project-osrm.org/route/v1/driving/${currentLocation[1]},${currentLocation[0]};${targetPos[1]},${targetPos[0]}?overview=full&geometries=geojson`;
+        const url = `https://router.project-osrm.org/route/v1/driving/${currentLocation[1]},${currentLocation[0]};${targetPos[1]},${targetPos[0]}?overview=full&geometries=geojson&steps=true`;
         const response = await fetch(url);
         const data = await response.json();
 
         if (data.routes && data.routes.length > 0) {
-          const coords = data.routes[0].geometry.coordinates;
-          // Converte de [lng, lat] para [lat, lng] que o Leaflet usa
-          const mappedPoints: [number, number][] = coords.map((c: any) => [c[1], c[0]]);
-          setRoutePoints(mappedPoints);
+          const route = data.routes[0];
+          setRoutePoints(route.geometry.coordinates.map((c: any) => [c[1], c[0]]));
+          
+          // Pega a próxima manobra válida
+          if (route.legs[0]?.steps?.length > 1) {
+             setNextInstruction(route.legs[0].steps[1]);
+          }
         }
       } catch (err) {
-        console.error("Erro ao buscar rota viária:", err);
+        console.error("Erro ao buscar rota:", err);
       }
     };
 
-    getStreetRoute();
+    getDetailedRoute();
   }, [currentLocation, targetPos, step]);
+
+  const getManeuverIcon = (type: string, modifier: string) => {
+    if (type === 'depart' || type === 'arrive') return <ArrowUp className="h-8 w-8" />;
+    if (modifier?.includes('left')) return <CornerUpLeft className="h-8 w-8" />;
+    if (modifier?.includes('right')) return <CornerUpRight className="h-8 w-8" />;
+    return <ArrowUp className="h-8 w-8" />;
+  };
 
   const handleArrivedAtStore = () => {
     showSuccess("Chegada confirmada!");
     setStep("to_client");
-  };
-
-  const handleArrivedAtClient = () => {
-    setStep("confirm");
-  };
-
-  const handleAbandonDelivery = async () => {
-    if (!window.confirm("Tem certeza que deseja desistir desta entrega?")) return;
-    setCancelling(true);
-    const tid = showLoading("Cancelando rota...");
-    try {
-      const { error } = await supabase.rpc('abandon_order', { p_order_id: order.id });
-      if (error) throw error;
-      supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } });
-      dismissToast(tid);
-      showSuccess("Você abandonou a entrega.");
-      navigate("/driver/orders");
-    } catch (err) {
-      dismissToast(tid);
-      showError("Erro ao desistir.");
-    } finally {
-      setCancelling(false);
-    }
   };
 
   const handleVerifyCode = async () => {
@@ -188,7 +180,7 @@ const NavigationPage = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900">
         <Loader2 className="h-10 w-10 text-indigo-500 animate-spin mb-4" />
-        <p className="text-white font-bold">Carregando rota...</p>
+        <p className="text-white font-bold">Iniciando navegação GPS...</p>
       </div>
     );
   }
@@ -197,100 +189,101 @@ const NavigationPage = () => {
 
   return (
     <div className="fixed inset-0 bg-slate-900 flex flex-col z-50 overflow-hidden max-w-2xl mx-auto">
-      <div className="p-4 bg-indigo-900 text-white z-20 border-b border-indigo-800 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="text-white/70 hover:text-white rounded-full">
-            <ArrowLeft className="h-6 w-6" />
-          </Button>
-          <div>
-            <h2 className="text-sm font-black uppercase tracking-widest text-indigo-300">
-              {step === "to_store" ? "Fase: Coleta" : step === "to_client" ? "Fase: Entrega" : "Fase: Finalização"}
-            </h2>
-            <p className="font-bold truncate max-w-[200px]">{step === "to_store" ? order.merchant?.store_name : "Casa do Cliente"}</p>
+      {/* Banner de Próxima Manobra (Estilo Google Maps) */}
+      {step !== "confirm" && nextInstruction && (
+        <div className="absolute top-0 left-0 right-0 z-[1100] p-4 pointer-events-none">
+          <div className="bg-green-600 text-white rounded-3xl p-5 shadow-2xl flex items-center gap-6 animate-in slide-in-from-top-10 duration-500 pointer-events-auto">
+            <div className="p-3 bg-white/20 rounded-2xl">
+               {getManeuverIcon(nextInstruction.maneuver.type, nextInstruction.maneuver.modifier)}
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-black uppercase tracking-widest opacity-80">Próxima instrução</p>
+              <p className="text-xl font-black leading-tight">
+                {nextInstruction.name || "Siga em frente"}
+              </p>
+              <p className="text-sm font-bold opacity-90 mt-1">
+                A {(nextInstruction.distance).toFixed(0)} metros
+              </p>
+            </div>
           </div>
         </div>
-        <Badge className="bg-indigo-700 border-none font-bold">#{order.id.slice(0, 6)}</Badge>
-      </div>
+      )}
 
-      <div className="flex-1 relative bg-slate-100">
-        {step !== "confirm" ? (
-          <MapContainer 
-            center={currentLocation[0] !== 0 ? currentLocation : storePos} 
-            zoom={16} 
-            style={{ height: '100%', width: '100%' }}
-            zoomControl={false}
-          >
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            <RecenterMap position={currentLocation} />
-            
-            {currentLocation[0] !== 0 && <Marker position={currentLocation} icon={driverIcon} />}
-            <Marker position={storePos} icon={storeIcon} />
-            <Marker position={clientPos} icon={clientIcon} />
+      {/* Mapa Rotacionado */}
+      <div className="flex-1 relative bg-slate-100 overflow-hidden">
+        <div 
+          className="w-full h-full transition-transform duration-1000 ease-out"
+          style={{ transform: `rotate(${-bearing}deg)`, transformOrigin: 'center' }}
+        >
+          {step !== "confirm" && (
+            <MapContainer 
+              center={currentLocation[0] !== 0 ? currentLocation : storePos} 
+              zoom={18} 
+              style={{ height: '140%', width: '140%', margin: '-20%' }} // Margem extra para não mostrar bordas ao girar
+              zoomControl={false}
+              scrollWheelZoom={false}
+              dragging={false}
+            >
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              <NavigationController position={currentLocation} bearing={bearing} />
+              
+              {currentLocation[0] !== 0 && (
+                <Marker position={currentLocation} icon={driverIcon} />
+              )}
+              
+              {routePoints.length > 0 && (
+                <Polyline 
+                  positions={routePoints} 
+                  pathOptions={{ color: '#4f46e5', weight: 8, opacity: 0.9 }} 
+                />
+              )}
+            </MapContainer>
+          )}
+        </div>
 
-            {/* ROTA REAL POR RUAS */}
-            {routePoints.length > 0 ? (
-              <Polyline 
-                positions={routePoints} 
-                pathOptions={{ color: '#4f46e5', weight: 6, opacity: 0.8 }} 
-              />
-            ) : (
-              // Fallback linha reta enquanto carrega a rota real
-              <Polyline 
-                positions={[currentLocation, targetPos]} 
-                pathOptions={{ color: '#6366f1', weight: 4, dashArray: '10, 10', opacity: 0.4 }} 
-              />
-            )}
-          </MapContainer>
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center p-6 bg-slate-800">
-            <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 space-y-6 text-center shadow-2xl animate-in zoom-in-95">
+        {/* HUD de Status (Não rotaciona) */}
+        {step === "confirm" && (
+          <div className="absolute inset-0 h-full flex flex-col items-center justify-center p-6 bg-slate-800 z-[1200]">
+            <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 space-y-6 text-center shadow-2xl">
               <div className="bg-green-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
                 <CheckCircle2 className="h-8 w-8 text-green-600" />
               </div>
-              <h3 className="text-2xl font-black text-indigo-900">Finalizar Pedido</h3>
+              <h3 className="text-2xl font-black text-indigo-900">Confirmar Entrega</h3>
               <div className="flex justify-center">
                  <OtpInput length={4} value={otpCode} onChange={setOtpCode} />
               </div>
               <Button className="w-full h-16 rounded-2xl bg-green-600 text-white font-black text-lg" onClick={handleVerifyCode} disabled={otpCode.length < 4 || finishing}>
-                {finishing ? <Loader2 className="animate-spin" /> : "Confirmar Entrega"}
+                {finishing ? <Loader2 className="animate-spin" /> : "Finalizar Pedido"}
               </Button>
               <Button variant="ghost" className="text-gray-400 font-bold" onClick={() => setStep("to_client")}>Voltar ao Mapa</Button>
             </div>
           </div>
         )}
-
-        {step !== "confirm" && (
-           <Button variant="secondary" size="icon" className="absolute bottom-6 right-6 z-[1000] rounded-full h-12 w-12 shadow-xl bg-white text-indigo-600" onClick={() => window.location.reload()}>
-             <Navigation className="h-5 w-5" />
-           </Button>
-        )}
       </div>
 
+      {/* Footer Fixo */}
       {step !== "confirm" && (
-        <div className="p-6 bg-white rounded-t-[2.5rem] z-20 space-y-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
-          <div className="flex items-start gap-3">
-            <div className="p-3 bg-indigo-50 rounded-2xl">
-              {step === "to_store" ? <Store className="h-6 w-6 text-indigo-600" /> : <User className="h-6 w-6 text-indigo-600" />}
+        <div className="p-6 bg-white rounded-t-[2.5rem] z-[1100] space-y-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+               <div className="p-2 bg-indigo-50 rounded-xl">
+                 {step === "to_store" ? <Store className="h-5 w-5 text-indigo-600" /> : <User className="h-5 w-5 text-indigo-600" />}
+               </div>
+               <div>
+                  <p className="text-[10px] font-black text-gray-400 uppercase">Destino Atual</p>
+                  <p className="font-bold text-gray-900">{step === "to_store" ? "Coleta na Loja" : "Entrega ao Cliente"}</p>
+               </div>
             </div>
-            <div className="flex-1 min-w-0">
-               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Destino</p>
-               <p className="font-bold text-gray-900 truncate">
-                 {step === "to_store" 
-                   ? `${order.merchant?.metadata?.address?.street || ''}, ${order.merchant?.metadata?.address?.number || ''}` 
-                   : `${order.delivery_address?.street || ''}, ${order.delivery_address?.number || ''}`}
-               </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3">
-            <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg" onClick={step === "to_store" ? handleArrivedAtStore : handleArrivedAtClient}>
-              {step === "to_store" ? "Cheguei na Loja" : "Cheguei no Cliente"}
+            <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full h-12 w-12 text-gray-400">
+               <ArrowLeft className="h-6 w-6" />
             </Button>
-            {step === "to_store" && (
-              <Button variant="destructive" className="w-full h-12 rounded-xl font-bold bg-red-500 border-none gap-2" onClick={handleAbandonDelivery} disabled={cancelling}>
-                <AlertTriangle className="h-4 w-4" /> Desistir da Entrega
-              </Button>
-            )}
           </div>
+          <Button 
+            className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg shadow-xl active:scale-95 transition-transform" 
+            onClick={step === "to_store" ? handleArrivedAtStore : () => setStep("confirm")}
+          >
+            {step === "to_store" ? "Cheguei na Loja" : "Cheguei no Cliente"}
+          </Button>
         </div>
       )}
     </div>
