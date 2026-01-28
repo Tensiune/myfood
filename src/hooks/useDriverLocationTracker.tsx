@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
@@ -27,8 +25,9 @@ export function useDriverLocationTracker(isActive: boolean) {
   const updateLocationInDb = useCallback(async (lat: number, lng: number) => {
     if (!driverId) return;
     
-    // console.log(`[DriverTracker] Attempting DB update for ${driverId}: ${lat}, ${lng}`); // Removed excessive log
-
+    // console.log(`[DriverTracker] Attempting DB update for ${driverId}: ${lat}, ${lng}`);
+    // Removed excessive log
+    
     const { error } = await supabase
       .from('driver_locations')
       .upsert({
@@ -36,8 +35,10 @@ export function useDriverLocationTracker(isActive: boolean) {
         latitude: lat,
         longitude: lng,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'driver_id' });
-
+      }, {
+        onConflict: 'driver_id'
+      });
+      
     if (error) {
       console.error("[useDriverLocationTracker] Failed to update location:", error);
     }
@@ -50,7 +51,7 @@ export function useDriverLocationTracker(isActive: boolean) {
       setCurrentLocation([0, 0]);
       return;
     }
-
+    
     setIsTracking(true);
     
     const initialUpdate = () => {
@@ -58,13 +59,13 @@ export function useDriverLocationTracker(isActive: boolean) {
       setCurrentLocation([lat, lng]);
       updateLocationInDb(lat, lng);
     };
-    
+
     // 1. Executa a primeira atualização imediatamente (síncrona)
     initialUpdate();
-
+    
     // 2. Simula location updates a cada 5 segundos
     const interval = setInterval(initialUpdate, 5000);
-
+    
     return () => {
       clearInterval(interval);
       setIsTracking(false);
