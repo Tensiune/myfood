@@ -122,7 +122,8 @@ const AvailableOrdersPage = () => {
 
   useEffect(() => {
     let driverId: string | null = null;
-    let channel: any;
+    let offerChannel: any;
+    let statusChannel: any;
 
     const setup = async () => {
       const id = await fetchDriverData();
@@ -133,7 +134,7 @@ const AvailableOrdersPage = () => {
       await findActiveOffer(id);
 
       // ESCUTA EM TEMPO REAL: Escuta especificamente quando o pedido é ofertado para este motorista
-      channel = supabase
+      offerChannel = supabase
         .channel('driver_offer_listener')
         .on(
           'postgres_changes', 
@@ -141,7 +142,7 @@ const AvailableOrdersPage = () => {
             event: 'UPDATE', 
             schema: 'public', 
             table: 'orders',
-            filter: `current_driver_offered_id=eq.${driverId}` // Filtro específico
+            filter: `current_driver_offered_id=eq.${driverId}` // Filtro CRÍTICO
           }, 
           (payload) => {
             console.log("Nova oferta detectada via Realtime:", payload.new);
@@ -152,7 +153,8 @@ const AvailableOrdersPage = () => {
         .subscribe();
 
       // Adiciona um listener para quando a oferta expira ou é aceita por outro
-      const statusChannel = supabase
+      // Este listener precisa ser mais genérico, mas só é relevante se houver uma oferta ativa
+      statusChannel = supabase
         .channel('driver_status_listener')
         .on(
           'postgres_changes', 
@@ -160,15 +162,18 @@ const AvailableOrdersPage = () => {
             event: 'UPDATE', 
             schema: 'public', 
             table: 'orders',
-            filter: `id=eq.${offer?.id}` // Escuta o pedido atual
+            // Não podemos usar offer?.id aqui, pois o useEffect só roda uma vez.
+            // Vamos escutar todas as mudanças e filtrar no cliente.
           }, 
           (payload) => {
-            // Se o pedido atual for aceito por outro ou cancelado, limpa a oferta
-            if (payload.new.driver_id !== driverId && payload.new.driver_id !== null) {
-                setOffer(null);
-            }
-            if (payload.new.status === 'CANCELLED') {
-                setOffer(null);
+            if (offer && payload.new.id === offer.id) {
+                // Se o pedido atual for aceito por outro ou cancelado, limpa a oferta
+                if (payload.new.driver_id !== driverId && payload.new.driver_id !== null) {
+                    setOffer(null);
+                }
+                if (payload.new.status === 'CANCELLED') {
+                    setOffer(null);
+                }
             }
           }
         )
@@ -176,13 +181,13 @@ const AvailableOrdersPage = () => {
 
 
       return () => {
-        supabase.removeChannel(channel);
+        supabase.removeChannel(offerChannel);
         supabase.removeChannel(statusChannel);
       };
     };
 
     setup();
-  }, [fetchDriverData, findActiveOffer, offer?.id]); // Adicione offer?.id para re-escutar o status do pedido atual
+  }, [fetchDriverData, findActiveOffer]); // Removendo offer?.id da dependência para evitar loop e garantir que o setup rode apenas uma vez.
 
   if (loading) return <div className="p-20 text-center"><Loader2 className="animate-spin mx-auto text-indigo-600" /></div>;
 
