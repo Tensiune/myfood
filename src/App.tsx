@@ -42,6 +42,7 @@ import MerchantSettingsPage from "./pages/merchant/MerchantSettingsPage";
 import DriverSetupPage from "./pages/driver/DriverSetupPage";
 import DriverProfilePage from "./pages/driver/DriverProfilePage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
+import DeliveryFeesPage from "./pages/admin/DeliveryFeesPage";
 
 const queryClient = new QueryClient();
 
@@ -100,6 +101,7 @@ const App = () => (
                     <Route path="/admin/dashboard" element={<AdminDashboard />} />
                     <Route path="/admin/merchants" element={<ValidateMerchantsPage />} />
                     <Route path="/admin/drivers" element={<ValidateDriversPage />} />
+                    <Route path="/admin/delivery-fees" element={<DeliveryFeesPage />} />
                     <Route path="/admin/users" element={<PlaceholderPage title="Gestão de Usuários" />} />
                   </Route>
 

@@ -14,7 +14,8 @@ import {
   ShieldCheck,
   Bell,
   BarChart3,
-  Bike
+  Bike,
+  DollarSign
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
@@ -34,13 +35,12 @@ const DashboardLayout = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setUser(user);
-        // Prioriza o papel ativo no localStorage, mas valida com os metadados
         const activeRole = localStorage.getItem('active_role') || user.user_metadata?.role;
         setRole(activeRole);
       }
     };
     fetchUser();
-  }, [location.pathname]); // Re-checa ao mudar de rota
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -58,15 +58,14 @@ const DashboardLayout = () => {
     { label: "Visão Geral", path: "/admin/dashboard", icon: LayoutDashboard },
     { label: "Validar Lojistas", path: "/admin/merchants", icon: ShieldCheck },
     { label: "Validar Entregadores", path: "/admin/drivers", icon: Bike },
+    { label: "Valor da Entrega", path: "/admin/delivery-fees", icon: DollarSign },
     { label: "Usuários", path: "/admin/users", icon: Users },
   ];
 
-  // Garante que o menu correto seja exibido
   const links = role === "ADMIN" ? adminLinks : merchantLinks;
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* Sidebar Mobile Overlay */}
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-black/50 z-40 lg:hidden" 
@@ -74,7 +73,6 @@ const DashboardLayout = () => {
         />
       )}
 
-      {/* Sidebar */}
       <aside className={cn(
         "fixed inset-y-0 left-0 w-64 bg-indigo-900 text-white z-50 transition-transform duration-300 transform lg:relative lg:translate-x-0",
         isSidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -123,9 +121,7 @@ const DashboardLayout = () => {
         </div>
       </aside>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top Header */}
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-8">
           <Button 
             variant="ghost" 
@@ -154,7 +150,6 @@ const DashboardLayout = () => {
           </div>
         </header>
 
-        {/* Page Content */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-8">
           <Outlet />
         </main>
