@@ -155,7 +155,7 @@ const AvailableOrdersPage = () => {
       // Busca oferta inicial
       await findActiveOffer(id);
 
-      // ESCUTA EM TEMPO REAL: Escuta especificamente quando o pedido é ofertado para este motorista
+      // ESCUTA EM TEMPO REAL 1: Escuta especificamente quando o pedido é ofertado para este motorista
       offerChannel = supabase
         .channel('driver_offer_listener')
         .on(
@@ -174,7 +174,7 @@ const AvailableOrdersPage = () => {
         )
         .subscribe();
 
-      // Adiciona um listener para quando a oferta expira ou é aceita por outro
+      // ESCUTA EM TEMPO REAL 2: Adiciona um listener para quando a oferta expira ou é aceita por outro
       statusChannel = supabase
         .channel('driver_status_listener')
         .on(
@@ -185,15 +185,22 @@ const AvailableOrdersPage = () => {
             table: 'orders',
           },
           (payload) => {
-            if (offer && payload.new.id === offer.id) {
-              // Se o pedido atual for aceito por outro ou cancelado, limpa a oferta
-              if (payload.new.driver_id !== driverId && payload.new.driver_id !== null) {
-                setOffer(null);
+            // Usamos setOffer com função para evitar dependência de 'offer' no useEffect
+            setOffer(currentOffer => {
+              if (currentOffer && payload.new.id === currentOffer.id) {
+                // Se o pedido atual for aceito por outro (driver_id setado e diferente do nosso ID)
+                if (payload.new.driver_id !== id && payload.new.driver_id !== null) {
+                  showError("Tarde demais! Outro entregador aceitou o pedido.");
+                  return null; // Limpa a oferta
+                }
+                // Se o pedido for cancelado
+                if (payload.new.status === 'CANCELLED') {
+                  showError("O pedido foi cancelado pela loja.");
+                  return null; // Limpa a oferta
+                }
               }
-              if (payload.new.status === 'CANCELLED') {
-                setOffer(null);
-              }
-            }
+              return currentOffer; // Mantém o estado atual
+            });
           }
         )
         .subscribe();
@@ -205,7 +212,7 @@ const AvailableOrdersPage = () => {
     };
 
     setup();
-  }, [fetchDriverData, findActiveOffer, driverId, offer]);
+  }, [fetchDriverData, findActiveOffer]); // Removendo driverId e offer para evitar re-subscrições desnecessárias
 
   // Tela de Bloqueio (Penalidade)
   if (driverStats?.blocked_until && new Date(driverStats.blocked_until) > new Date()) {
