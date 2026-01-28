@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User, RotateCcw } from "lucide-react";
+import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User, RotateCcw, X } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -98,6 +98,24 @@ const MerchantOrdersPage = () => {
   const handleAction = async (id: string, status: string) => {
       const { error } = await supabase.from('orders').update({ status }).eq('id', id);
       if (!error) fetchOrders(true);
+  };
+  
+  const handleCancelOrder = async (id: string) => {
+    if (!window.confirm("Tem certeza que deseja cancelar este pedido? O cliente será notificado.")) return;
+    
+    const { error } = await supabase.from('orders').update({ 
+      status: 'CANCELLED',
+      driver_id: null, // Remove qualquer atribuição de motorista
+      current_driver_offered_id: null,
+      offer_expires_at: null,
+    }).eq('id', id);
+    
+    if (!error) {
+      showSuccess("Pedido cancelado com sucesso.");
+      fetchOrders(true);
+    } else {
+      showError("Erro ao cancelar pedido.");
+    }
   };
 
   const handleRequestNewDriver = async (order: any) => {
@@ -246,6 +264,9 @@ const MerchantOrdersPage = () => {
           {renderSection("Em Preparo", "text-orange-500", o => o.status === "PREPARING", o => (
              <div className="space-y-2">
                 <Button className="w-full bg-orange-500 text-white font-bold rounded-xl h-12" onClick={() => handleAction(o.id, 'WAITING_FOR_DRIVER')}>Pronto p/ Retirada</Button>
+                <Button variant="ghost" className="w-full text-red-500 rounded-xl h-10" onClick={() => handleCancelOrder(o.id)}>
+                  <X className="h-4 w-4 mr-2" /> Cancelar Pedido
+                </Button>
                 {!o.driver && (
                   <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-gray-400 uppercase animate-pulse">
                     <Loader2 className="h-3 w-3 animate-spin" /> Buscando Entregador...
@@ -281,16 +302,26 @@ const MerchantOrdersPage = () => {
                  </DialogContent>
                </Dialog>
              ) : (
-               <div className="bg-gray-50 p-3 rounded-2xl text-center border-2 border-dashed border-gray-100">
-                 <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300 mb-1" />
-                 <span className="text-[10px] font-bold text-gray-400 uppercase">Aguardando Aceite...</span>
+               <div className="space-y-2">
+                 <div className="bg-gray-50 p-3 rounded-2xl text-center border-2 border-dashed border-gray-100">
+                   <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300 mb-1" />
+                   <span className="text-[10px] font-bold text-gray-400 uppercase">Aguardando Aceite...</span>
+                 </div>
+                 <Button variant="ghost" className="w-full text-red-500 rounded-xl h-10" onClick={() => handleCancelOrder(o.id)}>
+                   <X className="h-4 w-4 mr-2" /> Cancelar Pedido
+                 </Button>
                </div>
              )
           ))}
 
-          {renderSection("Finalizados", "text-green-600", o => ['OUT_FOR_DELIVERY', 'DELIVERED'].includes(o.status), o => (
-             <Badge className="w-full py-3 justify-center bg-green-50 text-green-700 border-none rounded-xl text-xs font-bold uppercase tracking-widest">
-               {o.status === 'DELIVERED' ? 'Entregue ✓' : 'Em Rota...'}
+          {renderSection("Finalizados", "text-green-600", o => ['OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'].includes(o.status), o => (
+             <Badge className={cn(
+               "w-full py-3 justify-center border-none rounded-xl text-xs font-bold uppercase tracking-widest",
+               o.status === 'DELIVERED' ? 'bg-green-50 text-green-700' : 
+               o.status === 'OUT_FOR_DELIVERY' ? 'bg-yellow-50 text-yellow-700' :
+               'bg-red-50 text-red-700'
+             )}>
+               {o.status === 'DELIVERED' ? 'Entregue ✓' : o.status === 'OUT_FOR_DELIVERY' ? 'Em Rota...' : 'Cancelado'}
              </Badge>
           ))}
         </div>
