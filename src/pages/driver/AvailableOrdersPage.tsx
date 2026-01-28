@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MapPin, CheckCircle2, ShieldAlert } from "lucide-react";
+import { Loader2, MapPin, CheckCircle2, ShieldAlert, Clock } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
@@ -24,10 +24,10 @@ const AvailableOrdersPage = () => {
 
   const checkNewOffers = useCallback(async (uid: string) => {
     try {
-      // Busca simplificada sem joins complexos para garantir que o RLS não bloqueie a query inteira
+      // REGRA: Se o banco diz que o pedido é seu, ele aparece.
       const { data, error } = await supabase
         .from('orders')
-        .select('*')
+        .select('*, merchant:merchant_applications(store_name)')
         .eq('current_driver_offered_id', uid)
         .is('driver_id', null);
 
@@ -36,28 +36,19 @@ const AvailableOrdersPage = () => {
       if (data && data.length > 0) {
         const activeOffer = data[0];
         
-        // Busca os dados do restaurante separadamente para evitar erro de join
-        const { data: merchantData } = await supabase
-          .from('merchant_applications')
-          .select('store_name')
-          .eq('id', activeOffer.merchant_id)
-          .single();
-
+        // Cálculo do tempo apenas para o cronômetro visual
         const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
         const diff = Math.floor((expiresAt - Date.now()) / 1000);
         
-        // Se a oferta ainda é válida (ou acabou de expirar por erro de sync, damos 10s)
-        if (diff > -5) {
-          setOffer({ ...activeOffer, merchant: merchantData });
-          setTimeLeft(Math.max(diff, 15));
-        } else {
-          setOffer(null);
-        }
+        setOffer(activeOffer);
+        // Se o tempo local estiver maluco, mostramos 30s fixos no visual para não confundir
+        setTimeLeft(diff > 0 ? diff : 30); 
       } else {
+        // Se o banco não retornou nada, limpamos a tela imediatamente
         setOffer(null);
       }
     } catch (err) {
-      console.error("[Radar] Erro de busca:", err);
+      console.error("[Radar] Erro de sincronia:", err);
     } finally {
       setLoading(false);
     }
@@ -74,12 +65,21 @@ const AvailableOrdersPage = () => {
 
       await checkNewOffers(user.id);
 
-      // Polling agressivo para testes
-      pollingRef.current = setInterval(() => checkNewOffers(user.id), 4000);
+      // Polling de segurança (Sincroniza o estado a cada 5s caso o Realtime falhe)
+      pollingRef.current = setInterval(() => checkNewOffers(user.id), 5000);
       
-      // Canal de tempo real
-      const channel = supabase.channel(`radar_${user.id}`)
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => checkNewOffers(user.id))
+      // REALTIME: O sinal mestre do servidor
+      const channel = supabase.channel(`radar_sync_${user.id}`)
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'orders' 
+        }, (payload: any) => {
+          console.log("[Radar] Sinal do Servidor:", payload.eventType);
+          
+          // Se houve qualquer mudança na tabela de ordens, re-sincronizamos o estado local com o banco
+          checkNewOffers(user.id);
+        })
         .subscribe();
 
       return () => {
@@ -91,12 +91,11 @@ const AvailableOrdersPage = () => {
     initialize();
   }, [navigate, checkNewOffers]);
 
+  // Cronômetro APENAS VISUAL - Não remove o card da tela.
   useEffect(() => {
     if (offer && timeLeft > 0) {
       const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
       return () => clearTimeout(timer);
-    } else if (offer && timeLeft <= 0) { 
-      setOffer(null); 
     }
   }, [offer, timeLeft]);
 
@@ -111,25 +110,29 @@ const AvailableOrdersPage = () => {
       }).eq('id', offer.id).is('driver_id', null).select();
 
       if (error || !data || data.length === 0) {
-        showError("A oferta não está mais disponível.");
+        showError("Este pedido já foi pego por outro entregador ou expirou.");
         setOffer(null);
         return;
       }
-      showSuccess("Pedido aceito!");
+      showSuccess("Pedido aceito com sucesso!");
       navigate(`/driver/map?orderId=${offer.id}`);
-    } catch (err) { showError("Erro ao aceitar."); }
+    } catch (err) { showError("Erro de conexão ao aceitar."); }
   };
 
   const handleReject = async () => {
     if (!driverId || !offer) return;
-    const newRefused = [...(offer.refused_drivers_ids || []), driverId];
+    // Removemos localmente para feedback imediato
+    const currentId = offer.id;
     setOffer(null);
+    
+    const newRefused = [...(offer.refused_drivers_ids || []), driverId];
     await supabase.from('orders').update({ 
       current_driver_offered_id: null, 
       refused_drivers_ids: newRefused 
-    }).eq('id', offer.id);
+    }).eq('id', currentId);
     
-    supabase.functions.invoke('dispatch-order', { body: { orderId: offer.id } });
+    // Chama o despacho para o próximo motorista
+    supabase.functions.invoke('dispatch-order', { body: { orderId: currentId } });
   };
 
   return (
@@ -137,7 +140,7 @@ const AvailableOrdersPage = () => {
       <div className="flex justify-between items-center px-1">
         <h1 className="text-2xl font-black text-indigo-900">Radar</h1>
         <Badge className={cn(driverStats?.status === 'APPROVED' ? "bg-green-500" : "bg-orange-500")}>
-          {driverStats?.status === 'APPROVED' ? 'Aprovado' : 'Em Análise'}
+          {driverStats?.status === 'APPROVED' ? 'Disponível' : 'Em Análise'}
         </Badge>
       </div>
 
@@ -147,17 +150,17 @@ const AvailableOrdersPage = () => {
             <MapPin className="h-4 w-4" />
           </div>
           <div>
-            <p className="text-[9px] font-black text-gray-400 uppercase">GPS</p>
-            <p className="text-xs font-bold">{isTracking ? "Transmitindo" : "Desconectado"}</p>
+            <p className="text-[9px] font-black text-gray-400 uppercase">Localização</p>
+            <p className="text-xs font-bold">{isTracking ? "Ativa" : "Inativa"}</p>
           </div>
         </div>
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
           <div className={cn("p-2 rounded-xl", driverStats?.status === 'APPROVED' ? "bg-green-50 text-green-600" : "bg-orange-50 text-orange-600")}>
-            {driverStats?.status === 'APPROVED' ? <CheckCircle2 className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
+            <CheckCircle2 className="h-4 w-4" />
           </div>
           <div>
-            <p className="text-[9px] font-black text-gray-400 uppercase">Sistema</p>
-            <p className="text-xs font-bold">{driverStats?.status === 'APPROVED' ? "Pronto" : "Bloqueado"}</p>
+            <p className="text-[9px] font-black text-gray-400 uppercase">Conta</p>
+            <p className="text-xs font-bold">{driverStats?.status === 'APPROVED' ? "Verificada" : "Pendente"}</p>
           </div>
         </div>
       </div>
@@ -165,7 +168,10 @@ const AvailableOrdersPage = () => {
       {offer ? (
         <Card className="rounded-[2.5rem] border-4 border-brand-accent shadow-2xl bg-white overflow-hidden animate-in zoom-in-95">
           <div className="bg-brand-accent p-4 text-white flex justify-between items-center">
-            <span className="font-black text-sm uppercase">Nova Oferta!</span>
+            <div className="flex items-center gap-2">
+               <Clock className="h-4 w-4 animate-pulse" />
+               <span className="font-black text-sm uppercase">Pedido Recebido</span>
+            </div>
             <div className="bg-white text-brand-accent px-4 py-1 rounded-full font-black text-xl">
               0:{timeLeft < 10 ? '0' : ''}{timeLeft}
             </div>
@@ -177,17 +183,17 @@ const AvailableOrdersPage = () => {
                   {offer.merchant?.store_name || "Loja Parceira"}
                 </span>
                 <p className="text-xs text-gray-500 font-bold uppercase mt-1">
-                  Retirada em {offer.delivery_address?.neighborhood || "sua região"}
+                   Distância calculada pelo servidor
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-[10px] font-black text-gray-400 uppercase">Ganhos</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase">Você recebe</p>
                 <span className="text-2xl font-black text-green-600">R$ {(offer.total * 0.15 + 5).toFixed(2)}</span>
               </div>
             </div>
             <div className="flex gap-3">
               <Button variant="ghost" className="flex-1 h-16 rounded-2xl text-red-500 font-bold" onClick={handleReject}>RECUSAR</Button>
-              <Button className="flex-2 h-16 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black text-xl shadow-lg" onClick={handleAccept}>ACEITAR</Button>
+              <Button className="flex-2 h-16 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black text-xl shadow-lg" onClick={handleAccept}>ACEITAR AGORA</Button>
             </div>
           </CardContent>
         </Card>
