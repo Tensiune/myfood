@@ -24,7 +24,7 @@ import "leaflet/dist/leaflet.css";
 import { useDriverLocationTracker } from "@/hooks/useDriverLocationTracker";
 import { cn } from "@/lib/utils";
 
-// Ícones customizados para o mapa do entregador
+// Ícones customizados
 const driverIcon = L.divIcon({
   html: `<div class="bg-indigo-600 p-2 rounded-full shadow-xl border-2 border-white flex items-center justify-center transform -rotate-45">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -52,7 +52,6 @@ const clientIcon = L.divIcon({
   iconAnchor: [18, 36],
 });
 
-// Componente para manter o mapa focado no entregador
 const RecenterMap = ({ position }: { position: [number, number] }) => {
   const map = useMap();
   useEffect(() => {
@@ -70,36 +69,29 @@ const NavigationPage = () => {
   
   const [step, setStep] = useState<"to_store" | "to_client" | "confirm">("to_store");
   const [order, setOrder] = useState<any>(null);
+  const [routePoints, setRoutePoints] = useState<[number, number][]>([]);
   const [otpCode, setOtpCode] = useState("");
   const [loadingOrder, setLoadingOrder] = useState(true);
   const [finishing, setFinishing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
-  // Hook de localização
   const { currentLocation } = useDriverLocationTracker(true);
 
   useEffect(() => {
     const fetchOrder = async () => {
-      if (!orderId) {
-        setLoadingOrder(false);
-        return;
-      }
-      
+      if (!orderId) { setLoadingOrder(false); return; }
       try {
         const { data, error } = await supabase
           .from('orders')
           .select('*, merchant:merchant_applications(*)')
           .eq('id', orderId)
           .single();
-          
         if (error) throw error;
-        
         if (data) {
           setOrder(data);
           if (data.status === 'OUT_FOR_DELIVERY') setStep("to_client");
         }
       } catch (err) {
-        console.error(err);
         showError("Não foi possível carregar os dados da rota.");
         navigate("/driver/orders");
       } finally {
@@ -121,6 +113,31 @@ const NavigationPage = () => {
 
   const targetPos = step === "to_store" ? storePos : clientPos;
 
+  // BUSCA A ROTA REAL NA API OSRM
+  useEffect(() => {
+    const getStreetRoute = async () => {
+      if (currentLocation[0] === 0 || !targetPos) return;
+
+      try {
+        // OSRM usa formato [longitude, latitude]
+        const url = `https://router.project-osrm.org/route/v1/driving/${currentLocation[1]},${currentLocation[0]};${targetPos[1]},${targetPos[0]}?overview=full&geometries=geojson`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.routes && data.routes.length > 0) {
+          const coords = data.routes[0].geometry.coordinates;
+          // Converte de [lng, lat] para [lat, lng] que o Leaflet usa
+          const mappedPoints: [number, number][] = coords.map((c: any) => [c[1], c[0]]);
+          setRoutePoints(mappedPoints);
+        }
+      } catch (err) {
+        console.error("Erro ao buscar rota viária:", err);
+      }
+    };
+
+    getStreetRoute();
+  }, [currentLocation, targetPos, step]);
+
   const handleArrivedAtStore = () => {
     showSuccess("Chegada confirmada!");
     setStep("to_client");
@@ -132,13 +149,11 @@ const NavigationPage = () => {
 
   const handleAbandonDelivery = async () => {
     if (!window.confirm("Tem certeza que deseja desistir desta entrega?")) return;
-    
     setCancelling(true);
     const tid = showLoading("Cancelando rota...");
     try {
       const { error } = await supabase.rpc('abandon_order', { p_order_id: order.id });
       if (error) throw error;
-      
       supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } });
       dismissToast(tid);
       showSuccess("Você abandonou a entrega.");
@@ -156,7 +171,6 @@ const NavigationPage = () => {
       showError("Código incorreto.");
       return;
     }
-
     setFinishing(true);
     try {
       const { error } = await supabase.from('orders').update({ status: 'DELIVERED' }).eq('id', order.id);
@@ -174,24 +188,15 @@ const NavigationPage = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900">
         <Loader2 className="h-10 w-10 text-indigo-500 animate-spin mb-4" />
-        <p className="text-white font-bold">Carregando mapa e rota...</p>
+        <p className="text-white font-bold">Carregando rota...</p>
       </div>
     );
   }
 
-  if (!order) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 p-6 text-center">
-        <AlertTriangle className="h-12 w-12 text-yellow-500 mb-4" />
-        <p className="text-white font-bold mb-6">Nenhum pedido selecionado para navegação.</p>
-        <Button onClick={() => navigate("/driver/orders")} className="bg-indigo-600">Voltar para Pedidos</Button>
-      </div>
-    );
-  }
+  if (!order) return null;
 
   return (
     <div className="fixed inset-0 bg-slate-900 flex flex-col z-50 overflow-hidden max-w-2xl mx-auto">
-      {/* HUD Header */}
       <div className="p-4 bg-indigo-900 text-white z-20 border-b border-indigo-800 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="text-white/70 hover:text-white rounded-full">
@@ -201,20 +206,17 @@ const NavigationPage = () => {
             <h2 className="text-sm font-black uppercase tracking-widest text-indigo-300">
               {step === "to_store" ? "Fase: Coleta" : step === "to_client" ? "Fase: Entrega" : "Fase: Finalização"}
             </h2>
-            <p className="font-bold truncate max-w-[200px]">
-              {step === "to_store" ? order.merchant?.store_name : "Casa do Cliente"}
-            </p>
+            <p className="font-bold truncate max-w-[200px]">{step === "to_store" ? order.merchant?.store_name : "Casa do Cliente"}</p>
           </div>
         </div>
         <Badge className="bg-indigo-700 border-none font-bold">#{order.id.slice(0, 6)}</Badge>
       </div>
 
-      {/* Map Content */}
       <div className="flex-1 relative bg-slate-100">
         {step !== "confirm" ? (
           <MapContainer 
             center={currentLocation[0] !== 0 ? currentLocation : storePos} 
-            zoom={15} 
+            zoom={16} 
             style={{ height: '100%', width: '100%' }}
             zoomControl={false}
           >
@@ -225,10 +227,19 @@ const NavigationPage = () => {
             <Marker position={storePos} icon={storeIcon} />
             <Marker position={clientPos} icon={clientIcon} />
 
-            <Polyline 
-              positions={[currentLocation[0] !== 0 ? currentLocation : storePos, targetPos]} 
-              pathOptions={{ color: '#6366f1', weight: 4, dashArray: '10, 10', opacity: 0.6 }} 
-            />
+            {/* ROTA REAL POR RUAS */}
+            {routePoints.length > 0 ? (
+              <Polyline 
+                positions={routePoints} 
+                pathOptions={{ color: '#4f46e5', weight: 6, opacity: 0.8 }} 
+              />
+            ) : (
+              // Fallback linha reta enquanto carrega a rota real
+              <Polyline 
+                positions={[currentLocation, targetPos]} 
+                pathOptions={{ color: '#6366f1', weight: 4, dashArray: '10, 10', opacity: 0.4 }} 
+              />
+            )}
           </MapContainer>
         ) : (
           <div className="h-full flex flex-col items-center justify-center p-6 bg-slate-800">
@@ -236,18 +247,11 @@ const NavigationPage = () => {
               <div className="bg-green-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
                 <CheckCircle2 className="h-8 w-8 text-green-600" />
               </div>
-              <div>
-                <h3 className="text-2xl font-black text-indigo-900">Finalizar Pedido</h3>
-                <p className="text-gray-500 text-sm mt-1">Digite o código do cliente.</p>
-              </div>
+              <h3 className="text-2xl font-black text-indigo-900">Finalizar Pedido</h3>
               <div className="flex justify-center">
                  <OtpInput length={4} value={otpCode} onChange={setOtpCode} />
               </div>
-              <Button 
-                className="w-full h-16 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black text-lg"
-                onClick={handleVerifyCode}
-                disabled={otpCode.length < 4 || finishing}
-              >
+              <Button className="w-full h-16 rounded-2xl bg-green-600 text-white font-black text-lg" onClick={handleVerifyCode} disabled={otpCode.length < 4 || finishing}>
                 {finishing ? <Loader2 className="animate-spin" /> : "Confirmar Entrega"}
               </Button>
               <Button variant="ghost" className="text-gray-400 font-bold" onClick={() => setStep("to_client")}>Voltar ao Mapa</Button>
@@ -255,20 +259,13 @@ const NavigationPage = () => {
           </div>
         )}
 
-        {/* GPS FAB */}
         {step !== "confirm" && (
-           <Button 
-             variant="secondary" 
-             size="icon" 
-             className="absolute bottom-6 right-6 z-[1000] rounded-full h-12 w-12 shadow-xl bg-white text-indigo-600"
-             onClick={() => window.location.reload()}
-           >
+           <Button variant="secondary" size="icon" className="absolute bottom-6 right-6 z-[1000] rounded-full h-12 w-12 shadow-xl bg-white text-indigo-600" onClick={() => window.location.reload()}>
              <Navigation className="h-5 w-5" />
            </Button>
         )}
       </div>
 
-      {/* Bottom Actions */}
       {step !== "confirm" && (
         <div className="p-6 bg-white rounded-t-[2.5rem] z-20 space-y-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
           <div className="flex items-start gap-3">
@@ -276,7 +273,7 @@ const NavigationPage = () => {
               {step === "to_store" ? <Store className="h-6 w-6 text-indigo-600" /> : <User className="h-6 w-6 text-indigo-600" />}
             </div>
             <div className="flex-1 min-w-0">
-               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Endereço de Destino</p>
+               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Destino</p>
                <p className="font-bold text-gray-900 truncate">
                  {step === "to_store" 
                    ? `${order.merchant?.metadata?.address?.street || ''}, ${order.merchant?.metadata?.address?.number || ''}` 
@@ -284,22 +281,12 @@ const NavigationPage = () => {
                </p>
             </div>
           </div>
-
           <div className="grid grid-cols-1 gap-3">
-            <Button 
-              className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-lg shadow-xl"
-              onClick={step === "to_store" ? handleArrivedAtStore : handleArrivedAtClient}
-            >
+            <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg" onClick={step === "to_store" ? handleArrivedAtStore : handleArrivedAtClient}>
               {step === "to_store" ? "Cheguei na Loja" : "Cheguei no Cliente"}
             </Button>
-
             {step === "to_store" && (
-              <Button 
-                variant="destructive"
-                className="w-full h-12 rounded-xl font-bold bg-red-500 hover:bg-red-600 border-none gap-2"
-                onClick={handleAbandonDelivery}
-                disabled={cancelling}
-              >
+              <Button variant="destructive" className="w-full h-12 rounded-xl font-bold bg-red-500 border-none gap-2" onClick={handleAbandonDelivery} disabled={cancelling}>
                 <AlertTriangle className="h-4 w-4" /> Desistir da Entrega
               </Button>
             )}
