@@ -212,7 +212,11 @@ const AvailableOrdersPage = () => {
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-8 w-8 text-indigo-500" /></div>;
 
   // Detalhes da Loja e Cliente para a Oferta
-  const storeDetails = offer?.merchant?.metadata?.store_details || offer?.merchant?.metadata?.address || {};
+  const merchantMetadata = offer?.merchant?.metadata || {};
+  
+  // Prioriza o endereço completo do setup da loja, se existir
+  const storeAddressData = merchantMetadata.store_details?.address || merchantMetadata.address || {};
+  
   const deliveryAddress = offer?.delivery_address || {};
   const distances = offer ? getDistances(offer) : { toStore: "0", toClient: "0" };
   const calculatedFee = offer ? getCalculatedFee(offer) : 0;
@@ -282,7 +286,7 @@ const AvailableOrdersPage = () => {
               </Badge>
             </div>
 
-            {/* Detalhes da Coleta (Loja) - CORRIGIDO */}
+            {/* Detalhes da Coleta (Loja) */}
             <div className="flex gap-4">
               <div className="flex flex-col items-center shrink-0">
                 <div className="p-2 bg-indigo-50 rounded-full"><Store className="h-4 w-4 text-indigo-600" /></div>
@@ -295,7 +299,7 @@ const AvailableOrdersPage = () => {
                 </div>
                 <p className="font-bold text-gray-800">{offer.merchant?.store_name}</p>
                 <p className="text-sm text-gray-600 leading-tight">
-                  {storeDetails.street}, {storeDetails.number} - {storeDetails.neighborhood}
+                  {storeAddressData.street}, {storeAddressData.number} - {storeAddressData.neighborhood}
                 </p>
               </div>
             </div>
