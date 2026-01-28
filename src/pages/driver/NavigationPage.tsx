@@ -58,29 +58,14 @@ const NavigationPage = () => {
     const tid = showLoading("Cancelando sua rota...");
     
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !order) throw new Error("Dados insuficientes para cancelar.");
+      // Usamos o RPC para garantir que a alteração do driver_id para NULL seja aceita pelo banco
+      const { error: rpcError } = await supabase.rpc('abandon_order', { 
+        p_order_id: order.id 
+      });
 
-      // 1. Atualizar o pedido: Remove o driver, limpa ofertas e adiciona na lista de recusados
-      // Importante: fazemos o update completo em um único passo
-      const currentRefused = order.refused_drivers_ids || [];
-      const updatedRefused = Array.from(new Set([...currentRefused, user.id]));
-      
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({
-          driver_id: null,
-          current_driver_offered_id: null,
-          offer_expires_at: null,
-          refused_drivers_ids: updatedRefused,
-          status: 'PREPARING' // Volta para preparando para que o lojista veja que está sem entregador
-        })
-        .eq('id', order.id);
+      if (rpcError) throw rpcError;
 
-      if (updateError) throw updateError;
-
-      // 2. Chamar a Edge Function para tentar despachar para outro entregador imediatamente
-      // Usamos invoke de forma assíncrona (não precisamos esperar o resultado aqui para liberar o app)
+      // Dispara a busca por um novo entregador em background
       supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } });
 
       dismissToast(tid);
