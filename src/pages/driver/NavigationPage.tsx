@@ -17,7 +17,8 @@ import {
   CornerUpRight,
   CornerUpLeft,
   Plus,
-  Minus
+  Minus,
+  XCircle
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -31,7 +32,7 @@ import { cn } from "@/lib/utils";
 // Ícones customizados
 const driverIcon = L.divIcon({
   html: `<div class="bg-indigo-600 p-2 rounded-full shadow-xl border-2 border-white flex items-center justify-center transform -rotate-45">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
         </div>`,
   className: "custom-driver-icon",
   iconSize: [40, 40],
@@ -140,6 +141,24 @@ const NavigationPage = () => {
     return <ArrowUp className="h-8 w-8" />;
   };
 
+  const handleAbandonOrder = async () => {
+    if (!order) return;
+    if (!window.confirm("Tem certeza que deseja desistir desta entrega? O pedido será devolvido para a loja e outro entregador será buscado.")) return;
+
+    const tid = showLoading("Processando desistência...");
+    try {
+      const { error } = await supabase.rpc('abandon_order', { p_order_id: order.id });
+      if (error) throw error;
+      
+      dismissToast(tid);
+      showSuccess("Entrega cancelada.");
+      navigate("/driver/orders");
+    } catch (err: any) {
+      dismissToast(tid);
+      showError("Erro ao desistir da entrega: " + err.message);
+    }
+  };
+
   const handleVerifyCode = async () => {
     if (otpCode !== order?.confirmation_code) {
       showError("Código incorreto.");
@@ -197,7 +216,7 @@ const NavigationPage = () => {
           )}
         </div>
 
-        {/* HUD DE ZOOM FIXO (Não rotaciona) */}
+        {/* HUD DE ZOOM FIXO */}
         {step !== "confirm" && (
           <div className="absolute right-6 bottom-32 z-[1100] flex flex-col gap-3">
              <Button 
@@ -248,7 +267,20 @@ const NavigationPage = () => {
                   <p className="font-bold text-gray-900">{step === "to_store" ? "Coleta na Loja" : "Entrega ao Cliente"}</p>
                </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full h-12 w-12 text-gray-400"><ArrowLeft className="h-6 w-6" /></Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={handleAbandonOrder} 
+                className="rounded-full h-12 w-12 text-red-500 hover:bg-red-50"
+                title="Desistir da Entrega"
+              >
+                <XCircle className="h-6 w-6" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full h-12 w-12 text-gray-400">
+                <ArrowLeft className="h-6 w-6" />
+              </Button>
+            </div>
           </div>
           <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg" onClick={step === "to_store" ? () => setStep("to_client") : () => setStep("confirm")}>
             {step === "to_store" ? "Cheguei na Loja" : "Cheguei no Cliente"}
