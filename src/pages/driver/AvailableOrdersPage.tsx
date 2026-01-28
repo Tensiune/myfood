@@ -56,7 +56,7 @@ const AvailableOrdersPage = () => {
         .eq('driver_id', uid)
         .neq('status', 'DELIVERED')
         .neq('status', 'CANCELLED')
-        .neq('status', 'PREPARING') // <-- CORREÇÃO: Exclui pedidos que voltaram para preparo após abandono
+        .neq('status', 'PREPARING')
         .order('created_at', { ascending: false });
 
       if (accepted && accepted.length > 0) {
@@ -126,8 +126,12 @@ const AvailableOrdersPage = () => {
     );
 
     const kmInt = Math.floor(distStoreClient);
+    
+    // Garante que o índice não exceda o tamanho do array (16 elementos para 0-15km)
+    const feeIndex = Math.min(kmInt, 15); 
+
     if (kmInt < 15) {
-      return setting.fees_json[kmInt];
+      return setting.fees_json[feeIndex];
     } else {
       const base15 = setting.fees_json[15];
       const extraKm = distStoreClient - 15;
@@ -147,12 +151,12 @@ const AvailableOrdersPage = () => {
       parseFloat(storeAddr.lat), parseFloat(storeAddr.lng)
     );
 
-    const distToClient = calculateDistance(
+    const distStoreClient = calculateDistance(
       parseFloat(storeAddr.lat), parseFloat(storeAddr.lng),
       parseFloat(deliveryAddr.lat), parseFloat(deliveryAddr.lng)
     );
 
-    return { toStore: distToStore.toFixed(1), toClient: distToClient.toFixed(1) };
+    return { toStore: distToStore.toFixed(1), toClient: distStoreClient.toFixed(1) };
   };
 
   const handleAccept = async () => {
@@ -206,6 +210,12 @@ const AvailableOrdersPage = () => {
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-8 w-8 text-indigo-500" /></div>;
+
+  // Detalhes da Loja e Cliente para a Oferta
+  const storeDetails = offer?.merchant?.metadata?.store_details || offer?.merchant?.metadata?.address || {};
+  const deliveryAddress = offer?.delivery_address || {};
+  const distances = offer ? getDistances(offer) : { toStore: "0", toClient: "0" };
+  const calculatedFee = offer ? getCalculatedFee(offer) : 0;
 
   return (
     <div className="space-y-6">
@@ -264,7 +274,7 @@ const AvailableOrdersPage = () => {
           <CardContent className="p-6 space-y-6">
             <div className="flex justify-between items-start border-b pb-6">
               <div className="space-y-1">
-                <span className="text-3xl font-black text-indigo-900">R$ {getCalculatedFee(offer).toFixed(2)}</span>
+                <span className="text-3xl font-black text-indigo-900">R$ {calculatedFee.toFixed(2)}</span>
                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Valor da sua Entrega</p>
               </div>
               <Badge variant="outline" className="border-indigo-100 text-indigo-600 font-bold capitalize">
@@ -272,19 +282,36 @@ const AvailableOrdersPage = () => {
               </Badge>
             </div>
 
+            {/* Detalhes da Coleta (Loja) */}
             <div className="flex gap-4">
-              <div className="flex flex-col items-center"><div className="p-2 bg-indigo-50 rounded-full"><Store className="h-4 w-4 text-indigo-600" /></div><div className="w-0.5 h-full bg-gray-100 my-1" /></div>
+              <div className="flex flex-col items-center shrink-0">
+                <div className="p-2 bg-indigo-50 rounded-full"><Store className="h-4 w-4 text-indigo-600" /></div>
+                <div className="w-0.5 h-full bg-gray-100 my-1" />
+              </div>
               <div className="flex-1 space-y-1">
-                <div className="flex justify-between"><p className="text-[10px] font-black text-gray-400 uppercase">Coleta (Loja)</p><span className="text-[10px] font-black text-indigo-600">{getDistances(offer).toStore} km de você</span></div>
+                <div className="flex justify-between">
+                  <p className="text-[10px] font-black text-gray-400 uppercase">Coleta (Loja)</p>
+                  <span className="text-[10px] font-black text-indigo-600">{distances.toStore} km de você</span>
+                </div>
                 <p className="font-bold text-gray-800">{offer.merchant?.store_name}</p>
+                <p className="text-sm text-gray-600 leading-tight">
+                  {storeDetails.street}, {storeDetails.number} - {storeDetails.neighborhood}
+                </p>
               </div>
             </div>
 
+            {/* Detalhes da Entrega (Cliente) */}
             <div className="flex gap-4">
-              <div className="p-2 bg-green-50 rounded-full h-fit"><ShoppingBag className="h-4 w-4 text-green-600" /></div>
+              <div className="p-2 bg-green-50 rounded-full h-fit shrink-0"><ShoppingBag className="h-4 w-4 text-green-600" /></div>
               <div className="flex-1 space-y-1">
-                <div className="flex justify-between"><p className="text-[10px] font-black text-gray-400 uppercase">Entrega (Cliente)</p><span className="text-[10px] font-black text-green-600">{getDistances(offer).toClient} km da loja</span></div>
-                <p className="font-bold text-gray-800">Endereço de Entrega</p>
+                <div className="flex justify-between">
+                  <p className="text-[10px] font-black text-gray-400 uppercase">Entrega (Cliente)</p>
+                  <span className="text-[10px] font-black text-green-600">{distances.toClient} km da loja</span>
+                </div>
+                <p className="font-bold text-gray-800">Endereço do Cliente</p>
+                <p className="text-sm text-gray-600 leading-tight">
+                  {deliveryAddress.street}, {deliveryAddress.number} - {deliveryAddress.neighborhood}
+                </p>
               </div>
             </div>
 
