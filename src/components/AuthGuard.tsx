@@ -9,11 +9,15 @@ import { useAuth } from "@/context/AuthContext";
 
 const getAvailableRoles = (user: User): UserRole[] => {
     const roles: UserRole[] = ['CONSUMER'];
-    const metadataRole = user.user_metadata?.role;
+    
+    // Verifica primeiro o app_metadata (Seguro/Admin)
+    const appRole = user.app_metadata?.role;
+    // Verifica o user_metadata (Cadastro inicial)
+    const metaRole = user.user_metadata?.role;
 
-    if (metadataRole === 'ADMIN') roles.push('ADMIN');
-    if (metadataRole === 'MERCHANT') roles.push('MERCHANT');
-    if (metadataRole === 'DRIVER') roles.push('DRIVER');
+    if (appRole === 'ADMIN' || metaRole === 'ADMIN') roles.push('ADMIN');
+    if (appRole === 'MERCHANT' || metaRole === 'MERCHANT') roles.push('MERCHANT');
+    if (appRole === 'DRIVER' || metaRole === 'DRIVER') roles.push('DRIVER');
     
     return Array.from(new Set(roles));
 };
@@ -82,7 +86,6 @@ const AuthGuard = () => {
     const expectedPrefix = getRolePrefix(activeRole!);
     const status = user.user_metadata?.status;
     
-    // Setup validation
     if (activeRole === 'MERCHANT' && status === 'NEEDS_SETUP' && path !== "/merchant/setup") {
         navigate("/merchant/setup");
         return;
