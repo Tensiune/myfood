@@ -87,7 +87,12 @@ const MerchantOrdersPage = () => {
   };
 
   const handleAcceptOrder = async (id: string) => {
-    const { error } = await supabase.from('orders').update({ status: 'PREPARING' }).eq('id', id);
+    // Limpa o prazo de aceite para evitar cancelamento automático
+    const { error } = await supabase.from('orders').update({ 
+      status: 'PREPARING',
+      merchant_acceptance_deadline: null, // CRÍTICO: Limpa o deadline ao aceitar
+    }).eq('id', id);
+    
     if (!error) {
       showSuccess("Pedido aceito! Buscando entregador...");
       supabase.functions.invoke('dispatch-order', { body: { orderId: id } });
