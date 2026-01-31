@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MapPin, CheckCircle2, Store, ShoppingBag, ArrowDownRight, Clock, Map, XCircle } from "lucide-react";
+import { Loader2, MapPin, Store, ShoppingBag, Clock, Map, XCircle } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
@@ -23,7 +23,7 @@ const AvailableOrdersPage = () => {
   const [feeSettings, setFeeSettings] = useState<any[]>([]);
   
   const pollingRef = useRef<any>(null);
-  const { currentLocation, isTracking } = useDriverLocationTracker(true);
+  const { currentLocation } = useDriverLocationTracker(true);
 
   const fetchFeeSettings = async () => {
     const { data } = await supabase.from('delivery_fee_settings').select('*');
@@ -32,7 +32,7 @@ const AvailableOrdersPage = () => {
 
   const syncOrders = useCallback(async (uid: string) => {
     try {
-      // 1. Busca ofertas pendentes para este entregador
+      // 1. Busca ofertas enviadas para este entregador
       const { data: offers } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
@@ -54,9 +54,7 @@ const AvailableOrdersPage = () => {
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
         .eq('driver_id', uid)
-        .neq('status', 'DELIVERED')
-        .neq('status', 'CANCELLED')
-        .neq('status', 'PREPARING')
+        .not('status', 'in', '("DELIVERED", "CANCELLED")')
         .order('created_at', { ascending: false });
 
       if (accepted && accepted.length > 0) {
@@ -103,15 +101,13 @@ const AvailableOrdersPage = () => {
     if (offer && timeLeft > 0) {
       const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
       return () => clearTimeout(timer);
-    } else if (offer && timeLeft === 0) {
+    } else if (offer && timeLeft <= 0) {
        handleReject();
     }
   }, [offer, timeLeft]);
 
-  // CÁLCULO DO VALOR DA ENTREGA
   const getCalculatedFee = (orderData: any) => {
     if (!orderData || !driverStats || feeSettings.length === 0) return 0;
-    
     const vehicleType = driverStats.metadata?.vehicle?.type || 'moto';
     const setting = feeSettings.find(s => s.vehicle_type === vehicleType);
     if (!setting) return 0;
@@ -126,35 +122,20 @@ const AvailableOrdersPage = () => {
     );
 
     const kmInt = Math.floor(distStoreClient);
-    
-    // Garante que o índice não exceda o tamanho do array (16 elementos para 0-15km)
     const feeIndex = Math.min(kmInt, 15); 
 
-    if (kmInt < 15) {
-      return setting.fees_json[feeIndex];
-    } else {
-      const base15 = setting.fees_json[15];
-      const extraKm = distStoreClient - 15;
-      return base15 + (extraKm * setting.extra_fee_per_km);
-    }
+    if (kmInt < 15) return setting.fees_json[feeIndex];
+    return setting.fees_json[15] + ((distStoreClient - 15) * setting.extra_fee_per_km);
   };
 
   const getDistances = (orderData: any) => {
     if (!orderData || !currentLocation) return { toStore: "0", toClient: "0" };
-    
     const storeMeta = orderData.merchant?.metadata || {};
     const storeAddr = storeMeta.store_details?.address || storeMeta.address || {};
     const deliveryAddr = orderData.delivery_address || {};
 
-    const distToStore = calculateDistance(
-      currentLocation[0], currentLocation[1],
-      parseFloat(storeAddr.lat), parseFloat(storeAddr.lng)
-    );
-
-    const distStoreClient = calculateDistance(
-      parseFloat(storeAddr.lat), parseFloat(storeAddr.lng),
-      parseFloat(deliveryAddr.lat), parseFloat(deliveryAddr.lng)
-    );
+    const distToStore = calculateDistance(currentLocation[0], currentLocation[1], parseFloat(storeAddr.lat), parseFloat(storeAddr.lng));
+    const distStoreClient = calculateDistance(parseFloat(storeAddr.lat), parseFloat(storeAddr.lng), parseFloat(deliveryAddr.lat), parseFloat(deliveryAddr.lng));
 
     return { toStore: distToStore.toFixed(1), toClient: distStoreClient.toFixed(1) };
   };
@@ -166,7 +147,7 @@ const AvailableOrdersPage = () => {
         driver_id: driverId,
         current_driver_offered_id: null,
         offer_expires_at: null,
-        status: 'WAITING_FOR_DRIVER',
+        // Mantemos o status original se o merchant ainda estiver preparando
       }).eq('id', offer.id).is('driver_id', null).select();
 
       if (error || !data || data.length === 0) {
@@ -192,31 +173,10 @@ const AvailableOrdersPage = () => {
     supabase.functions.invoke('dispatch-order', { body: { orderId: currentId } });
   };
 
-  const handleAbandon = async (order: any) => {
-    const confirmation = window.confirm("ATENÇÃO: Desistir de uma entrega já aceita pode diminuir sua preferência no envio de novos pedidos. Tem certeza que deseja cancelar?");
-    if (!confirmation) return;
-    
-    const tid = showLoading("Cancelando...");
-    try {
-      const { error } = await supabase.rpc('abandon_order', { p_order_id: order.id });
-      if (error) throw error;
-      dismissToast(tid);
-      showSuccess("Entrega cancelada.");
-      syncOrders(driverId!);
-    } catch (err) {
-      dismissToast(tid);
-      showError("Erro ao desistir.");
-    }
-  };
-
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-8 w-8 text-indigo-500" /></div>;
 
-  // Detalhes da Loja e Cliente para a Oferta
   const merchantMetadata = offer?.merchant?.metadata || {};
-  
-  // Prioriza o endereço completo do setup da loja, se existir
   const storeAddressData = merchantMetadata.store_details?.address || merchantMetadata.address || {};
-  
   const deliveryAddress = offer?.delivery_address || {};
   const distances = offer ? getDistances(offer) : { toStore: "0", toClient: "0" };
   const calculatedFee = offer ? getCalculatedFee(offer) : 0;
@@ -230,109 +190,53 @@ const AvailableOrdersPage = () => {
         </Badge>
       </div>
 
-      {/* Pedido Ativo (Já aceito) */}
       {activeOrder && (
         <Card className="rounded-[2rem] border-2 border-indigo-600 bg-indigo-50/30 overflow-hidden shadow-lg animate-in slide-in-from-top-4">
           <CardContent className="p-6 space-y-4">
              <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                    <div className="h-2 w-2 bg-indigo-600 rounded-full animate-pulse" />
-                   <span className="font-black text-xs uppercase text-indigo-900">Entrega em andamento</span>
+                   <span className="font-black text-xs uppercase text-indigo-900">Em andamento</span>
                 </div>
                 <Badge className="bg-indigo-600">R$ {getCalculatedFee(activeOrder).toFixed(2)}</Badge>
              </div>
-             
-             <div className="space-y-1">
-                <p className="font-bold text-gray-800 leading-tight">Retirar em: {activeOrder.merchant?.store_name}</p>
-                <p className="text-xs text-gray-500 truncate">{activeOrder.delivery_address?.street}, {activeOrder.delivery_address?.number}</p>
-             </div>
-
-             <div className="flex gap-2">
-                <Button 
-                  variant="default" 
-                  className="flex-1 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold" 
-                  onClick={() => handleAbandon(activeOrder)}
-                >
-                  <XCircle className="h-4 w-4 mr-2" /> Cancelar Entrega
-                </Button>
-                <Button className="flex-2 rounded-xl bg-indigo-600 text-white font-bold" onClick={() => navigate(`/driver/map?orderId=${activeOrder.id}`)}>
-                  <Map className="h-4 w-4 mr-2" /> Continuar Rota
-                </Button>
-             </div>
+             <p className="font-bold text-gray-800 leading-tight">Retirar em: {activeOrder.merchant?.store_name}</p>
+             <Button className="w-full rounded-xl bg-indigo-600 text-white font-bold" onClick={() => navigate(`/driver/map?orderId=${activeOrder.id}`)}>
+               <Map className="h-4 w-4 mr-2" /> Continuar Rota
+             </Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Oferta Recebida */}
       {offer ? (
         <Card className="rounded-[2.5rem] border-4 border-brand-accent shadow-2xl bg-white overflow-hidden animate-in zoom-in-95">
           <div className="bg-brand-accent p-4 text-white flex justify-between items-center">
-            <div className="flex items-center gap-2">
-               <Clock className="h-4 w-4 animate-pulse" />
-               <span className="font-black text-sm uppercase">Pedido Recebido</span>
-            </div>
-            <div className="bg-white text-brand-accent px-4 py-1 rounded-full font-black text-xl">
-              0:{timeLeft < 10 ? '0' : ''}{timeLeft}
-            </div>
+            <div className="flex items-center gap-2"><Clock className="h-4 w-4 animate-pulse" /><span className="font-black text-sm uppercase">Pedido Recebido</span></div>
+            <div className="bg-white text-brand-accent px-4 py-1 rounded-full font-black text-xl">0:{timeLeft < 10 ? '0' : ''}{timeLeft}</div>
           </div>
           <CardContent className="p-6 space-y-6">
             <div className="flex justify-between items-start border-b pb-6">
-              <div className="space-y-1">
-                <span className="text-3xl font-black text-indigo-900">R$ {calculatedFee.toFixed(2)}</span>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Valor da sua Entrega</p>
-              </div>
-              <Badge variant="outline" className="border-indigo-100 text-indigo-600 font-bold capitalize">
-                {driverStats?.metadata?.vehicle?.type || 'moto'}
-              </Badge>
+              <div className="space-y-1"><span className="text-3xl font-black text-indigo-900">R$ {calculatedFee.toFixed(2)}</span><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Ganhos Estimados</p></div>
+              <Badge variant="outline" className="border-indigo-100 text-indigo-600 font-bold capitalize">{driverStats?.metadata?.vehicle?.type || 'moto'}</Badge>
             </div>
-
-            {/* Detalhes da Coleta (Loja) */}
             <div className="flex gap-4">
-              <div className="flex flex-col items-center shrink-0">
-                <div className="p-2 bg-indigo-50 rounded-full"><Store className="h-4 w-4 text-indigo-600" /></div>
-                <div className="w-0.5 h-full bg-gray-100 my-1" />
-              </div>
-              <div className="flex-1 space-y-1">
-                <div className="flex justify-between">
-                  <p className="text-[10px] font-black text-gray-400 uppercase">Coleta (Loja)</p>
-                  <span className="text-[10px] font-black text-indigo-600">{distances.toStore} km de você</span>
-                </div>
-                <p className="font-bold text-gray-800">{offer.merchant?.store_name}</p>
-                <p className="text-sm text-gray-600 leading-tight">
-                  {storeAddressData.street}, {storeAddressData.number} - {storeAddressData.neighborhood}
-                </p>
-              </div>
+              <div className="flex flex-col items-center shrink-0"><div className="p-2 bg-indigo-50 rounded-full"><Store className="h-4 w-4 text-indigo-600" /></div><div className="w-0.5 h-full bg-gray-100 my-1" /></div>
+              <div className="flex-1 space-y-1"><div className="flex justify-between"><p className="text-[10px] font-black text-gray-400 uppercase">Coleta</p><span className="text-[10px] font-black text-indigo-600">{distances.toStore} km</span></div><p className="font-bold text-gray-800">{offer.merchant?.store_name}</p><p className="text-sm text-gray-600 leading-tight">{storeAddressData.street}, {storeAddressData.number}</p></div>
             </div>
-
-            {/* Detalhes da Entrega (Cliente) */}
             <div className="flex gap-4">
               <div className="p-2 bg-green-50 rounded-full h-fit shrink-0"><ShoppingBag className="h-4 w-4 text-green-600" /></div>
-              <div className="flex-1 space-y-1">
-                <div className="flex justify-between">
-                  <p className="text-[10px] font-black text-gray-400 uppercase">Entrega (Cliente)</p>
-                  <span className="text-[10px] font-black text-green-600">{distances.toClient} km da loja</span>
-                </div>
-                <p className="font-bold text-gray-800">Endereço do Cliente</p>
-                <p className="text-sm text-gray-600 leading-tight">
-                  {deliveryAddress.street}, {deliveryAddress.number} - {deliveryAddress.neighborhood}
-                </p>
-              </div>
+              <div className="flex-1 space-y-1"><div className="flex justify-between"><p className="text-[10px] font-black text-gray-400 uppercase">Entrega</p><span className="text-[10px] font-black text-green-600">{distances.toClient} km</span></div><p className="font-bold text-gray-800">Cliente</p><p className="text-sm text-gray-600 leading-tight">{deliveryAddress.street}, {deliveryAddress.number}</p></div>
             </div>
-
             <div className="flex gap-3 pt-2">
               <Button variant="ghost" className="flex-1 h-16 rounded-2xl text-red-500 font-bold" onClick={handleReject}>RECUSAR</Button>
-              <Button className="flex-2 h-16 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black text-xl shadow-lg" onClick={handleAccept}>ACEITAR AGORA</Button>
+              <Button className="flex-2 h-16 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black text-xl shadow-lg" onClick={handleAccept}>ACEITAR</Button>
             </div>
           </CardContent>
         </Card>
       ) : !activeOrder && (
         <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-indigo-50">
           <Loader2 className="h-10 w-10 text-indigo-200 animate-spin mb-4" />
-          <p className="text-gray-400 font-black uppercase text-[10px] text-center px-8">
-            {driverStats?.status !== 'APPROVED' 
-              ? "Sua conta está em análise. Você será notificado quando for liberado." 
-              : "Aguardando novos pedidos na sua região..."}
-          </p>
+          <p className="text-gray-400 font-black uppercase text-[10px] text-center px-8">Aguardando novos pedidos na sua região...</p>
         </div>
       )}
     </div>

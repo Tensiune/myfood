@@ -27,7 +27,7 @@ serve(async (req) => {
 
     if (orderError || !order) throw new Error("Pedido não encontrado")
     
-    // CRÍTICO: Se o pedido não estiver em um status que requer despacho, pare.
+    // O pedido deve estar em preparo ou já aguardando motorista
     if (order.status !== 'PREPARING' && order.status !== 'WAITING_FOR_DRIVER') {
         console.log(`[dispatch-order] Pedido ${orderId} não está em status de despacho (${order.status}). Abortando.`);
         return new Response(JSON.stringify({ success: true, message: 'Order status does not require dispatch' }), { headers: corsHeaders });
@@ -44,10 +44,8 @@ serve(async (req) => {
                 offer_expires_at: null,
                 refused_drivers_ids: updatedRefused
             }).eq('id', orderId);
-            // Atualiza o objeto local para a próxima etapa da lógica
             order.refused_drivers_ids = updatedRefused;
         } else {
-            // Ainda está no tempo de 1 minuto de outro motorista, não faz nada.
             return new Response(JSON.stringify({ success: true, message: 'Offer still active' }), { headers: corsHeaders });
         }
     }
@@ -68,7 +66,8 @@ serve(async (req) => {
     // 3. Buscar localizações atuais
     const { data: locations } = await supabaseAdmin.from('driver_locations').select('driver_id, latitude, longitude')
 
-    const MAX_DISTANCE_KM = 5.0;
+    // Aumentamos o raio para 15km para facilitar testes em diferentes cidades
+    const MAX_DISTANCE_KM = 15.0; 
     const refusedIds = order.refused_drivers_ids || [];
 
     // 4. Filtrar e Rankear motoristas
@@ -79,28 +78,24 @@ serve(async (req) => {
         return { ...d, distance: dist, hasRefused: refusedIds.includes(d.id) };
     }).filter(d => d.distance <= MAX_DISTANCE_KM);
 
-    // Lógica de Prioridade:
-    // Prio 1: Quem NÃO recusou ainda e está no raio de 5km
-    // Prio 2: Quem JÁ recusou mas é o único no raio de 5km (fallback)
     let nextDriver = availableDrivers
         .filter(d => !d.hasRefused)
         .sort((a, b) => a.distance - b.distance)[0];
 
     if (!nextDriver && availableDrivers.length > 0) {
-        console.log("[dispatch-order] Fallback: Oferecendo novamente para quem já recusou no raio de 5km.");
+        console.log("[dispatch-order] Fallback: Oferecendo novamente para quem já recusou.");
         nextDriver = availableDrivers.sort((a, b) => a.distance - b.distance)[0];
     }
 
     if (nextDriver) {
-      const expiresAt = new Date(Date.now() + 60000).toISOString(); // 1 minuto exato
+      const expiresAt = new Date(Date.now() + 60000).toISOString();
       
       await supabaseAdmin
         .from('orders')
         .update({
           current_driver_offered_id: nextDriver.id,
           offer_expires_at: expiresAt,
-          // Se estava em PREPARING, move para WAITING_FOR_DRIVER para indicar que está em ciclo de despacho
-          status: 'WAITING_FOR_DRIVER' 
+          // REMOVIDO: status: 'WAITING_FOR_DRIVER' - Mantemos o status atual do lojista
         })
         .eq('id', orderId);
 

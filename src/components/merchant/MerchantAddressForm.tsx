@@ -10,7 +10,6 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { showError } from "@/utils/toast";
 
-// Criando um ícone customizado para o marcador usando DivIcon para evitar problemas de carregamento de imagem
 const customMarkerIcon = L.divIcon({
   html: `<div class="bg-brand-accent p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -38,7 +37,7 @@ interface AddressData {
 interface MerchantAddressFormProps {
   address: AddressData;
   onChange: (address: AddressData) => void;
-  readOnlyInputs?: boolean; // New prop
+  readOnlyInputs?: boolean;
 }
 
 const RecenterMap = ({ position }: { position: [number, number] }) => {
@@ -78,7 +77,8 @@ const MerchantAddressForm: React.FC<MerchantAddressFormProps> = ({ address, onCh
   const [loadingCep, setLoadingCep] = useState(false);
   const [streetSuggestions, setStreetSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [mapCenter, setMapCenter] = useState<[number, number]>([-23.5505, -46.6333]);
+  // Centro padrão ajustado para a área de teste (-22.11, -51.42)
+  const [mapCenter, setMapCenter] = useState<[number, number]>([-22.1197, -51.4288]);
 
   const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
     const cep = e.target.value.replace(/\D/g, "");
@@ -94,8 +94,8 @@ const MerchantAddressForm: React.FC<MerchantAddressFormProps> = ({ address, onCh
           const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${data.logradouro}, ${data.localidade}, ${data.uf}, Brasil`)}`);
           const geoData = await geoRes.json();
           
-          let lat = -23.5505;
-          let lng = -46.6333;
+          let lat = -22.1197;
+          let lng = -51.4288;
 
           if (geoData && geoData.length > 0) {
             lat = parseFloat(geoData[0].lat);
