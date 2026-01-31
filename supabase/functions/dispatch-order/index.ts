@@ -16,7 +16,7 @@ serve(async (req) => {
 
   try {
     const { orderId } = await req.json()
-    console.log(`[dispatch-order] Processando pedido: ${orderId}`);
+    console.log(`[dispatch-order] Processando busca para pedido: ${orderId}`);
 
     // 1. Buscar o pedido e sua localização (loja)
     const { data: order, error: orderError } = await supabaseAdmin
@@ -29,25 +29,8 @@ serve(async (req) => {
     
     // O pedido deve estar em preparo ou já aguardando motorista
     if (order.status !== 'PREPARING' && order.status !== 'WAITING_FOR_DRIVER') {
-        console.log(`[dispatch-order] Pedido ${orderId} não está em status de despacho (${order.status}). Abortando.`);
-        return new Response(JSON.stringify({ success: true, message: 'Order status does not require dispatch' }), { headers: corsHeaders });
-    }
-
-    // Verificação de Timeout: Se já havia um motorista e o tempo passou, move para recusados
-    if (order.current_driver_offered_id && order.offer_expires_at) {
-        const isExpired = new Date(order.offer_expires_at).getTime() < Date.now();
-        if (isExpired) {
-            console.log(`[dispatch-order] Timeout detectado para motorista ${order.current_driver_offered_id}. Movendo para lista de recusa.`);
-            const updatedRefused = Array.from(new Set([...(order.refused_drivers_ids || []), order.current_driver_offered_id]));
-            await supabaseAdmin.from('orders').update({
-                current_driver_offered_id: null,
-                offer_expires_at: null,
-                refused_drivers_ids: updatedRefused
-            }).eq('id', orderId);
-            order.refused_drivers_ids = updatedRefused;
-        } else {
-            return new Response(JSON.stringify({ success: true, message: 'Offer still active' }), { headers: corsHeaders });
-        }
+        console.log(`[dispatch-order] Pedido ${orderId} com status inapropriado (${order.status}).`);
+        return new Response(JSON.stringify({ success: true, message: 'Status does not require dispatch' }), { headers: corsHeaders });
     }
 
     const meta = order.merchant?.metadata || {}
@@ -55,57 +38,75 @@ serve(async (req) => {
     const storeLat = parseFloat(addr.lat)
     const storeLng = parseFloat(addr.lng)
 
+    if (isNaN(storeLat) || isNaN(storeLng)) {
+        console.error("[dispatch-order] Loja sem coordenadas válidas.");
+        return new Response(JSON.stringify({ error: "Store missing coordinates" }), { status: 400, headers: corsHeaders });
+    }
+
     // 2. Buscar motoristas aprovados
     const { data: drivers } = await supabaseAdmin
       .from('driver_applications')
       .select('id, full_name')
       .eq('status', 'APPROVED')
 
-    if (!drivers || drivers.length === 0) return new Response(JSON.stringify({ success: false, reason: 'no_drivers' }), { headers: corsHeaders })
+    if (!drivers || drivers.length === 0) {
+        console.log("[dispatch-order] Nenhum entregador aprovado no sistema.");
+        return new Response(JSON.stringify({ success: false, reason: 'no_approved_drivers' }), { headers: corsHeaders });
+    }
 
-    // 3. Buscar localizações atuais
-    const { data: locations } = await supabaseAdmin.from('driver_locations').select('driver_id, latitude, longitude')
+    // 3. Buscar localizações atuais de quem está online
+    const { data: locations } = await supabaseAdmin
+      .from('driver_locations')
+      .select('driver_id, latitude, longitude, updated_at')
 
-    // Aumentamos o raio para 15km para facilitar testes em diferentes cidades
-    const MAX_DISTANCE_KM = 15.0; 
+    // Raio de busca: 20km (Aumentado para facilitar testes)
+    const MAX_DISTANCE_KM = 20.0; 
     const refusedIds = order.refused_drivers_ids || [];
 
-    // 4. Filtrar e Rankear motoristas
+    // 4. Filtrar e Rankear motoristas por distância
     const availableDrivers = drivers.map(d => {
         const loc = locations?.find(l => l.driver_id === d.id);
-        if (!loc) return { ...d, distance: 999, hasRefused: refusedIds.includes(d.id) };
+        if (!loc) return { ...d, distance: 9999, hasRefused: refusedIds.includes(d.id) };
+        
         const dist = calculateDistance(storeLat, storeLng, parseFloat(loc.latitude), parseFloat(loc.longitude));
         return { ...d, distance: dist, hasRefused: refusedIds.includes(d.id) };
     }).filter(d => d.distance <= MAX_DISTANCE_KM);
 
+    console.log(`[dispatch-order] Encontrados ${availableDrivers.length} motoristas no raio de ${MAX_DISTANCE_KM}km.`);
+
+    // Tenta primeiro quem não recusou ainda
     let nextDriver = availableDrivers
         .filter(d => !d.hasRefused)
         .sort((a, b) => a.distance - b.distance)[0];
 
+    // Se todos recusaram, mas há motoristas no raio, oferece novamente (ciclo)
     if (!nextDriver && availableDrivers.length > 0) {
-        console.log("[dispatch-order] Fallback: Oferecendo novamente para quem já recusou.");
+        console.log("[dispatch-order] Todos recusaram. Reiniciando ciclo de oferta.");
         nextDriver = availableDrivers.sort((a, b) => a.distance - b.distance)[0];
     }
 
     if (nextDriver) {
-      const expiresAt = new Date(Date.now() + 60000).toISOString();
+      const expiresAt = new Date(Date.now() + 65000).toISOString(); // 65s para dar tempo do polling
       
-      await supabaseAdmin
+      const { error: updateError } = await supabaseAdmin
         .from('orders')
         .update({
           current_driver_offered_id: nextDriver.id,
           offer_expires_at: expiresAt,
-          // REMOVIDO: status: 'WAITING_FOR_DRIVER' - Mantemos o status atual do lojista
         })
         .eq('id', orderId);
 
-      console.log(`[dispatch-order] Oferta enviada para: ${nextDriver.full_name}`);
+      if (updateError) throw updateError;
+
+      console.log(`[dispatch-order] Oferta vinculada ao motorista: ${nextDriver.full_name} (${nextDriver.id})`);
       return new Response(JSON.stringify({ success: true, driverId: nextDriver.id }), { headers: corsHeaders });
     }
 
-    return new Response(JSON.stringify({ success: false, reason: 'no_available_drivers_in_range' }), { headers: corsHeaders });
+    console.log("[dispatch-order] Nenhum motorista disponível no raio de busca.");
+    return new Response(JSON.stringify({ success: false, reason: 'no_drivers_in_range' }), { headers: corsHeaders });
 
   } catch (err: any) {
+    console.error("[dispatch-order] Erro fatal:", err.message);
     return new Response(JSON.stringify({ error: err.message }), { status: 400, headers: corsHeaders })
   }
 })

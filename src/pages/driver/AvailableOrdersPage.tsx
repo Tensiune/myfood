@@ -31,49 +31,60 @@ const AvailableOrdersPage = () => {
   };
 
   const syncOrders = useCallback(async (uid: string) => {
+    if (!uid) return;
     try {
       // 1. Busca ofertas enviadas para este entregador
-      const { data: offers } = await supabase
+      const { data: offers, error: offerError } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
         .eq('current_driver_offered_id', uid)
         .is('driver_id', null);
 
-      if (offers && offers.length > 0) {
+      if (!offerError && offers && offers.length > 0) {
         const activeOffer = offers[0];
         const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
         const diff = Math.floor((expiresAt - Date.now()) / 1000);
-        setOffer(activeOffer);
-        setTimeLeft(diff > 0 ? diff : 0); 
+        
+        if (diff > 0) {
+          setOffer(activeOffer);
+          setTimeLeft(diff);
+        } else {
+          setOffer(null);
+        }
       } else {
         setOffer(null);
       }
 
       // 2. Busca pedido já aceito por este entregador (em andamento)
-      const { data: accepted } = await supabase
+      const { data: accepted, error: acceptedError } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
         .eq('driver_id', uid)
         .not('status', 'in', '("DELIVERED", "CANCELLED")')
         .order('created_at', { ascending: false });
 
-      if (accepted && accepted.length > 0) {
+      if (!acceptedError && accepted && accepted.length > 0) {
         setActiveOrder(accepted[0]);
       } else {
         setActiveOrder(null);
       }
 
     } catch (err) {
-      console.error("[Radar] Erro de sincronia:", err);
+      console.error("[Radar] Erro de sincronia silencioso.");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+    let channel: any;
+
     const initialize = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { navigate("/login"); return; }
+      if (!isMounted) return;
+      
       setDriverId(user.id);
 
       const { data: stats } = await supabase.from('driver_applications').select('*').eq('id', user.id).single();
@@ -82,27 +93,43 @@ const AvailableOrdersPage = () => {
       await fetchFeeSettings();
       await syncOrders(user.id);
 
-      pollingRef.current = setInterval(() => syncOrders(user.id), 5000);
+      // Polling de segurança a cada 10s
+      pollingRef.current = setInterval(() => syncOrders(user.id), 10000);
       
-      const channel = supabase.channel(`radar_sync_${user.id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+      // Realtime para resposta instantânea
+      channel = supabase.channel(`radar_sync_${user.id}`)
+        .on('postgres_changes', { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'orders',
+          filter: `current_driver_offered_id=eq.${user.id}` 
+        }, () => {
           syncOrders(user.id);
-        }).subscribe();
-
-      return () => {
-        if (pollingRef.current) clearInterval(pollingRef.current);
-        supabase.removeChannel(channel);
-      };
+        })
+        .on('postgres_changes', { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'orders',
+          filter: `driver_id=eq.${user.id}` 
+        }, () => {
+          syncOrders(user.id);
+        })
+        .subscribe();
     };
+
     initialize();
+
+    return () => {
+      isMounted = false;
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      if (channel) supabase.removeChannel(channel);
+    };
   }, [navigate, syncOrders]);
 
   useEffect(() => {
     if (offer && timeLeft > 0) {
       const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
       return () => clearTimeout(timer);
-    } else if (offer && timeLeft <= 0) {
-       handleReject();
     }
   }, [offer, timeLeft]);
 
@@ -129,7 +156,7 @@ const AvailableOrdersPage = () => {
   };
 
   const getDistances = (orderData: any) => {
-    if (!orderData || !currentLocation) return { toStore: "0", toClient: "0" };
+    if (!orderData || !currentLocation || currentLocation[0] === 0) return { toStore: "...", toClient: "..." };
     const storeMeta = orderData.merchant?.metadata || {};
     const storeAddr = storeMeta.store_details?.address || storeMeta.address || {};
     const deliveryAddr = orderData.delivery_address || {};
@@ -142,14 +169,15 @@ const AvailableOrdersPage = () => {
 
   const handleAccept = async () => {
     if (!driverId || !offer) return;
+    const tid = showLoading("Aceitando pedido...");
     try {
       const { data, error } = await supabase.from('orders').update({
         driver_id: driverId,
         current_driver_offered_id: null,
         offer_expires_at: null,
-        // Mantemos o status original se o merchant ainda estiver preparando
       }).eq('id', offer.id).is('driver_id', null).select();
 
+      dismissToast(tid);
       if (error || !data || data.length === 0) {
         showError("Este pedido expirou ou outro entregador aceitou.");
         setOffer(null);
@@ -157,19 +185,25 @@ const AvailableOrdersPage = () => {
       }
       showSuccess("Pedido aceito!");
       navigate(`/driver/map?orderId=${offer.id}`);
-    } catch (err) { showError("Erro de conexão."); }
+    } catch (err) { 
+      dismissToast(tid);
+      showError("Erro de conexão."); 
+    }
   };
 
   const handleReject = async () => {
     if (!driverId || !offer) return;
     const currentId = offer.id;
     setOffer(null);
-    const newRefused = [...(offer.refused_drivers_ids || []), driverId];
+    const newRefused = Array.from(new Set([...(offer.refused_drivers_ids || []), driverId]));
+    
     await supabase.from('orders').update({ 
       current_driver_offered_id: null, 
       offer_expires_at: null,
       refused_drivers_ids: newRefused 
     }).eq('id', currentId);
+    
+    // Dispara nova busca por outro motorista
     supabase.functions.invoke('dispatch-order', { body: { orderId: currentId } });
   };
 
@@ -177,7 +211,6 @@ const AvailableOrdersPage = () => {
 
   const merchantMetadata = offer?.merchant?.metadata || {};
   const storeAddressData = merchantMetadata.store_details?.address || merchantMetadata.address || {};
-  const deliveryAddress = offer?.delivery_address || {};
   const distances = offer ? getDistances(offer) : { toStore: "0", toClient: "0" };
   const calculatedFee = offer ? getCalculatedFee(offer) : 0;
 
@@ -200,7 +233,7 @@ const AvailableOrdersPage = () => {
                 </div>
                 <Badge className="bg-indigo-600">R$ {getCalculatedFee(activeOrder).toFixed(2)}</Badge>
              </div>
-             <p className="font-bold text-gray-800 leading-tight">Retirar em: {activeOrder.merchant?.store_name}</p>
+             <p className="font-bold text-gray-800 leading-tight">Retirar em: {activeOrder.merchant?.store_name || "Loja"}</p>
              <Button className="w-full rounded-xl bg-indigo-600 text-white font-bold" onClick={() => navigate(`/driver/map?orderId=${activeOrder.id}`)}>
                <Map className="h-4 w-4 mr-2" /> Continuar Rota
              </Button>
@@ -225,7 +258,7 @@ const AvailableOrdersPage = () => {
             </div>
             <div className="flex gap-4">
               <div className="p-2 bg-green-50 rounded-full h-fit shrink-0"><ShoppingBag className="h-4 w-4 text-green-600" /></div>
-              <div className="flex-1 space-y-1"><div className="flex justify-between"><p className="text-[10px] font-black text-gray-400 uppercase">Entrega</p><span className="text-[10px] font-black text-green-600">{distances.toClient} km</span></div><p className="font-bold text-gray-800">Cliente</p><p className="text-sm text-gray-600 leading-tight">{deliveryAddress.street}, {deliveryAddress.number}</p></div>
+              <div className="flex-1 space-y-1"><div className="flex justify-between"><p className="text-[10px] font-black text-gray-400 uppercase">Entrega</p><span className="text-[10px] font-black text-green-600">{distances.toClient} km</span></div><p className="font-bold text-gray-800">Cliente</p><p className="text-sm text-gray-600 leading-tight">{offer.delivery_address?.street}, {offer.delivery_address?.number}</p></div>
             </div>
             <div className="flex gap-3 pt-2">
               <Button variant="ghost" className="flex-1 h-16 rounded-2xl text-red-500 font-bold" onClick={handleReject}>RECUSAR</Button>
