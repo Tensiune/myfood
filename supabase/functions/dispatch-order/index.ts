@@ -98,7 +98,9 @@ serve(async (req) => {
         .from('orders')
         .update({
           current_driver_offered_id: nextDriver.id,
-          offer_expires_at: expiresAt
+          offer_expires_at: expiresAt,
+          // Se estava em PREPARING, move para WAITING_FOR_DRIVER para indicar que está em ciclo de despacho
+          status: 'WAITING_FOR_DRIVER' 
         })
         .eq('id', orderId);
 
