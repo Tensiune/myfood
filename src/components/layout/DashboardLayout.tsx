@@ -18,32 +18,27 @@ import {
   DollarSign
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import RoleSwitcher from "../shared/RoleSwitcher";
+import { useAuth } from "@/context/AuthContext";
 
 const DashboardLayout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [role, setRole] = useState<string | null>(null);
-  const [user, setUser] = useState<any>(null);
+  const { user, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setUser(user);
-        const activeRole = localStorage.getItem('active_role') || user.user_metadata?.role;
-        setRole(activeRole);
-      }
-    };
-    fetchUser();
-  }, [location.pathname]);
+    if (user) {
+      const activeRole = localStorage.getItem('active_role') || user.user_metadata?.role;
+      setRole(activeRole);
+    }
+  }, [user, location.pathname]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await signOut();
     navigate("/login");
   };
 
