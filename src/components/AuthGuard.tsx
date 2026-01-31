@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from "react";
+"use client";
+
+import React, { useEffect, useState, useRef } from "react";
 import { useNavigate, Outlet, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { Skeleton } from "@/components/ui/skeleton";
 import { User } from "@supabase/supabase-js";
 import { UserRole } from "@/types/auth";
 
-// Helper function to determine available roles based on user metadata
 const getAvailableRoles = (user: User): UserRole[] => {
     const roles: UserRole[] = ['CONSUMER'];
     const metadataRole = user.user_metadata?.role;
@@ -17,111 +18,7 @@ const getAvailableRoles = (user: User): UserRole[] => {
     return Array.from(new Set(roles));
 };
 
-const AuthGuard = () => {
-  const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        if (!location.pathname.startsWith("/login") && !location.pathname.includes("-register") && location.pathname !== "/forgot-password" && location.pathname !== "/reset-password") {
-            navigate("/login");
-        }
-        setLoading(false);
-        return;
-      }
-
-      const user = session.user;
-      const availableRoles = getAvailableRoles(user);
-      const activeRoleFromStorage = localStorage.getItem('active_role') as UserRole | null;
-      const path = location.pathname;
-      
-      // Inteligência de seleção de papel inicial
-      let activeRole = activeRoleFromStorage;
-      
-      if (!activeRole || !availableRoles.includes(activeRole)) {
-          const professionalRoles = availableRoles.filter(r => r !== 'CONSUMER');
-          if (professionalRoles.length === 1) {
-              // Se tiver apenas um papel profissional, assume ele automaticamente
-              activeRole = professionalRoles[0];
-              localStorage.setItem('active_role', activeRole);
-          } else if (professionalRoles.length > 1) {
-              // Se tiver múltiplos, obriga a escolha
-              if (path !== "/select-role") {
-                  navigate("/select-role");
-                  setLoading(false);
-                  return;
-              }
-          } else {
-              // Apenas consumidor
-              activeRole = 'CONSUMER';
-              localStorage.setItem('active_role', 'CONSUMER');
-          }
-      }
-      
-      const expectedPrefix = getRolePrefix(activeRole!);
-      
-      // Validação de Status (Setup Obrigatório)
-      const status = user.user_metadata?.status;
-      const isMerchantSetupRequired = activeRole === 'MERCHANT' && status === 'NEEDS_SETUP';
-      const isDriverSetupRequired = activeRole === 'DRIVER' && status === 'NEEDS_SETUP';
-      
-      if (isMerchantSetupRequired && path !== "/merchant/setup") {
-          navigate("/merchant/setup");
-          setLoading(false);
-          return;
-      }
-
-      if (isDriverSetupRequired && path !== "/driver/setup") {
-          navigate("/driver/setup");
-          setLoading(false);
-          return;
-      }
-      
-      // EXCEÇÕES: Rotas compartilhadas
-      const isSharedRoute = 
-        path === "/select-role" || 
-        path === "/checkout" || 
-        path.startsWith("/chat") || 
-        path.startsWith("/track");
-
-      // Redirecionamento para o prefixo correto baseado no papel ATIVO
-      if (!path.startsWith(expectedPrefix) && !isSharedRoute && expectedPrefix !== '/') {
-          const targetPath = getRolePath(activeRole!, user);
-          navigate(targetPath);
-          setLoading(false);
-          return;
-      }
-      
-      // Se estiver na raiz e for profissional, manda pro dashboard dele
-      if (path === "/" && activeRole !== 'CONSUMER') {
-          const targetPath = getRolePath(activeRole!, user);
-          navigate(targetPath);
-          setLoading(false);
-          return;
-      }
-      
-      setLoading(false);
-    };
-
-    checkUser();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_OUT") {
-        localStorage.removeItem('active_role');
-        navigate("/login");
-      } else if (event === "SIGNED_IN" && session) {
-        checkUser();
-      }
-    });
-
-    return () => authListener.subscription.unsubscribe();
-  }, [navigate, location.pathname]);
-
-  const getRolePrefix = (role: UserRole) => {
+const getRolePrefix = (role: UserRole) => {
     switch (role) {
       case 'MERCHANT': return '/merchant';
       case 'DRIVER': return '/driver';
@@ -129,9 +26,9 @@ const AuthGuard = () => {
       case 'CONSUMER': return '/';
       default: return '/';
     }
-  };
-  
-  const getRolePath = (role: UserRole, user: User) => {
+};
+
+const getRolePath = (role: UserRole, user: User) => {
     const status = user.user_metadata?.status;
     switch (role) {
       case 'CONSUMER': return '/';
@@ -140,7 +37,121 @@ const AuthGuard = () => {
       case 'ADMIN': return '/admin/dashboard';
       default: return '/';
     }
-  };
+};
+
+const AuthGuard = () => {
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const isCheckingRef = useRef(false);
+
+  useEffect(() => {
+    const checkUser = async () => {
+      // Prevent multiple concurrent checks which cause the AbortController error
+      if (isCheckingRef.current) return;
+      isCheckingRef.current = true;
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!session) {
+          const publicPaths = ["/login", "/register", "/forgot-password", "/reset-password"];
+          const isPublicPath = publicPaths.some(path => location.pathname.startsWith(path)) || location.pathname.includes("-register");
+          
+          if (!isPublicPath) {
+            navigate("/login");
+          }
+          setLoading(false);
+          isCheckingRef.current = false;
+          return;
+        }
+
+        const user = session.user;
+        const availableRoles = getAvailableRoles(user);
+        const activeRoleFromStorage = localStorage.getItem('active_role') as UserRole | null;
+        const path = location.pathname;
+        
+        let activeRole = activeRoleFromStorage;
+        
+        if (!activeRole || !availableRoles.includes(activeRole)) {
+            const professionalRoles = availableRoles.filter(r => r !== 'CONSUMER');
+            if (professionalRoles.length === 1) {
+                activeRole = professionalRoles[0];
+                localStorage.setItem('active_role', activeRole);
+            } else if (professionalRoles.length > 1) {
+                if (path !== "/select-role") {
+                    navigate("/select-role");
+                    setLoading(false);
+                    isCheckingRef.current = false;
+                    return;
+                }
+            } else {
+                activeRole = 'CONSUMER';
+                localStorage.setItem('active_role', 'CONSUMER');
+            }
+        }
+        
+        const expectedPrefix = getRolePrefix(activeRole!);
+        const status = user.user_metadata?.status;
+        
+        // Setup validation
+        if (activeRole === 'MERCHANT' && status === 'NEEDS_SETUP' && path !== "/merchant/setup") {
+            navigate("/merchant/setup");
+            setLoading(false);
+            isCheckingRef.current = false;
+            return;
+        }
+
+        if (activeRole === 'DRIVER' && status === 'NEEDS_SETUP' && path !== "/driver/setup") {
+            navigate("/driver/setup");
+            setLoading(false);
+            isCheckingRef.current = false;
+            return;
+        }
+        
+        const isSharedRoute = 
+          path === "/select-role" || 
+          path === "/checkout" || 
+          path.startsWith("/chat") || 
+          path.startsWith("/track");
+
+        if (!path.startsWith(expectedPrefix) && !isSharedRoute && expectedPrefix !== '/') {
+            navigate(getRolePath(activeRole!, user));
+            setLoading(false);
+            isCheckingRef.current = false;
+            return;
+        }
+        
+        if (path === "/" && activeRole !== 'CONSUMER') {
+            navigate(getRolePath(activeRole!, user));
+            setLoading(false);
+            isCheckingRef.current = false;
+            return;
+        }
+        
+        setLoading(false);
+      } catch (error) {
+        console.error("Auth check failed:", error);
+      } finally {
+        isCheckingRef.current = false;
+      }
+    };
+
+    checkUser();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        localStorage.removeItem('active_role');
+        navigate("/login");
+      } else if (event === "SIGNED_IN") {
+        checkUser();
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, [navigate, location.pathname]);
 
   if (loading) {
     return (
