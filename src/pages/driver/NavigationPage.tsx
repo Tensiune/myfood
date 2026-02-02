@@ -29,7 +29,6 @@ import "leaflet/dist/leaflet.css";
 import { useDriverLocationTracker } from "@/hooks/useDriverLocationTracker";
 import { cn } from "@/lib/utils";
 
-// Ícones customizados
 const driverIcon = L.divIcon({
   html: `<div class="bg-indigo-600 p-2 rounded-full shadow-xl border-2 border-white flex items-center justify-center transform -rotate-45">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -39,7 +38,6 @@ const driverIcon = L.divIcon({
   iconAnchor: [20, 20],
 });
 
-// Componente para controlar a rotação, foco e zoom do mapa
 const NavigationController = ({ position, bearing, zoom }: { position: [number, number], bearing: number, zoom: number }) => {
   const map = useMap();
   useEffect(() => {
@@ -68,7 +66,33 @@ const NavigationPage = () => {
   const { currentLocation } = useDriverLocationTracker(true);
   const prevPosRef = useRef<[number, number]>([0, 0]);
 
-  // Calcula o ângulo de direção (bearing)
+  // Detector de Status em Tempo Real
+  useEffect(() => {
+    if (!orderId) return;
+
+    const channel = supabase
+      .channel(`nav_order_${orderId}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` }, (payload) => {
+        const newStatus = payload.new.status;
+        
+        // Se a loja cancelou, avisamos e saímos
+        if (newStatus === 'CANCELLED') {
+          showError("Atenção: Este pedido foi cancelado pelo lojista.");
+          navigate("/driver/orders");
+          return;
+        }
+
+        // Se a loja liberou para entrega
+        if (newStatus === 'OUT_FOR_DELIVERY') {
+          setStep("to_client");
+          showSuccess("Pedido liberado! Siga para o cliente.");
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [orderId, navigate]);
+
   useEffect(() => {
     if (currentLocation[0] !== 0 && prevPosRef.current[0] !== 0) {
       const [lat1, lon1] = prevPosRef.current;
@@ -94,6 +118,10 @@ const NavigationPage = () => {
         if (data) {
           setOrder(data);
           if (data.status === 'OUT_FOR_DELIVERY') setStep("to_client");
+          if (data.status === 'CANCELLED') {
+              showError("Este pedido já foi cancelado.");
+              navigate("/driver/orders");
+          }
         }
       } catch (err) {
         showError("Erro ao carregar rota.");
@@ -117,7 +145,6 @@ const NavigationPage = () => {
 
   const targetPos = step === "to_store" ? storePos : clientPos;
 
-  // Busca a rota
   useEffect(() => {
     const getDetailedRoute = async () => {
       if (currentLocation[0] === 0 || !targetPos) return;
@@ -143,21 +170,19 @@ const NavigationPage = () => {
 
   const handleAbandonOrder = async () => {
     if (!order) return;
-    
-    const confirmation = window.confirm("ATENÇÃO: Desistir de uma entrega já aceita pode diminuir sua preferência no envio de novos pedidos. Tem certeza que deseja cancelar?");
+    const confirmation = window.confirm("ATENÇÃO: Tem certeza que deseja desistir desta entrega?");
     if (!confirmation) return;
 
-    const tid = showLoading("Processando desistência...");
+    const tid = showLoading("Cancelando...");
     try {
       const { error } = await supabase.rpc('abandon_order', { p_order_id: order.id });
       if (error) throw error;
-      
       dismissToast(tid);
       showSuccess("Entrega cancelada.");
       navigate("/driver/orders");
     } catch (err: any) {
       dismissToast(tid);
-      showError("Erro ao desistir da entrega: " + err.message);
+      showError("Erro: " + err.message);
     }
   };
 
@@ -184,13 +209,12 @@ const NavigationPage = () => {
 
   return (
     <div className="fixed inset-0 bg-slate-900 flex flex-col z-50 overflow-hidden max-w-2xl mx-auto">
-      {/* Banner de Instrução */}
       {step !== "confirm" && nextInstruction && (
         <div className="absolute top-0 left-0 right-0 z-[1100] p-4">
           <div className="bg-green-600 text-white rounded-3xl p-5 shadow-2xl flex items-center gap-6 animate-in slide-in-from-top-10">
             <div className="p-3 bg-white/20 rounded-2xl">{getManeuverIcon(nextInstruction.maneuver.type, nextInstruction.maneuver.modifier)}</div>
             <div className="flex-1">
-              <p className="text-xs font-black uppercase tracking-widest opacity-80">Próxima instrução</p>
+              <p className="text-xs font-black uppercase tracking-widest opacity-80">Instrução</p>
               <p className="text-xl font-black leading-tight truncate">{nextInstruction.name || "Siga em frente"}</p>
               <p className="text-sm font-bold opacity-90">A {(nextInstruction.distance).toFixed(0)} metros</p>
             </div>
@@ -198,7 +222,6 @@ const NavigationPage = () => {
         </div>
       )}
 
-      {/* Mapa */}
       <div className="flex-1 relative bg-slate-100 overflow-hidden">
         <div className="w-full h-full transition-transform duration-1000 ease-out" style={{ transform: `rotate(${-bearing}deg)`, transformOrigin: 'center' }}>
           {step !== "confirm" && (
@@ -218,33 +241,17 @@ const NavigationPage = () => {
           )}
         </div>
 
-        {/* HUD DE ZOOM FIXO */}
         {step !== "confirm" && (
           <div className="absolute right-6 bottom-32 z-[1100] flex flex-col gap-3">
-             <Button 
-               size="icon" 
-               className="h-14 w-14 rounded-2xl bg-white text-indigo-900 shadow-2xl hover:bg-gray-50 border-none"
-               onClick={() => setMapZoom(prev => Math.min(prev + 1, 20))}
-             >
-               <Plus className="h-6 w-6" />
-             </Button>
-             <Button 
-               size="icon" 
-               className="h-14 w-14 rounded-2xl bg-white text-indigo-900 shadow-2xl hover:bg-gray-50 border-none"
-               onClick={() => setMapZoom(prev => Math.max(prev - 1, 14))}
-             >
-               <Minus className="h-6 w-6" />
-             </Button>
+             <Button size="icon" className="h-14 w-14 rounded-2xl bg-white text-indigo-900 shadow-2xl hover:bg-gray-50 border-none" onClick={() => setMapZoom(prev => Math.min(prev + 1, 20))}><Plus className="h-6 w-6" /></Button>
+             <Button size="icon" className="h-14 w-14 rounded-2xl bg-white text-indigo-900 shadow-2xl hover:bg-gray-50 border-none" onClick={() => setMapZoom(prev => Math.max(prev - 1, 14))}><Minus className="h-6 w-6" /></Button>
           </div>
         )}
 
-        {/* Confirmação */}
         {step === "confirm" && (
           <div className="absolute inset-0 h-full flex flex-col items-center justify-center p-6 bg-slate-800 z-[1200]">
             <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 space-y-6 text-center shadow-2xl">
-              <div className="bg-green-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
-                <CheckCircle2 className="h-8 w-8 text-green-600" />
-              </div>
+              <div className="bg-green-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto"><CheckCircle2 className="h-8 w-8 text-green-600" /></div>
               <h3 className="text-2xl font-black text-indigo-900">Confirmar Entrega</h3>
               <div className="flex justify-center"><OtpInput length={4} value={otpCode} onChange={setOtpCode} /></div>
               <Button className="w-full h-16 rounded-2xl bg-green-600 text-white font-black text-lg" onClick={handleVerifyCode} disabled={otpCode.length < 4 || finishing}>
@@ -256,7 +263,6 @@ const NavigationPage = () => {
         )}
       </div>
 
-      {/* Footer */}
       {step !== "confirm" && (
         <div className="p-6 bg-white rounded-t-[2.5rem] z-[1100] space-y-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
           <div className="flex items-center justify-between">
@@ -265,23 +271,28 @@ const NavigationPage = () => {
                  {step === "to_store" ? <Store className="h-5 w-5 text-indigo-600" /> : <User className="h-5 w-5 text-indigo-600" />}
                </div>
                <div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase">Destino Atual</p>
-                  <p className="font-bold text-gray-900">{step === "to_store" ? "Coleta na Loja" : "Entrega ao Cliente"}</p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase">Destino</p>
+                  <p className="font-bold text-gray-900 leading-none">
+                    {step === "to_store" ? "Retirar na Loja" : "Entregar ao Cliente"}
+                  </p>
+                  {step === "to_store" && <p className="text-[9px] text-indigo-500 font-bold mt-1">Aguarde a liberação no balcão</p>}
                </div>
             </div>
-            <Button 
-              variant="default" 
-              size="sm" 
-              onClick={handleAbandonOrder} 
-              className="rounded-xl h-10 px-4 bg-red-500 hover:bg-red-600 text-white font-bold"
-              title="Desistir da Entrega"
-            >
-              <XCircle className="h-4 w-4 mr-2" /> Cancelar Entrega
-            </Button>
+            <Button variant="ghost" onClick={handleAbandonOrder} className="rounded-xl h-10 px-4 text-red-500 font-bold"><XCircle className="h-4 w-4 mr-2" /> Desistir</Button>
           </div>
-          <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg" onClick={step === "to_store" ? () => setStep("to_client") : () => setStep("confirm")}>
-            {step === "to_store" ? "Cheguei na Loja" : "Cheguei no Cliente"}
-          </Button>
+          
+          {step === "to_client" && (
+            <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg" onClick={() => setStep("confirm")}>
+              Cheguei no Cliente
+            </Button>
+          )}
+
+          {step === "to_store" && (
+             <div className="bg-indigo-50 p-4 rounded-2xl flex items-center gap-3 border border-indigo-100">
+                <Loader2 className="h-5 w-5 text-indigo-600 animate-spin" />
+                <p className="text-sm text-indigo-900 font-bold">Aguardando a loja marcar como pronto...</p>
+             </div>
+          )}
         </div>
       )}
     </div>

@@ -12,6 +12,8 @@ import { useDriverLocationTracker } from "@/hooks/useDriverLocationTracker";
 import { calculateDistance } from "@/utils/geo";
 import { cn } from "@/lib/utils";
 
+const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
+
 const AvailableOrdersPage = () => {
   const navigate = useNavigate();
   const [offer, setOffer] = useState<any>(null);
@@ -23,8 +25,23 @@ const AvailableOrdersPage = () => {
   const [feeSettings, setFeeSettings] = useState<any[]>([]);
   
   const lastOfferIdRef = useRef<string | null>(null);
+  const lastStatusRef = useRef<string | null>(null);
   const pollingRef = useRef<any>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const { currentLocation } = useDriverLocationTracker(true);
+
+  useEffect(() => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
+    }
+  }, []);
+
+  const playAlert = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(() => {});
+    }
+  }, []);
 
   const fetchFeeSettings = async () => {
     const { data } = await supabase.from('delivery_fee_settings').select('*');
@@ -34,7 +51,6 @@ const AvailableOrdersPage = () => {
   const syncOrders = useCallback(async (uid: string) => {
     if (!uid) return;
     try {
-      // CORREÇÃO: Excluir pedidos com status 'CANCELLED' das ofertas
       const { data: offers } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
@@ -44,12 +60,12 @@ const AvailableOrdersPage = () => {
 
       if (offers && offers.length > 0) {
         const activeOffer = offers[0];
-        
         if (activeOffer.id !== lastOfferIdRef.current) {
             const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
             const diff = Math.floor((expiresAt - Date.now()) / 1000);
             setTimeLeft(diff > 0 ? diff : 30);
             lastOfferIdRef.current = activeOffer.id;
+            playAlert(); // Som ao receber nova oferta
         }
         setOffer(activeOffer);
       } else {
@@ -64,14 +80,26 @@ const AvailableOrdersPage = () => {
         .not('status', 'in', '("DELIVERED", "CANCELLED")')
         .order('created_at', { ascending: false });
 
-      setActiveOrder(accepted && accepted.length > 0 ? accepted[0] : null);
+      if (accepted && accepted.length > 0) {
+        const order = accepted[0];
+        // ALERTA SONORO: Se o status mudou para WAITING_FOR_DRIVER (Pronto para retirada)
+        if (order.status === 'WAITING_FOR_DRIVER' && lastStatusRef.current !== 'WAITING_FOR_DRIVER') {
+           playAlert();
+           showSuccess("Pedido pronto para retirada!");
+        }
+        lastStatusRef.current = order.status;
+        setActiveOrder(order);
+      } else {
+        setActiveOrder(null);
+        lastStatusRef.current = null;
+      }
 
     } catch (err) {
       console.error("[Radar] Erro de sincronia.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [playAlert]);
 
   const handleTimeout = useCallback(async () => {
     if (!driverId || !offer) return;
@@ -121,7 +149,6 @@ const AvailableOrdersPage = () => {
     if (!driverId || !offer) return;
     const tid = showLoading("Aceitando pedido...");
     try {
-      // CORREÇÃO: Verificar se o status ainda é elegível para aceite
       const { data, error } = await supabase.from('orders').update({
         driver_id: driverId,
         current_driver_offered_id: null,
@@ -129,12 +156,12 @@ const AvailableOrdersPage = () => {
       })
       .eq('id', offer.id)
       .is('driver_id', null)
-      .neq('status', 'CANCELLED') // Não permite aceitar se o lojista cancelou
+      .neq('status', 'CANCELLED')
       .select();
 
       dismissToast(tid);
       if (error || !data || data.length === 0) {
-        showError("Ops! Este pedido não está mais disponível (pode ter sido cancelado ou aceito por outro).");
+        showError("Este pedido não está mais disponível.");
         setOffer(null);
         lastOfferIdRef.current = null;
         return;
@@ -176,7 +203,12 @@ const AvailableOrdersPage = () => {
         <Card className="rounded-[2rem] border-2 border-indigo-600 bg-indigo-50/30 overflow-hidden shadow-lg">
           <CardContent className="p-6 space-y-4">
              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2"><div className="h-2 w-2 bg-indigo-600 rounded-full animate-pulse" /><span className="font-black text-xs uppercase text-indigo-900">Em andamento</span></div>
+                <div className="flex items-center gap-2">
+                    <div className={cn("h-2 w-2 rounded-full animate-pulse", activeOrder.status === 'WAITING_FOR_DRIVER' ? 'bg-green-500' : 'bg-indigo-600')} />
+                    <span className="font-black text-xs uppercase text-indigo-900">
+                        {activeOrder.status === 'WAITING_FOR_DRIVER' ? 'Pronto para Retirada' : 'Pedido em andamento'}
+                    </span>
+                </div>
                 <Badge className="bg-indigo-600">R$ {getCalculatedFee(activeOrder).toFixed(2)}</Badge>
              </div>
              <p className="font-bold text-gray-800 leading-tight">Retirar em: {activeOrder.merchant?.store_name || "Loja"}</p>

@@ -123,13 +123,14 @@ const MerchantOrdersPage = () => {
   };
   
   const handleCancelOrder = async (id: string) => {
-    if (!window.confirm("ATENÇÃO: Você tem certeza que deseja cancelar este pedido? O cliente será notificado e o estorno será processado se aplicável.")) return;
+    if (!window.confirm("ATENÇÃO: Você tem certeza que deseja cancelar este pedido? O cliente será notificado e qualquer vínculo com entregador será removido.")) return;
     
     const tid = showLoading("Cancelando pedido...");
     try {
-        // CORREÇÃO: Limpar os campos de oferta ao cancelar
+        // CORREÇÃO: Limpar driver_id e campos de oferta ao cancelar para desvincular o entregador atual
         const { error } = await supabase.from('orders').update({ 
           status: 'CANCELLED',
+          driver_id: null,
           current_driver_offered_id: null,
           offer_expires_at: null
         }).eq('id', id);
