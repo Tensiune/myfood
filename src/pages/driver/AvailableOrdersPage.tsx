@@ -34,21 +34,20 @@ const AvailableOrdersPage = () => {
   const syncOrders = useCallback(async (uid: string) => {
     if (!uid) return;
     try {
+      // CORREÇÃO: Excluir pedidos com status 'CANCELLED' das ofertas
       const { data: offers } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
         .eq('current_driver_offered_id', uid)
-        .is('driver_id', null);
+        .is('driver_id', null)
+        .neq('status', 'CANCELLED');
 
       if (offers && offers.length > 0) {
         const activeOffer = offers[0];
         
-        // SÓ ATUALIZA O TIMER SE FOR UMA OFERTA NOVA
         if (activeOffer.id !== lastOfferIdRef.current) {
             const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
             const diff = Math.floor((expiresAt - Date.now()) / 1000);
-            
-            // Pega o timeout global ou usa 30s de fallback visual inicial
             setTimeLeft(diff > 0 ? diff : 30);
             lastOfferIdRef.current = activeOffer.id;
         }
@@ -80,7 +79,6 @@ const AvailableOrdersPage = () => {
     setOffer(null);
     lastOfferIdRef.current = null;
 
-    // Adiciona aos recusados por timeout
     const newRefused = Array.from(new Set([...(offer.refused_drivers_ids || []), driverId]));
     await supabase.from('orders').update({ 
       current_driver_offered_id: null, 
@@ -88,7 +86,6 @@ const AvailableOrdersPage = () => {
       refused_drivers_ids: newRefused 
     }).eq('id', currentId);
     
-    // Chama o despacho para o próximo
     supabase.functions.invoke('dispatch-order', { body: { orderId: currentId } });
   }, [driverId, offer]);
 
@@ -124,15 +121,20 @@ const AvailableOrdersPage = () => {
     if (!driverId || !offer) return;
     const tid = showLoading("Aceitando pedido...");
     try {
+      // CORREÇÃO: Verificar se o status ainda é elegível para aceite
       const { data, error } = await supabase.from('orders').update({
         driver_id: driverId,
         current_driver_offered_id: null,
         offer_expires_at: null,
-      }).eq('id', offer.id).is('driver_id', null).select();
+      })
+      .eq('id', offer.id)
+      .is('driver_id', null)
+      .neq('status', 'CANCELLED') // Não permite aceitar se o lojista cancelou
+      .select();
 
       dismissToast(tid);
       if (error || !data || data.length === 0) {
-        showError("Ops! O pedido expirou ou já foi aceito por outro entregador.");
+        showError("Ops! Este pedido não está mais disponível (pode ter sido cancelado ou aceito por outro).");
         setOffer(null);
         lastOfferIdRef.current = null;
         return;

@@ -27,6 +27,12 @@ serve(async (req) => {
 
     if (orderError || !order) throw new Error("Pedido não encontrado.");
     
+    // CORREÇÃO: Se o pedido foi cancelado, interromper o despacho
+    if (order.status === 'CANCELLED') {
+      console.log(`[dispatch-order] Pedido ${orderId} está cancelado. Abortando despacho.`);
+      return new Response(JSON.stringify({ success: false, reason: 'order_cancelled' }), { headers: corsHeaders });
+    }
+
     // 2. Buscar coordenadas da loja
     const { data: merchant } = await supabaseAdmin
       .from('merchant_applications')
@@ -75,7 +81,6 @@ serve(async (req) => {
     const nextDriver = availableDrivers.sort((a, b) => a.distance - b.distance)[0];
 
     if (nextDriver) {
-      // Calcula expiração baseada na configuração
       const expiresAt = new Date(Date.now() + (timeoutSeconds * 1000)).toISOString();
       
       await supabaseAdmin

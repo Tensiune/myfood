@@ -127,7 +127,13 @@ const MerchantOrdersPage = () => {
     
     const tid = showLoading("Cancelando pedido...");
     try {
-        const { error } = await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', id);
+        // CORREÇÃO: Limpar os campos de oferta ao cancelar
+        const { error } = await supabase.from('orders').update({ 
+          status: 'CANCELLED',
+          current_driver_offered_id: null,
+          offer_expires_at: null
+        }).eq('id', id);
+
         if (error) throw error;
         showSuccess("Pedido cancelado com sucesso.");
         fetchOrders(true);
