@@ -19,7 +19,7 @@ import ReactDOMServer from 'react-dom/server';
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import OrderCardDetails from "@/components/merchant/OrderCardDetails";
-import { printReceipt } from "@/utils/print"; // Importando o novo utilitário
+import { printReceipt } from "@/utils/print"; // Importação corrigida
 
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
 
@@ -60,6 +60,7 @@ const MerchantOrdersPage = () => {
   const [isRecalling, setIsRecalling] = useState(false);
   const [merchantName, setMerchantName] = useState("Minha Loja");
   const [printSettings, setPrintSettings] = useState<PrintSettings>(defaultPrintSettings);
+  const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem('merchant_auto_print') === 'true');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -123,13 +124,21 @@ const MerchantOrdersPage = () => {
         }
       }
 
+      // Verifica se há novos pedidos PENDING que não estavam na lista anterior
+      const previousOrderIds = new Set(orders.map(o => o.id));
+      const newPendingOrders = ordersWithCustomerNames.filter(o => o.status === 'PENDING' && !previousOrderIds.has(o.id));
+      
+      if (newPendingOrders.length > 0 && autoPrint) {
+          newPendingOrders.forEach(order => handlePrintReceipt(order, order.customer_full_name));
+      }
+
       setOrders(ordersWithCustomerNames);
     } catch (err) {
       console.error(err);
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, [autoAccept]);
+  }, [autoAccept, autoPrint, orders]);
 
   useEffect(() => {
     let channel: any;
@@ -161,6 +170,12 @@ const MerchantOrdersPage = () => {
     localStorage.setItem('merchant_auto_accept', checked.toString());
     showSuccess(checked ? "Aceite automático ativado!" : "Aceite automático desativado.");
   };
+  
+  const handleToggleAutoPrint = (checked: boolean) => {
+    setAutoPrint(checked);
+    localStorage.setItem('merchant_auto_print', checked.toString());
+    showSuccess(checked ? "Auto impressão ativada!" : "Auto impressão desativada.");
+  };
 
   const handleAcceptOrder = async (order: any, isSilent = false) => {
     const tid = isSilent ? null : showLoading("Aceitando pedido...");
@@ -187,8 +202,10 @@ const MerchantOrdersPage = () => {
         showSuccess("Pedido aceito e comanda impressa!");
       }
       
-      // IMPRIMIR COMANDA
-      handlePrintReceipt(order, order.customer_full_name);
+      // IMPRIMIR COMANDA (apenas se não for auto-print, pois o auto-print já cuidou disso no fetch)
+      if (!autoPrint) {
+        handlePrintReceipt(order, order.customer_full_name);
+      }
 
       fetchOrders(true);
     } catch (err: any) {
@@ -206,7 +223,7 @@ const MerchantOrdersPage = () => {
   };
   
   const handleCancelOrder = async (id: string) => {
-    if (!window.confirm("ATENÇÃO: Você tem certeza que deseja cancelar este pedido? O cliente e o entregador serão notificados.")) return;
+    if (!window.confirm("ATENÇÃO: Tem certeza que deseja cancelar este pedido? O cliente e o entregador serão notificados.")) return;
     
     const tid = showLoading("Cancelando pedido...");
     try {
@@ -442,6 +459,16 @@ const MerchantOrdersPage = () => {
           >
             <Check className="h-5 w-5" />
             <span className="hidden sm:inline">Auto Aceite</span>
+          </Button>
+          
+          <Button 
+            variant={autoPrint ? "default" : "outline"} 
+            className={cn("rounded-2xl h-12 px-4 gap-2", autoPrint ? "bg-brand-accent text-white" : "border-gray-200 text-gray-600")}
+            onClick={() => handleToggleAutoPrint(!autoPrint)}
+            title="Imprimir automaticamente ao receber"
+          >
+            <Printer className="h-5 w-5" />
+            <span className="hidden sm:inline">Auto Impressão</span>
           </Button>
         </div>
       </div>
