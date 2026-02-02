@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User, RotateCcw, X, Send, AlertTriangle, Search, Check, List, Settings } from "lucide-react";
+import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User, RotateCcw, X, Send, AlertTriangle, Search, Check, List, Settings, Printer } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -19,7 +19,7 @@ import ReactDOMServer from 'react-dom/server';
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import OrderCardDetails from "@/components/merchant/OrderCardDetails";
-import { printReceipt } from "@/utils/print"; // Importação corrigida
+import { printReceipt } from "@/utils/print";
 
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
 
@@ -107,8 +107,10 @@ const MerchantOrdersPage = () => {
 
       if (error) throw error;
       
+      const fetchedOrders = data || []; // Garante que é um array
+
       // Fetch customer names for all orders
-      const ordersWithCustomerNames = await Promise.all((data || []).map(async (order) => {
+      const ordersWithCustomerNames = await Promise.all(fetchedOrders.map(async (order) => {
         if (order.customer_id) {
           const { data: customerNameData } = await supabase.rpc('get_user_full_name', { user_id: order.customer_id });
           return { ...order, customer_full_name: customerNameData || 'Cliente' };
@@ -135,6 +137,8 @@ const MerchantOrdersPage = () => {
       setOrders(ordersWithCustomerNames);
     } catch (err) {
       console.error(err);
+      // Em caso de erro, garante que orders seja um array vazio para evitar falhas de renderização
+      setOrders([]);
     } finally {
       if (!isSilent) setLoading(false);
     }

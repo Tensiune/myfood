@@ -15,7 +15,8 @@ import {
   Bell,
   BarChart3,
   Bike,
-  DollarSign
+  DollarSign,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -26,7 +27,7 @@ import { useAuth } from "@/context/AuthContext";
 const DashboardLayout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [role, setRole] = useState<string | null>(null);
-  const { user, signOut } = useAuth();
+  const { user, signOut, loading: authLoading } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -58,6 +59,14 @@ const DashboardLayout = () => {
   ];
 
   const links = role === "ADMIN" ? adminLinks : merchantLinks;
+  
+  if (authLoading || !user || !role) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="h-10 w-10 text-indigo-600 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
