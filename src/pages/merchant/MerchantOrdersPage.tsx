@@ -49,9 +49,9 @@ const MerchantOrdersPage = () => {
     }
   }, [audioEnabled]);
 
-  const printOrderReceipt = (order: any) => {
+  const printOrderReceipt = (order: any, customerName: string) => {
     const receiptHtml = ReactDOMServer.renderToString(
-      <OrderReceipt order={order} merchantName={merchantName} />
+      <OrderReceipt order={order} merchantName={merchantName} customerName={customerName} />
     );
 
     const printWindow = window.open('', '_blank');
@@ -133,7 +133,17 @@ const MerchantOrdersPage = () => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setOrders(data || []);
+      
+      // Fetch customer names for all orders
+      const ordersWithCustomerNames = await Promise.all((data || []).map(async (order) => {
+        if (order.customer_id) {
+          const { data: customerNameData } = await supabase.rpc('get_user_full_name', { user_id: order.customer_id });
+          return { ...order, customer_full_name: customerNameData || 'Cliente' };
+        }
+        return { ...order, customer_full_name: 'Cliente' };
+      }));
+
+      setOrders(ordersWithCustomerNames);
     } catch (err) {
       console.error(err);
     } finally {
@@ -190,7 +200,7 @@ const MerchantOrdersPage = () => {
       showSuccess("Pedido aceito e comanda impressa!");
       
       // IMPRIMIR COMANDA
-      printOrderReceipt(order);
+      printOrderReceipt(order, order.customer_full_name);
 
       fetchOrders(true);
     } catch (err: any) {

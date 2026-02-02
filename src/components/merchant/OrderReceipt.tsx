@@ -6,11 +6,11 @@ import { MapPin, Clock, Package, Store, User, Phone } from "lucide-react";
 interface OrderReceiptProps {
   order: any;
   merchantName: string;
+  customerName: string; // Novo prop para o nome do cliente
 }
 
-const OrderReceipt: React.FC<OrderReceiptProps> = ({ order, merchantName }) => {
+const OrderReceipt: React.FC<OrderReceiptProps> = ({ order, merchantName, customerName }) => {
   const deliveryAddress = order.delivery_address;
-  const customerName = order.customer_id?.slice(0, 8) || "Cliente"; // Usando ID como fallback
   const orderTime = new Date(order.created_at).toLocaleString('pt-BR', { 
     day: '2-digit', 
     month: '2-digit', 
@@ -79,9 +79,6 @@ const OrderReceipt: React.FC<OrderReceiptProps> = ({ order, merchantName }) => {
         <p className="flex justify-between font-bold text-sm">
           <span>TOTAL:</span>
           <span>R$ {order.total.toFixed(2)}</span>
-        </p>
-        <p className="text-center text-xs mt-2">
-          Código de Confirmação: <span className="font-extrabold text-lg">{order.confirmation_code}</span>
         </p>
       </div>
     </div>
