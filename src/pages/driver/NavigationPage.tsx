@@ -18,7 +18,8 @@ import {
   CornerUpLeft,
   Plus,
   Minus,
-  XCircle
+  XCircle,
+  Bell
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -29,9 +30,11 @@ import "leaflet/dist/leaflet.css";
 import { useDriverLocationTracker } from "@/hooks/useDriverLocationTracker";
 import { cn } from "@/lib/utils";
 
+const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
+
 const driverIcon = L.divIcon({
   html: `<div class="bg-indigo-600 p-2 rounded-full shadow-xl border-2 border-white flex items-center justify-center transform -rotate-45">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 12 2a8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
         </div>`,
   className: "custom-driver-icon",
   iconSize: [40, 40],
@@ -65,6 +68,18 @@ const NavigationPage = () => {
 
   const { currentLocation } = useDriverLocationTracker(true);
   const prevPosRef = useRef<[number, number]>([0, 0]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
+  }, []);
+
+  const playAlert = () => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(() => {});
+    }
+  };
 
   // Detector de Status em Tempo Real
   useEffect(() => {
@@ -73,16 +88,22 @@ const NavigationPage = () => {
     const channel = supabase
       .channel(`nav_order_${orderId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` }, (payload) => {
-        const newStatus = payload.new.status;
+        const updatedOrder = payload.new;
+        setOrder(prev => ({ ...prev, ...updatedOrder })); // Sincroniza o objeto do pedido
         
-        // Se a loja cancelou, avisamos e saímos
+        const newStatus = updatedOrder.status;
+        
         if (newStatus === 'CANCELLED') {
           showError("Atenção: Este pedido foi cancelado pelo lojista.");
           navigate("/driver/orders");
           return;
         }
 
-        // Se a loja liberou para entrega
+        if (newStatus === 'WAITING_FOR_DRIVER') {
+          playAlert();
+          showSuccess("Pedido pronto! Pode retirar.");
+        }
+
         if (newStatus === 'OUT_FOR_DELIVERY') {
           setStep("to_client");
           showSuccess("Pedido liberado! Siga para o cliente.");
@@ -117,7 +138,7 @@ const NavigationPage = () => {
         if (error) throw error;
         if (data) {
           setOrder(data);
-          if (data.status === 'OUT_FOR_DELIVERY') setStep("to_client");
+          if (data.status === 'OUT_FOR_DELIVERY' || data.status === 'DELIVERED') setStep("to_client");
           if (data.status === 'CANCELLED') {
               showError("Este pedido já foi cancelado.");
               navigate("/driver/orders");
@@ -207,6 +228,8 @@ const NavigationPage = () => {
   if (loadingOrder) return <div className="min-h-screen flex items-center justify-center bg-slate-900"><Loader2 className="animate-spin text-indigo-500" /></div>;
   if (!order) return null;
 
+  const isReadyForPickup = order.status === 'WAITING_FOR_DRIVER';
+
   return (
     <div className="fixed inset-0 bg-slate-900 flex flex-col z-50 overflow-hidden max-w-2xl mx-auto">
       {step !== "confirm" && nextInstruction && (
@@ -267,15 +290,17 @@ const NavigationPage = () => {
         <div className="p-6 bg-white rounded-t-[2.5rem] z-[1100] space-y-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-               <div className="p-2 bg-indigo-50 rounded-xl">
-                 {step === "to_store" ? <Store className="h-5 w-5 text-indigo-600" /> : <User className="h-5 w-5 text-indigo-600" />}
+               <div className={cn("p-2 rounded-xl", isReadyForPickup ? "bg-green-100" : "bg-indigo-50")}>
+                 {step === "to_store" ? <Store className={cn("h-5 w-5", isReadyForPickup ? "text-green-600" : "text-indigo-600")} /> : <User className="h-5 w-5 text-indigo-600" />}
                </div>
                <div>
                   <p className="text-[10px] font-black text-gray-400 uppercase">Destino</p>
                   <p className="font-bold text-gray-900 leading-none">
                     {step === "to_store" ? "Retirar na Loja" : "Entregar ao Cliente"}
                   </p>
-                  {step === "to_store" && <p className="text-[9px] text-indigo-500 font-bold mt-1">Aguarde a liberação no balcão</p>}
+                  {step === "to_store" && <p className={cn("text-[9px] font-bold mt-1", isReadyForPickup ? "text-green-600" : "text-indigo-500")}>
+                    {isReadyForPickup ? "PEDIDO PRONTO PARA COLETA" : "Aguarde a liberação no balcão"}
+                  </p>}
                </div>
             </div>
             <Button variant="ghost" onClick={handleAbandonOrder} className="rounded-xl h-10 px-4 text-red-500 font-bold"><XCircle className="h-4 w-4 mr-2" /> Desistir</Button>
@@ -288,9 +313,18 @@ const NavigationPage = () => {
           )}
 
           {step === "to_store" && (
-             <div className="bg-indigo-50 p-4 rounded-2xl flex items-center gap-3 border border-indigo-100">
-                <Loader2 className="h-5 w-5 text-indigo-600 animate-spin" />
-                <p className="text-sm text-indigo-900 font-bold">Aguardando a loja marcar como pronto...</p>
+             <div className={cn(
+               "p-4 rounded-2xl flex items-center gap-3 border transition-all",
+               isReadyForPickup ? "bg-green-50 border-green-200" : "bg-indigo-50 border-indigo-100"
+             )}>
+                {isReadyForPickup ? (
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                ) : (
+                  <Loader2 className="h-5 w-5 text-indigo-600 animate-spin" />
+                )}
+                <p className={cn("text-sm font-bold", isReadyForPickup ? "text-green-900" : "text-indigo-900")}>
+                  {isReadyForPickup ? "Pedido Pronto! Vá ao balcão e solicite a liberação." : "Aguardando a loja marcar como pronto..."}
+                </p>
              </div>
           )}
         </div>
