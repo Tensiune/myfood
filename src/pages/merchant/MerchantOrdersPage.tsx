@@ -10,8 +10,10 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import AcceptanceTimer from "@/components/merchant/AcceptanceTimer";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { OtpInput } from "@/components/shared/OtpInput";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
 
@@ -22,6 +24,13 @@ const MerchantOrdersPage = () => {
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
+  
+  // Novos estados para o modal de Nova Entrega
+  const [isRecallDialogOpen, setIsRecallDialogOpen] = useState(false);
+  const [orderToRecall, setOrderToRecall] = useState<any>(null);
+  const [manualDescription, setManualDescription] = useState("");
+  const [isRecalling, setIsRecalling] = useState(false);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -99,6 +108,7 @@ const MerchantOrdersPage = () => {
       
       if (updateError) throw updateError;
 
+      // Dispara a busca por entregador
       const { data, error: functionError } = await supabase.functions.invoke('dispatch-order', {
         body: { orderId: id }
       });
@@ -143,41 +153,68 @@ const MerchantOrdersPage = () => {
     }
   };
 
-  const handleReCallDriver = async (order: any) => {
-    const isFinalized = order.status === 'DELIVERED' || order.status === 'CANCELLED';
-    const msg = isFinalized 
-      ? "Deseja solicitar uma NOVA ENTREGA para este pedido? O status voltará para 'Em Preparo' e você poderá chamar um novo entregador assim que estiver pronto."
-      : "O entregador atual não conseguirá concluir a entrega? Ao confirmar, removeremos o entregador atual e o pedido voltará para 'Em Preparo' para que você chame um novo parceiro.";
+  // Abre o modal de descrição
+  const handleOpenRecallDialog = (order: any) => {
+    setOrderToRecall(order);
+    
+    // Gera descrição padrão
+    const defaultDesc = order.items.map((item: any) => `${item.quantity}x ${item.name}`).join(', ');
+    setManualDescription(`Itens: ${defaultDesc}. Total: R$ ${order.total.toFixed(2)}.`);
+    
+    setIsRecallDialogOpen(true);
+  };
 
-    if (!window.confirm(msg)) return;
+  // Finaliza o processo de chamar novo entregador
+  const handleFinalizeReCall = async () => {
+    if (!orderToRecall || !manualDescription.trim()) {
+      showError("A descrição do pedido é obrigatória.");
+      return;
+    }
 
-    const tid = showLoading("Reiniciando processo...");
+    setIsRecalling(true);
+    const tid = showLoading("Reiniciando processo de entrega...");
+    
     try {
-      const currentRefused = order.refused_drivers_ids || [];
+      const currentRefused = orderToRecall.refused_drivers_ids || [];
       // Se havia um entregador, adicionamos aos recusados para esta nova busca não cair pra ele de novo
-      if (order.driver_id) {
-          currentRefused.push(order.driver_id);
+      if (orderToRecall.driver_id) {
+          currentRefused.push(orderToRecall.driver_id);
       }
 
-      const { error } = await supabase
+      // 1. Atualiza o pedido para PREPARING e limpa dados de entregador
+      const { error: updateError } = await supabase
         .from('orders')
         .update({
           status: 'PREPARING',
           driver_id: null,
           current_driver_offered_id: null,
           offer_expires_at: null,
-          refused_drivers_ids: Array.from(new Set(currentRefused))
+          refused_drivers_ids: Array.from(new Set(currentRefused)),
+          // Adiciona a descrição manual para o entregador ver
+          metadata: { 
+            ...orderToRecall.metadata, 
+            driver_manual_description: manualDescription 
+          }
         })
-        .eq('id', order.id);
+        .eq('id', orderToRecall.id);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
+      
+      // 2. Dispara a busca por entregador (Edge Function)
+      const { error: dispatchError } = await supabase.functions.invoke('dispatch-order', {
+        body: { orderId: orderToRecall.id }
+      });
 
-      showSuccess("O pedido voltou para o preparo. Quando estiver pronto, clique em 'Pronto para Retirada' para chamar um novo entregador.");
+      if (dispatchError) throw dispatchError;
+
+      showSuccess("Nova entrega solicitada! Buscando entregador...");
       fetchOrders(true);
+      setIsRecallDialogOpen(false);
     } catch (err: any) {
-      showError("Erro: " + err.message);
+      showError("Erro ao solicitar nova entrega: " + err.message);
     } finally {
       dismissToast(tid);
+      setIsRecalling(false);
     }
   };
 
@@ -316,7 +353,7 @@ const MerchantOrdersPage = () => {
                <Button 
                   variant="outline" 
                   className="w-full border-indigo-200 text-indigo-600 rounded-xl h-12 font-bold gap-2 hover:bg-indigo-50"
-                  onClick={() => handleReCallDriver(o)}
+                  onClick={() => handleOpenRecallDialog(o)}
                >
                   <RotateCcw className="h-4 w-4" /> Nova Entrega
                </Button>
@@ -332,7 +369,7 @@ const MerchantOrdersPage = () => {
                <Button 
                   variant="outline" 
                   className="w-full border-indigo-200 text-indigo-600 rounded-xl h-12 font-bold gap-2 hover:bg-indigo-50"
-                  onClick={() => handleReCallDriver(o)}
+                  onClick={() => handleOpenRecallDialog(o)}
                >
                   <Send className="h-4 w-4" /> Nova Entrega
                </Button>
@@ -340,6 +377,62 @@ const MerchantOrdersPage = () => {
           ))}
         </div>
       )}
+      
+      {/* Modal de Nova Entrega */}
+      <Dialog open={isRecallDialogOpen} onOpenChange={(open) => { setIsRecallDialogOpen(open); if (!open) { setOrderToRecall(null); setManualDescription(""); } }}>
+        <DialogContent className="rounded-3xl sm:max-w-lg p-8">
+          <DialogHeader className="text-center">
+            <div className="bg-brand-accent/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3">
+                <RotateCcw className="h-8 w-8 text-brand-accent" />
+            </div>
+            <DialogTitle className="text-2xl font-black text-indigo-900">Solicitar Nova Entrega</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600 text-center">
+              O pedido <span className="font-bold">#{orderToRecall?.id.slice(0, 6)}</span> será reaberto para busca de um novo entregador.
+            </p>
+            
+            <div className="bg-yellow-50 p-4 rounded-2xl flex items-start gap-3 border border-yellow-100">
+                <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" />
+                <p className="text-sm text-yellow-800">
+                    <span className="font-bold">Atenção:</span> O entregador não terá acesso ao carrinho original.
+                </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="manual-desc" className="font-bold text-gray-700">Descrição Manual do Pedido *</Label>
+              <Textarea
+                id="manual-desc"
+                placeholder="Ex: 1x Hambúrguer, 1x Batata, 1x Coca-Cola. Total: R$ 55,00. Entregar no endereço do cliente."
+                value={manualDescription}
+                onChange={(e) => setManualDescription(e.target.value)}
+                className="min-h-[120px] rounded-xl border-gray-200"
+                required
+              />
+              <p className="text-xs text-gray-400">Esta descrição será enviada ao entregador.</p>
+            </div>
+          </div>
+          
+          <DialogFooter className="pt-4 flex-col sm:flex-row">
+            <Button 
+              variant="outline" 
+              className="flex-1 rounded-xl h-12" 
+              onClick={() => setIsRecallDialogOpen(false)}
+              disabled={isRecalling}
+            >
+              Cancelar
+            </Button>
+            <Button 
+              className="flex-1 rounded-2xl bg-brand-accent hover:bg-brand-accent/90 text-white font-black h-12"
+              onClick={handleFinalizeReCall}
+              disabled={isRecalling || !manualDescription.trim()}
+            >
+              {isRecalling ? <Loader2 className="animate-spin h-5 w-5" /> : "Chamar Novo Entregador"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

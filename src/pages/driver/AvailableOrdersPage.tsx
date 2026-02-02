@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MapPin, Store, ShoppingBag, Clock, Map, XCircle, AlertTriangle, Power } from "lucide-react";
+import { Loader2, MapPin, Store, ShoppingBag, Clock, Map, XCircle, AlertTriangle, Power, FileText } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -44,7 +44,7 @@ const AvailableOrdersPage = () => {
       audioRef.current.currentTime = 0;
       audioRef.current.play().catch(() => {});
     }
-  }, []);
+  }, [audioRef]);
 
   const fetchFeeSettings = async () => {
     const { data } = await supabase.from('delivery_fee_settings').select('*');
@@ -123,6 +123,7 @@ const AvailableOrdersPage = () => {
       refused_drivers_ids: newRefused 
     }).eq('id', currentId);
     
+    // Dispara a busca por outro entregador
     supabase.functions.invoke('dispatch-order', { body: { orderId: currentId } });
   }, [driverId, offer]);
 
@@ -229,6 +230,8 @@ const AvailableOrdersPage = () => {
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-8 w-8 text-indigo-500" /></div>;
 
+  const manualDescription = offer?.metadata?.driver_manual_description;
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center px-1">
@@ -271,6 +274,16 @@ const AvailableOrdersPage = () => {
               <div className="space-y-1"><span className="text-3xl font-black text-indigo-900">R$ {getCalculatedFee(offer).toFixed(2)}</span><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Ganhos Estimados</p></div>
               <Badge variant="outline" className="border-indigo-100 text-indigo-600 font-bold capitalize">{driverStats?.metadata?.vehicle?.type || 'moto'}</Badge>
             </div>
+            
+            {manualDescription && (
+                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-2">
+                    <div className="flex items-center gap-2 text-[10px] font-black text-indigo-600 uppercase">
+                        <FileText className="h-3 w-3" /> Descrição do Pedido
+                    </div>
+                    <p className="text-sm text-gray-800 font-medium">{manualDescription}</p>
+                </div>
+            )}
+
             <div className="space-y-4">
                 <div className="flex gap-4">
                   <div className="p-2 bg-indigo-50 rounded-full h-fit"><Store className="h-4 w-4 text-indigo-600" /></div>
