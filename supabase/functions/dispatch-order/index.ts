@@ -16,95 +16,100 @@ serve(async (req) => {
 
   try {
     const { orderId } = await req.json()
-    console.log(`[dispatch-order] Processando pedido: ${orderId}`);
+    console.log(`[dispatch-order] Iniciando inteligência para pedido: ${orderId}`);
 
-    // 1. Buscar o pedido
-    const { data: order, error: orderError } = await supabaseAdmin
-      .from('orders')
-      .select('*')
-      .eq('id', orderId)
-      .single()
+    // 1. Dados do Pedido e da Loja
+    const { data: order } = await supabaseAdmin.from('orders').select('*, merchant:merchant_applications(*)').eq('id', orderId).single()
+    if (!order || order.status === 'CANCELLED') return new Response(JSON.stringify({ success: false }))
 
-    if (orderError || !order) throw new Error("Pedido não encontrado.");
-    
-    // CORREÇÃO: Se o pedido foi cancelado, interromper o despacho
-    if (order.status === 'CANCELLED') {
-      console.log(`[dispatch-order] Pedido ${orderId} está cancelado. Abortando despacho.`);
-      return new Response(JSON.stringify({ success: false, reason: 'order_cancelled' }), { headers: corsHeaders });
-    }
+    const storeAddr = order.merchant?.metadata?.store_details?.address || order.merchant?.metadata?.address;
+    const storeLat = parseFloat(storeAddr.lat);
+    const storeLng = parseFloat(storeAddr.lng);
 
-    // 2. Buscar coordenadas da loja
-    const { data: merchant } = await supabaseAdmin
-      .from('merchant_applications')
-      .select('*')
-      .eq('id', order.merchant_id)
-      .single()
-
-    const meta = merchant?.metadata || {}
-    const addr = meta.store_details?.address || meta.address || {}
-    const storeLat = parseFloat(addr.lat)
-    const storeLng = parseFloat(addr.lng)
-
-    // 3. Buscar configuração de timeout
-    const { data: config } = await supabaseAdmin
-      .from('app_settings')
-      .select('value')
-      .eq('key', 'driver_offer_timeout')
-      .single();
-    
+    // 2. Buscar Entregadores e Configurações
+    const { data: config } = await supabaseAdmin.from('app_settings').select('value').eq('key', 'driver_offer_timeout').single();
     const timeoutSeconds = config?.value?.seconds || 30;
 
-    // 4. Buscar entregadores APROVADOS e suas localizações
-    const { data: drivers } = await supabaseAdmin
-      .from('driver_applications')
-      .select('id, full_name')
-      .eq('status', 'APPROVED')
+    const { data: drivers } = await supabaseAdmin.from('driver_applications').select('id, status').eq('status', 'APPROVED');
+    const { data: locations } = await supabaseAdmin.from('driver_locations').select('*');
+    
+    // Buscar pedidos ativos para verificar carga dos entregadores
+    const { data: activeOrders } = await supabaseAdmin.from('orders').select('id, driver_id, status, delivery_address').not('status', 'in', '(DELIVERED,CANCELLED)');
 
-    const { data: locations } = await supabaseAdmin.from('driver_locations').select('*')
-
-    const MAX_DISTANCE_KM = 50.0; 
     const refusedIds = order.refused_drivers_ids || [];
 
-    const availableDrivers = drivers?.map(d => {
-        const loc = locations?.find(l => l.driver_id === d.id);
-        if (!loc) return { ...d, distance: 99999, isNearby: false };
-        
-        const dist = calculateDistance(storeLat, storeLng, parseFloat(loc.latitude), parseFloat(loc.longitude));
-        return { 
-            ...d, 
-            distance: dist, 
-            isNearby: dist <= MAX_DISTANCE_KM,
-            hasRefused: refusedIds.includes(d.id) 
-        };
-    }).filter(d => d.isNearby && !d.hasRefused) || [];
+    // 3. Cálculo de SCORE para cada entregador
+    const candidates = drivers?.map(driver => {
+      const location = locations?.find(l => l.driver_id === driver.id);
+      if (!location || refusedIds.includes(driver.id)) return null;
 
-    const nextDriver = availableDrivers.sort((a, b) => a.distance - b.distance)[0];
+      const driverLat = parseFloat(location.latitude);
+      const driverLng = parseFloat(location.longitude);
+      const distToStore = calculateDistance(driverLat, driverLng, storeLat, storeLng);
+      
+      const driverOrders = activeOrders?.filter(o => o.driver_id === driver.id) || [];
+      const isIdle = driverOrders.length === 0;
 
-    if (nextDriver) {
+      // REGRAS DE NEGÓCIO:
+      // a) Limite de carga: Max 3 pedidos
+      if (driverOrders.length >= 3) return null;
+
+      // b) Score Base: Proximidade (Inverso da distância)
+      let score = 1000 - (distToStore * 50);
+
+      // c) Inteligência de Agrupamento (Batching Bonus)
+      if (!isIdle) {
+          const currentDest = driverOrders[0].delivery_address;
+          const deviation = calculateRouteDeviation([driverLat, driverLng], [currentDest.lat, currentDest.lng], [storeLat, storeLng]);
+          
+          // Se o desvio for menor que 3km, é um ótimo candidato para agrupamento
+          if (deviation < 3.0) {
+              score += 500; // Bônus alto para otimizar rota
+          } else if (deviation > 6.0) {
+              score -= 300; // Penaliza se for longe do caminho atual
+          }
+      } else {
+          score += 200; // Bônus por ociosidade (distribuir renda)
+      }
+
+      return { id: driver.id, score, distance: distToStore };
+    }).filter(c => c !== null).sort((a, b) => b.score - a.score);
+
+    const winner = candidates?.[0];
+
+    if (winner) {
+      console.log(`[dispatch-order] Vencedor: ${winner.id} com score ${winner.score}`);
       const expiresAt = new Date(Date.now() + (timeoutSeconds * 1000)).toISOString();
       
       await supabaseAdmin
         .from('orders')
         .update({
-          current_driver_offered_id: nextDriver.id,
+          current_driver_offered_id: winner.id,
           offer_expires_at: expiresAt,
         })
         .eq('id', orderId);
 
-      return new Response(JSON.stringify({ success: true, driverId: nextDriver.id }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, driverId: winner.id }));
     }
 
-    return new Response(JSON.stringify({ success: false, reason: 'no_drivers_found' }), { headers: corsHeaders });
+    return new Response(JSON.stringify({ success: false, reason: 'no_candidates' }));
 
   } catch (err: any) {
     return new Response(JSON.stringify({ error: err.message }), { status: 400, headers: corsHeaders })
   }
 })
 
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+}
+
+function calculateRouteDeviation(current, dest, waypoint) {
+    const d1 = calculateDistance(current[0], current[1], waypoint[0], waypoint[1]);
+    const d2 = calculateDistance(waypoint[0], waypoint[1], dest[0], dest[1]);
+    const original = calculateDistance(current[0], current[1], dest[0], dest[1]);
+    return (d1 + d2) - original;
 }

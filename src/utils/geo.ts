@@ -2,6 +2,7 @@
  * Calcula a distância entre dois pontos usando a fórmula de Haversine (em KM)
  */
 export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return 999999;
   if (isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) return 999999;
   
   const R = 6371; // Raio da Terra em km
@@ -16,27 +17,31 @@ export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2
 }
 
 /**
- * Verifica se um ponto está dentro de um polígono (Algoritmo de Ray Casting)
+ * Calcula o 'Custo de Desvio'. 
+ * Verifica quanto o entregador teria que se desviar da rota original (A -> B) para passar no ponto C.
  */
+export function calculateRouteDeviation(currentPos: [number, number], destinationPos: [number, number], waypointPos: [number, number]): number {
+  const distToWaypoint = calculateDistance(currentPos[0], currentPos[1], waypointPos[0], waypointPos[1]);
+  const distWaypointToDest = calculateDistance(waypointPos[0], waypointPos[1], destinationPos[0], destinationPos[1]);
+  const originalDist = calculateDistance(currentPos[0], currentPos[1], destinationPos[0], destinationPos[1]);
+  
+  // O desvio é a diferença entre a nova rota (A -> C -> B) e a original (A -> B)
+  return (distToWaypoint + distWaypointToDest) - originalDist;
+}
+
 export function isPointInPolygon(point: [number, number], polygon: [number, number][]): boolean {
   if (!polygon || !Array.isArray(polygon) || polygon.length < 3) return false;
-  
   const x = point[0], y = point[1];
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
     const xi = polygon[i][0], yi = polygon[i][1];
     const xj = polygon[j][0], yj = polygon[j][1];
-    
-    const intersect = ((yi > y) !== (yj > y)) &&
-        (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
     if (intersect) inside = !inside;
   }
   return inside;
 }
 
-/**
- * Validação completa de entrega
- */
 export function canDeliver(
   customerLat: number | undefined | null, 
   customerLng: number | undefined | null, 
@@ -45,21 +50,13 @@ export function canDeliver(
   radiusKm: number, 
   exclusionPolygons: [number, number][][] | undefined | null
 ): boolean {
-  // Validação básica de entrada
   if (customerLat == null || customerLng == null || storeLat == null || storeLng == null) return false;
-
-  // 1. Verificar raio
   const distance = calculateDistance(customerLat, customerLng, storeLat, storeLng);
   if (distance > (radiusKm || 5)) return false;
-
-  // 2. Verificar áreas de exclusão
   if (exclusionPolygons && Array.isArray(exclusionPolygons)) {
     for (const polygon of exclusionPolygons) {
-      if (isPointInPolygon([customerLat, customerLng], polygon)) {
-        return false; // Está dentro de uma área proibida
-      }
+      if (isPointInPolygon([customerLat, customerLng], polygon)) return false;
     }
   }
-
   return true;
 }

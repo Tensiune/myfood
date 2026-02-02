@@ -4,11 +4,11 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MapPin, Store, ShoppingBag, Clock, Map, XCircle, AlertTriangle, Power, FileText } from "lucide-react";
+import { Loader2, MapPin, Store, ShoppingBag, Clock, Map, XCircle, AlertTriangle, Power, FileText, Bell } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
-import { useNavigate, useLocation } from "react-router-dom";
-import { useDriverLocationTracker } from "@/hooks/useDriverLocationTracker";
+import { useNavigate } from "react-router-dom";
+import { useNativeNotifications } from "@/hooks/useNativeNotifications";
 import { calculateDistance } from "@/utils/geo";
 import { cn } from "@/lib/utils";
 
@@ -16,308 +16,126 @@ const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/
 
 const AvailableOrdersPage = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const [offer, setOffer] = useState<any>(null);
-  const [activeOrder, setActiveOrder] = useState<any>(null);
+  const [activeOrders, setActiveOrders] = useState<any[]>([]);
   const [timeLeft, setTimeLeft] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [driverStats, setDriverStats] = useState<any>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
-  const [feeSettings, setFeeSettings] = useState<any[]>([]);
   const [isOnline, setIsOnline] = useState(false);
+  const { sendNotification } = useNativeNotifications();
   
   const lastOfferIdRef = useRef<string | null>(null);
-  const lastStatusRef = useRef<string | null>(null);
-  const pollingRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   
-  useDriverLocationTracker(true);
-
-  useEffect(() => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
-    }
-  }, []);
+  useEffect(() => { audioRef.current = new Audio(NOTIFICATION_SOUND_URL); }, []);
 
   const playAlert = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.currentTime = 0;
       audioRef.current.play().catch(() => {});
     }
-  }, [audioRef]);
-
-  const fetchFeeSettings = async () => {
-    const { data } = await supabase.from('delivery_fee_settings').select('*');
-    if (data) setFeeSettings(data);
-  };
-
-  const syncOrders = useCallback(async (uid: string) => {
-    if (!uid) return;
-    try {
-      // 1. Sincronizar Ofertas Pendentes
-      const { data: offers } = await supabase
-        .from('orders')
-        .select('*, merchant:merchant_applications(*)')
-        .eq('current_driver_offered_id', uid)
-        .is('driver_id', null)
-        .neq('status', 'CANCELLED');
-
-      if (offers && offers.length > 0) {
-        const activeOffer = offers[0];
-        if (activeOffer.id !== lastOfferIdRef.current) {
-            const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
-            const diff = Math.floor((expiresAt - Date.now()) / 1000);
-            setTimeLeft(diff > 0 ? diff : 30);
-            lastOfferIdRef.current = activeOffer.id;
-            playAlert(); 
-        }
-        setOffer(activeOffer);
-      } else {
-        setOffer(null);
-        lastOfferIdRef.current = null;
-      }
-
-      // 2. Sincronizar Pedido em Andamento (Excluindo estritamente cancelados e entregues)
-      const { data: accepted } = await supabase
-        .from('orders')
-        .select('*, merchant:merchant_applications(*)')
-        .eq('driver_id', uid)
-        .not('status', 'in', '(DELIVERED,CANCELLED)') // Sintaxe corrigida sem aspas internas
-        .order('created_at', { ascending: false });
-
-      if (accepted && accepted.length > 0) {
-        const order = accepted[0];
-        if (order.status === 'WAITING_FOR_DRIVER' && lastStatusRef.current !== 'WAITING_FOR_DRIVER') {
-           playAlert();
-           showSuccess("Pedido pronto para retirada!");
-        }
-        lastStatusRef.current = order.status;
-        setActiveOrder(order);
-      } else {
-        // Se o entregador tinha um pedido e agora a consulta retornou vazio, 
-        // significa que foi cancelado ou finalizado.
-        if (activeOrder) {
-            console.log("[Radar] Pedido ativo não encontrado ou cancelado pela loja.");
-        }
-        setActiveOrder(null);
-        lastStatusRef.current = null;
-      }
-
-    } catch (err) {
-      console.error("[Radar] Erro de sincronia.");
-    } finally {
-      setLoading(false);
-    }
-  }, [playAlert, activeOrder]);
-
-  const handleTimeout = useCallback(async () => {
-    if (!driverId || !offer) return;
-    const currentId = offer.id;
-    setOffer(null);
-    lastOfferIdRef.current = null;
-
-    const newRefused = Array.from(new Set([...(offer.refused_drivers_ids || []), driverId]));
-    await supabase.from('orders').update({ 
-      current_driver_offered_id: null, 
-      offer_expires_at: null,
-      refused_drivers_ids: newRefused 
-    }).eq('id', currentId);
-    
-    // Dispara a busca por outro entregador
-    supabase.functions.invoke('dispatch-order', { body: { orderId: currentId } });
-  }, [driverId, offer]);
-
-  useEffect(() => {
-    if (offer && timeLeft > 0) {
-      const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
-      return () => clearTimeout(timer);
-    } else if (offer && timeLeft === 0) {
-      handleTimeout();
-    }
-  }, [offer, timeLeft, handleTimeout]);
-
-  // Detector de estado online
-  useEffect(() => {
-    const checkStatus = () => {
-      const isActuallyOnline = localStorage.getItem('driver_online_status') === 'online';
-      setIsOnline(isActuallyOnline);
-    };
-    checkStatus();
-    const interval = setInterval(checkStatus, 2000);
-    return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
-    const initialize = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !isMounted) return;
-      setDriverId(user.id);
-      
-      const { data: stats } = await supabase.from('driver_applications').select('*').eq('id', user.id).single();
-      setDriverStats(stats);
-      
-      await fetchFeeSettings();
-      
-      pollingRef.current = setInterval(() => {
-        if (localStorage.getItem('driver_online_status') === 'online') {
-           syncOrders(user.id);
-        }
-      }, 4000); // Polling levemente mais rápido para evitar "travamentos"
-
-      if (localStorage.getItem('driver_online_status') === 'online') {
-        syncOrders(user.id);
-      } else {
-        setLoading(false);
+  const sync = useCallback(async (uid: string) => {
+    // 1. Sincronizar Ofertas
+    const { data: offers } = await supabase.from('orders').select('*, merchant:merchant_applications(*)').eq('current_driver_offered_id', uid).is('driver_id', null).neq('status', 'CANCELLED');
+    
+    if (offers && offers.length > 0) {
+      const activeOffer = offers[0];
+      if (activeOffer.id !== lastOfferIdRef.current) {
+          const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
+          setTimeLeft(Math.floor((expiresAt - Date.now()) / 1000));
+          lastOfferIdRef.current = activeOffer.id;
+          playAlert();
+          sendNotification("Nova Oportunidade!", `Ganhos estimados: R$ ${activeOffer.total.toFixed(2)}`);
       }
-    };
-    initialize();
-    return () => { 
-        isMounted = false; 
-        if (pollingRef.current) clearInterval(pollingRef.current); 
-    };
-  }, [syncOrders]);
-
-  // Se o entregador volta de uma navegação de pedido cancelado, forçamos um sync imediato
-  useEffect(() => {
-    if (driverId && isOnline) {
-        syncOrders(driverId);
+      setOffer(activeOffer);
+    } else {
+      setOffer(null);
+      lastOfferIdRef.current = null;
     }
-  }, [location.key, driverId, isOnline, syncOrders]);
+
+    // 2. Sincronizar Pedidos em Andamento
+    const { data: accepted } = await supabase.from('orders').select('*, merchant:merchant_applications(*)').eq('driver_id', uid).not('status', 'in', '(DELIVERED,CANCELLED)');
+    setActiveOrders(accepted || []);
+    setLoading(false);
+  }, [playAlert, sendNotification]);
+
+  useEffect(() => {
+    const checkStatus = () => setIsOnline(localStorage.getItem('driver_online_status') === 'online');
+    checkStatus();
+    const interval = setInterval(() => {
+        const { data: { user } } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (session?.user && localStorage.getItem('driver_online_status') === 'online') sync(session.user.id);
+        });
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [sync]);
 
   const handleAccept = async () => {
-    if (!driverId || !offer) return;
-    const tid = showLoading("Aceitando pedido...");
-    try {
-      const { data, error } = await supabase.from('orders').update({
-        driver_id: driverId,
-        current_driver_offered_id: null,
-        offer_expires_at: null,
-      })
-      .eq('id', offer.id)
-      .is('driver_id', null)
-      .neq('status', 'CANCELLED')
-      .select();
-
-      dismissToast(tid);
-      if (error || !data || data.length === 0) {
-        showError("Este pedido não está mais disponível.");
-        setOffer(null);
-        lastOfferIdRef.current = null;
-        return;
-      }
-      showSuccess("Pedido aceito!");
+    const tid = showLoading("Confirmando...");
+    const { data, error } = await supabase.from('orders').update({ driver_id: driverId, current_driver_offered_id: null, offer_expires_at: null }).eq('id', offer.id).is('driver_id', null).select();
+    dismissToast(tid);
+    if (!error && data?.length) {
+      showSuccess("Pedido adicionado à sua rota!");
       navigate(`/driver/map?orderId=${offer.id}`);
-    } catch (err) { 
-      dismissToast(tid);
-      showError("Erro ao processar aceite."); 
     }
-  };
-
-  const getCalculatedFee = (orderData: any) => {
-    if (!orderData || !driverStats || feeSettings.length === 0) return 0;
-    const vehicleType = driverStats.metadata?.vehicle?.type || 'moto';
-    const setting = feeSettings.find(s => s.vehicle_type === vehicleType);
-    if (!setting) return 0;
-    const storeMeta = orderData.merchant?.metadata || {};
-    const storeAddr = storeMeta.store_details?.address || storeMeta.address || {};
-    const deliveryAddr = orderData.delivery_address || {};
-    const dist = calculateDistance(parseFloat(storeAddr.lat), parseFloat(storeAddr.lng), parseFloat(deliveryAddr.lat), parseFloat(deliveryAddr.lng));
-    const kmInt = Math.floor(dist);
-    const feeIndex = Math.min(kmInt, 15); 
-    return kmInt < 15 ? setting.fees_json[feeIndex] : setting.fees_json[15] + ((dist - 15) * setting.extra_fee_per_km);
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-8 w-8 text-indigo-500" /></div>;
 
-  const manualDescription = offer?.metadata?.driver_manual_description;
-
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center px-1">
-        <h1 className="text-2xl font-black text-indigo-900">Radar</h1>
-        <Badge className={cn(driverStats?.status === 'APPROVED' ? (isOnline ? "bg-green-500" : "bg-red-500") : "bg-orange-500")}>
-          {driverStats?.status === 'APPROVED' ? (isOnline ? 'Online' : 'Offline') : 'Em Análise'}
-        </Badge>
-      </div>
+      <h1 className="text-2xl font-black text-indigo-900">Radar de Entregas</h1>
 
-      {activeOrder && (
-        <Card className="rounded-[2rem] border-2 border-indigo-600 bg-indigo-50/30 overflow-hidden shadow-lg animate-in fade-in">
-          <CardContent className="p-6 space-y-4">
-             <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                    <div className={cn("h-2 w-2 rounded-full animate-pulse", activeOrder.status === 'WAITING_FOR_DRIVER' ? 'bg-green-500' : 'bg-indigo-600')} />
-                    <span className="font-black text-xs uppercase text-indigo-900">
-                        {activeOrder.status === 'WAITING_FOR_DRIVER' ? 'Pronto para Retirada' : 'Pedido em andamento'}
-                    </span>
-                </div>
-                <Badge className="bg-indigo-600">R$ {getCalculatedFee(activeOrder).toFixed(2)}</Badge>
-             </div>
-             <p className="font-bold text-gray-800 leading-tight">Retirar em: {activeOrder.merchant?.store_name || "Loja"}</p>
-             <Button className="w-full rounded-xl bg-indigo-600 text-white font-bold h-12" onClick={() => navigate(`/driver/map?orderId=${activeOrder.id}`)}>
-               <Map className="h-4 w-4 mr-2" /> Continuar Rota
-             </Button>
-          </CardContent>
-        </Card>
+      {activeOrders.length > 0 && (
+        <div className="space-y-3">
+            <p className="text-xs font-bold text-gray-400 uppercase ml-1">Sua Rota Atual ({activeOrders.length})</p>
+            {activeOrders.map(order => (
+                <Card key={order.id} className="rounded-2xl border-indigo-100 bg-indigo-50/30">
+                    <CardContent className="p-4 flex items-center justify-between">
+                        <div>
+                            <p className="font-bold text-gray-800">{order.merchant?.store_name}</p>
+                            <Badge className="bg-indigo-600 text-[9px] uppercase mt-1">{order.status}</Badge>
+                        </div>
+                        <Button size="sm" className="rounded-xl" onClick={() => navigate(`/driver/map?orderId=${order.id}`)}>Ver no Mapa</Button>
+                    </CardContent>
+                </Card>
+            ))}
+        </div>
       )}
 
-      {offer ? (
-        <Card className="rounded-[2.5rem] border-4 border-brand-accent shadow-2xl bg-white overflow-hidden animate-in zoom-in-95">
+      {offer && (
+        <Card className="rounded-[2.5rem] border-4 border-brand-accent shadow-2xl bg-white overflow-hidden animate-bounce-short">
           <div className="bg-brand-accent p-4 text-white flex justify-between items-center">
-            <div className="flex items-center gap-2"><Clock className="h-4 w-4 animate-pulse" /><span className="font-black text-sm uppercase">Pedido Recebido</span></div>
-            <div className="bg-white text-brand-accent px-4 py-1 rounded-full font-black text-xl tabular-nums min-w-[70px] text-center">
-                {timeLeft > 0 ? `0:${timeLeft < 10 ? '0' : ''}${timeLeft}` : "0:00"}
-            </div>
+            <span className="font-black text-sm uppercase">Oferta Concomitante!</span>
+            <div className="bg-white text-brand-accent px-4 py-1 rounded-full font-black text-xl tabular-nums">0:{timeLeft < 10 ? '0' : ''}{timeLeft}</div>
           </div>
           <CardContent className="p-6 space-y-6">
-            <div className="flex justify-between items-start border-b pb-6">
-              <div className="space-y-1"><span className="text-3xl font-black text-indigo-900">R$ {getCalculatedFee(offer).toFixed(2)}</span><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Ganhos Estimados</p></div>
-              <Badge variant="outline" className="border-indigo-100 text-indigo-600 font-bold capitalize">{driverStats?.metadata?.vehicle?.type || 'moto'}</Badge>
-            </div>
-            
-            {manualDescription && (
-                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-2">
-                    <div className="flex items-center gap-2 text-[10px] font-black text-indigo-600 uppercase">
-                        <FileText className="h-3 w-3" /> Descrição do Pedido
-                    </div>
-                    <p className="text-sm text-gray-800 font-medium">{manualDescription}</p>
-                </div>
-            )}
-
             <div className="space-y-4">
                 <div className="flex gap-4">
                   <div className="p-2 bg-indigo-50 rounded-full h-fit"><Store className="h-4 w-4 text-indigo-600" /></div>
                   <div className="flex-1">
-                    <p className="text-[10px] font-black text-gray-400 uppercase">Coleta</p>
+                    <p className="text-[10px] font-black text-gray-400 uppercase">Coleta Próxima</p>
                     <p className="font-bold text-gray-800">{offer.merchant?.store_name}</p>
                   </div>
                 </div>
-                <div className="flex gap-4">
-                  <div className="p-2 bg-green-50 rounded-full h-fit"><ShoppingBag className="h-4 w-4 text-green-600" /></div>
-                  <div className="flex-1">
-                    <p className="text-[10px] font-black text-gray-400 uppercase">Entrega</p>
-                    <p className="font-bold text-gray-800">Endereço do Cliente</p>
-                  </div>
+                <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
+                    <p className="text-xs text-green-800 font-bold">Esta entrega está no caminho da sua rota atual!</p>
                 </div>
             </div>
-            <div className="flex gap-3 pt-2">
-              <Button variant="ghost" className="flex-1 h-16 rounded-2xl text-red-500 font-bold" onClick={() => handleTimeout()}>RECUSAR</Button>
-              <Button className="flex-2 h-16 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black text-xl shadow-lg" onClick={handleAccept}>ACEITAR</Button>
+            <div className="flex gap-3">
+              <Button variant="ghost" className="flex-1 h-16 rounded-2xl text-red-500 font-bold" onClick={() => setOffer(null)}>Ignorar</Button>
+              <Button className="flex-2 h-16 rounded-2xl bg-green-600 text-white font-black text-xl" onClick={handleAccept}>ACEITAR</Button>
             </div>
           </CardContent>
         </Card>
-      ) : isOnline && !activeOrder ? (
-        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-indigo-50 animate-in fade-in">
-          <Loader2 className="h-10 w-10 text-indigo-200 animate-spin mb-4" />
-          <p className="text-gray-400 font-black uppercase text-[10px] text-center px-8">Buscando novos pedidos...</p>
-        </div>
-      ) : !isOnline && !activeOrder && (
-        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-gray-100 opacity-60 animate-in fade-in">
-          <div className="bg-gray-100 p-4 rounded-full mb-4">
-            <Power className="h-8 w-8 text-gray-400" />
-          </div>
-          <p className="text-gray-500 font-black uppercase text-[10px] text-center px-8">Você está Offline</p>
-          <p className="text-gray-400 text-xs text-center px-8 mt-2">Fique online para começar a receber ofertas.</p>
+      )}
+
+      {isOnline && !offer && activeOrders.length < 3 && (
+        <div className="py-12 text-center bg-white rounded-3xl border-2 border-dashed border-gray-100">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-200 mb-2" />
+          <p className="text-gray-400 font-bold uppercase text-[10px]">Aguardando novas oportunidades...</p>
         </div>
       )}
     </div>
