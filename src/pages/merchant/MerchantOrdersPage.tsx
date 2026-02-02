@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User, RotateCcw, X, Send } from "lucide-react";
+import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User, RotateCcw, X, Send, AlertTriangle } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -89,7 +89,6 @@ const MerchantOrdersPage = () => {
   const handleAcceptOrder = async (id: string) => {
     const tid = showLoading("Aceitando pedido...");
     try {
-      // 1. Atualizar status do pedido para 'PREPARING'
       const { error: updateError } = await supabase
         .from('orders')
         .update({ 
@@ -100,50 +99,55 @@ const MerchantOrdersPage = () => {
       
       if (updateError) throw updateError;
 
-      // 2. Invocar a Edge Function de despacho usando o método oficial
-      console.log("[Merchant] Disparando Edge Function dispatch-order...");
       const { data, error: functionError } = await supabase.functions.invoke('dispatch-order', {
         body: { orderId: id }
       });
 
       if (functionError) throw functionError;
 
-      if (data?.success) {
-          showSuccess("Pedido aceito! Buscando entregador...");
-      } else {
-          showError("Pedido aceito, mas não há entregadores disponíveis agora.");
-      }
-
+      showSuccess("Pedido aceito!");
       dismissToast(tid);
       fetchOrders(true);
     } catch (err: any) {
       dismissToast(tid);
-      console.error("[Merchant] Erro no aceite/despacho:", err);
       showError("Erro: " + (err.message || "Erro desconhecido"));
     }
   };
 
   const handleAction = async (id: string, status: string) => {
       const { error } = await supabase.from('orders').update({ status }).eq('id', id);
-      if (!error) fetchOrders(true);
+      if (!error) {
+          showSuccess("Status atualizado!");
+          fetchOrders(true);
+      }
   };
   
   const handleCancelOrder = async (id: string) => {
-    if (!window.confirm("Deseja cancelar o pedido?")) return;
-    const { error } = await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', id);
-    if (!error) fetchOrders(true);
+    if (!window.confirm("ATENÇÃO: Você tem certeza que deseja cancelar este pedido? O cliente será notificado e o estorno será processado se aplicável.")) return;
+    
+    const tid = showLoading("Cancelando pedido...");
+    try {
+        const { error } = await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', id);
+        if (error) throw error;
+        showSuccess("Pedido cancelado com sucesso.");
+        fetchOrders(true);
+    } catch (err) {
+        showError("Não foi possível cancelar o pedido.");
+    } finally {
+        dismissToast(tid);
+    }
   };
 
   const handleConfirmPickup = async (order: any) => {
     const driverPhoneCode = (order.driver?.phone || "").replace(/\D/g, "").slice(-4);
     if (verificationCode !== driverPhoneCode) {
-      showError("Código incorreto.");
+      showError("Código incorreto. Peça ao entregador para mostrar os últimos 4 dígitos do telefone no app dele.");
       return;
     }
     setIsVerifying(true);
     const { error } = await supabase.from('orders').update({ status: 'OUT_FOR_DELIVERY' }).eq('id', order.id);
     if (!error) {
-      showSuccess("Pedido em rota!");
+      showSuccess("Pedido liberado para entrega!");
       setVerificationCode("");
       fetchOrders(true);
     }
@@ -162,12 +166,23 @@ const MerchantOrdersPage = () => {
           <div className="p-10 border-2 border-dashed border-gray-100 rounded-[2.5rem] text-center opacity-30">Vazio</div>
         ) : (
           filtered.map(o => (
-            <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden">
+            <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden animate-in fade-in">
               <CardContent className="p-5 space-y-4">
                 <div className="flex justify-between items-start">
                    <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
                    {o.status === 'PENDING' && o.merchant_acceptance_deadline && (
                      <AcceptanceTimer deadline={o.merchant_acceptance_deadline} onExpire={() => handleAction(o.id, 'CANCELLED')} />
+                   )}
+                   {o.status !== 'CANCELLED' && o.status !== 'DELIVERED' && o.status !== 'PENDING' && (
+                     <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-6 w-6 text-gray-300 hover:text-red-500 rounded-full"
+                        onClick={() => handleCancelOrder(o.id)}
+                        title="Cancelar Pedido"
+                     >
+                        <X className="h-4 w-4" />
+                     </Button>
                    )}
                 </div>
                 <div className="space-y-1">
@@ -209,39 +224,59 @@ const MerchantOrdersPage = () => {
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="animate-spin text-indigo-600 h-10 w-10" /></div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
           {renderSection("Novos", "text-blue-600", o => o.status === "PENDING", o => (
             <div className="flex gap-2">
-              <Button variant="ghost" className="flex-1 text-red-500 rounded-xl" onClick={() => handleAction(o.id, 'CANCELLED')}>Recusar</Button>
+              <Button variant="ghost" className="flex-1 text-red-500 rounded-xl" onClick={() => handleCancelOrder(o.id)}>Recusar</Button>
               <Button className="flex-1 bg-blue-600 text-white font-bold rounded-xl h-12" onClick={() => handleAcceptOrder(o.id)}>Aceitar</Button>
             </div>
           ))}
+          
           {renderSection("Em Preparo", "text-orange-500", o => o.status === "PREPARING", o => (
             <div className="space-y-2">
                <Button className="w-full bg-orange-500 text-white font-bold rounded-xl h-12" onClick={() => handleAction(o.id, 'WAITING_FOR_DRIVER')}>Pronto p/ Retirada</Button>
                {!o.driver && <div className="text-[10px] font-bold text-gray-400 text-center uppercase animate-pulse">Buscando Entregador...</div>}
+               <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={() => handleCancelOrder(o.id)}>Cancelar Pedido</Button>
             </div>
           ))}
+          
           {renderSection("Aguardando Coleta", "text-indigo-600", o => o.status === "WAITING_FOR_DRIVER", o => (
             o.driver ? (
-              <Dialog>
-                <DialogTrigger asChild><Button className="w-full bg-indigo-600 text-white font-bold rounded-xl h-12">Confirmar Retirada</Button></DialogTrigger>
-                <DialogContent className="rounded-3xl sm:max-w-md p-8">
-                   <DialogHeader className="text-center"><DialogTitle className="text-2xl font-black">Validar Código</DialogTitle></DialogHeader>
-                   <div className="py-6 flex justify-center"><OtpInput length={4} value={verificationCode} onChange={setVerificationCode} /></div>
-                   <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg" onClick={() => handleConfirmPickup(o)} disabled={verificationCode.length < 4 || isVerifying}>Liberar Pedido</Button>
-                </DialogContent>
-              </Dialog>
+              <div className="space-y-2">
+                <Dialog>
+                    <DialogTrigger asChild><Button className="w-full bg-indigo-600 text-white font-bold rounded-xl h-12">Confirmar Retirada</Button></DialogTrigger>
+                    <DialogContent className="rounded-3xl sm:max-w-md p-8">
+                    <DialogHeader className="text-center"><DialogTitle className="text-2xl font-black">Validar Entregador</DialogTitle></DialogHeader>
+                    <p className="text-center text-sm text-gray-500 mb-4">Insira os 4 últimos dígitos do telefone do entregador para liberar o pedido.</p>
+                    <div className="py-6 flex justify-center"><OtpInput length={4} value={verificationCode} onChange={setVerificationCode} /></div>
+                    <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg" onClick={() => handleConfirmPickup(o)} disabled={verificationCode.length < 4 || isVerifying}>Liberar Pedido</Button>
+                    </DialogContent>
+                </Dialog>
+                <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={() => handleCancelOrder(o.id)}>Cancelar Pedido</Button>
+              </div>
             ) : (
-              <div className="text-center p-3 bg-gray-50 rounded-2xl border border-dashed border-gray-100">
-                <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300 mb-1" />
-                <span className="text-[10px] font-bold text-gray-400 uppercase">Aguardando Aceite...</span>
+              <div className="space-y-3">
+                <div className="text-center p-3 bg-gray-50 rounded-2xl border border-dashed border-gray-100">
+                    <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300 mb-1" />
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">Buscando Entregador...</span>
+                </div>
+                <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={() => handleCancelOrder(o.id)}>Cancelar Pedido</Button>
               </div>
             )
           ))}
-          {renderSection("Finalizados", "text-green-600", o => ['OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'].includes(o.status), o => (
-             <Badge className={cn("w-full py-3 justify-center border-none rounded-xl text-xs font-bold uppercase", o.status === 'DELIVERED' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700')}>
-               {o.status === 'DELIVERED' ? 'Entregue ✓' : o.status === 'OUT_FOR_DELIVERY' ? 'Em Rota...' : 'Cancelado'}
+
+          {renderSection("Em Rota", "text-yellow-600", o => o.status === "OUT_FOR_DELIVERY", o => (
+            <div className="space-y-2">
+               <Badge className="w-full py-3 justify-center border-none rounded-xl text-xs font-bold uppercase bg-yellow-50 text-yellow-700">
+                 Saiu para Entrega
+               </Badge>
+               <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={() => handleCancelOrder(o.id)}>Cancelar (Emergência)</Button>
+            </div>
+          ))}
+
+          {renderSection("Finalizados", "text-green-600", o => ['DELIVERED', 'CANCELLED'].includes(o.status), o => (
+             <Badge className={cn("w-full py-3 justify-center border-none rounded-xl text-xs font-bold uppercase", o.status === 'DELIVERED' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")}>
+               {o.status === 'DELIVERED' ? 'Entregue ✓' : 'Cancelado'}
              </Badge>
           ))}
         </div>
