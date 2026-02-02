@@ -2,12 +2,16 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { calculateDistance } from "@/utils/geo";
 import { showError } from "@/utils/toast";
 
 export function useDriverLocationTracker(isActive: boolean) {
   const [currentLocation, setCurrentLocation] = useState<[number, number]>([0, 0]);
+  const [heading, setHeading] = useState<number>(0);
   const [isTracking, setIsTracking] = useState(false);
   const [driverId, setDriverId] = useState<string | null>(null);
+  
+  const lastUpdateCoords = useRef<[number, number] | null>(null);
   const watchIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -16,11 +20,36 @@ export function useDriverLocationTracker(isActive: boolean) {
       setDriverId(user?.id || null);
     };
     fetchUser();
+
+    // Listener para bússola/direção do dispositivo
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      // webkitCompassHeading é específico para iOS (mais preciso)
+      const compass = (e as any).webkitCompassHeading || e.alpha;
+      if (compass !== null) setHeading(compass);
+    };
+
+    if (window.DeviceOrientationEvent) {
+      window.addEventListener("deviceorientation", handleOrientation, true);
+    }
+    return () => window.removeEventListener("deviceorientation", handleOrientation);
   }, []);
 
   const updateLocationInDb = useCallback(async (lat: number, lng: number) => {
     if (!driverId) return;
+
+    // Lógica de economia de bateria: Só envia se moveu mais de 10 metros (0.01 km)
+    if (lastUpdateCoords.current) {
+      const dist = calculateDistance(
+        lastUpdateCoords.current[0], 
+        lastUpdateCoords.current[1], 
+        lat, 
+        lng
+      );
+      if (dist < 0.01) return; // Menos de 10 metros, ignora o upload
+    }
     
+    lastUpdateCoords.current = [lat, lng];
+
     const { error } = await supabase
       .from('driver_locations')
       .upsert({
@@ -28,61 +57,33 @@ export function useDriverLocationTracker(isActive: boolean) {
         latitude: lat,
         longitude: lng,
         updated_at: new Date().toISOString(),
-      }, {
-        onConflict: 'driver_id'
-      });
+      }, { onConflict: 'driver_id' });
       
-    if (error) {
-      console.error("[useDriverLocationTracker] Erro ao atualizar banco:", error);
-    }
+    if (error) console.error("[GPS] Erro DB:", error);
   }, [driverId]);
 
   useEffect(() => {
-    // Só inicia se estiver ativo, tiver ID do motorista e permissão local concedida
     if (!isActive || !driverId || localStorage.getItem('driver_location_permission') !== 'granted') {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
       setIsTracking(false);
-      setCurrentLocation([0, 0]);
-      return;
-    }
-
-    if (!("geolocation" in navigator)) {
-      showError("Seu navegador não suporta geolocalização.");
       return;
     }
 
     setIsTracking(true);
-
-    // Inicia o monitoramento contínuo do GPS
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
         setCurrentLocation([latitude, longitude]);
         updateLocationInDb(latitude, longitude);
       },
-      (error) => {
-        console.error("[GPS Error]", error);
-        if (error.code === 1) {
-          showError("Permissão de localização negada pelo sistema.");
-        }
-      },
-      {
-        enableHighAccuracy: true, // Força uso do GPS (mais preciso)
-        maximumAge: 1000,         // Cache de no máximo 1 segundo
-        timeout: 10000            // Tempo limite de 10 segundos para obter sinal
-      }
+      (err) => console.error(err),
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
     );
 
     return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
-      setIsTracking(false);
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
     };
   }, [isActive, driverId, updateLocationInDb]);
 
-  return { currentLocation, isTracking };
+  return { currentLocation, heading, isTracking };
 }
