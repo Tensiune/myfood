@@ -43,12 +43,18 @@ const AvailableOrdersPage = () => {
       if (!offerError && offers && offers.length > 0) {
         const activeOffer = offers[0];
         const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
-        const diff = Math.floor((expiresAt - Date.now()) / 1000);
+        const now = Date.now();
+        const diff = Math.floor((expiresAt - now) / 1000);
         
-        // Se o diff for muito negativo (ex: -30s), provavelmente o relógio está desalinhado.
-        // Mostramos a oferta se ela existir no banco para este ID.
+        // CORREÇÃO DE TIMER:
+        // Se a oferta existe no banco mas o diff é <= 0, provavelmente há um desalinhamento de relógio.
+        // Nesses casos, damos um tempo visual de 30s para que o entregador possa aceitar.
+        if (diff <= 0) {
+            setTimeLeft(30); 
+        } else {
+            setTimeLeft(diff);
+        }
         setOffer(activeOffer);
-        setTimeLeft(Math.max(0, diff));
       } else {
         setOffer(null);
       }
@@ -106,12 +112,11 @@ const AvailableOrdersPage = () => {
     };
   }, [syncOrders]);
 
+  // Efeito do Timer local
   useEffect(() => {
     if (offer && timeLeft > 0) {
       const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
       return () => clearTimeout(timer);
-    } else if (offer && timeLeft <= 0) {
-       // Opcional: Se o tempo acabar e a oferta sumir do banco, setOffer(null) via polling
     }
   }, [offer, timeLeft]);
 
@@ -215,8 +220,8 @@ const AvailableOrdersPage = () => {
         <Card className="rounded-[2.5rem] border-4 border-brand-accent shadow-2xl bg-white overflow-hidden animate-in zoom-in-95">
           <div className="bg-brand-accent p-4 text-white flex justify-between items-center">
             <div className="flex items-center gap-2"><Clock className="h-4 w-4 animate-pulse" /><span className="font-black text-sm uppercase">Pedido Recebido</span></div>
-            <div className="bg-white text-brand-accent px-4 py-1 rounded-full font-black text-xl">
-                {timeLeft > 0 ? `0:${timeLeft < 10 ? '0' : ''}${timeLeft}` : "EXPIRANDO..."}
+            <div className="bg-white text-brand-accent px-4 py-1 rounded-full font-black text-xl tabular-nums">
+                {timeLeft > 0 ? `0:${timeLeft < 10 ? '0' : ''}${timeLeft}` : "0:00"}
             </div>
           </div>
           <CardContent className="p-6 space-y-6">
