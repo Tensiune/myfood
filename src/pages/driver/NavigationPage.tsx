@@ -65,15 +65,28 @@ const NavigationPage = () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { navigate("/login"); return; }
+      
       const { data, error } = await supabase
           .from('orders')
           .select('*, merchant:merchant_applications(*)')
           .eq('driver_id', user.id)
           .not('status', 'in', '(DELIVERED,CANCELLED)');
+      
       if (error) throw error;
-      setOrders(data || []);
-    } catch (err) { showError("Erro na rota."); } 
-    finally { setLoading(false); }
+
+      // Buscar nomes reais dos clientes para cada pedido ativo
+      const ordersWithCustomerNames = await Promise.all((data || []).map(async (order) => {
+        const { data: customerName } = await supabase.rpc('get_user_full_name', { user_id: order.customer_id });
+        return { ...order, customer_name: customerName || "Consumidor" };
+      }));
+
+      setOrders(ordersWithCustomerNames);
+    } catch (err) { 
+      console.error("Erro na rota:", err);
+      showError("Não foi possível sincronizar os dados da rota."); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   useEffect(() => {
@@ -87,9 +100,25 @@ const NavigationPage = () => {
     orders.forEach(o => {
       if (['PREPARING', 'WAITING_FOR_DRIVER'].includes(o.status)) {
         const addr = o.merchant?.metadata?.store_details?.address || o.merchant?.metadata?.address || {};
-        res.push({ type: 'pickup', orderId: o.id, name: o.merchant?.store_name, address: addr, lat: parseFloat(addr.lat), lng: parseFloat(addr.lng), isReady: o.status === 'WAITING_FOR_DRIVER' });
+        res.push({ 
+          type: 'pickup', 
+          orderId: o.id, 
+          name: o.merchant?.store_name || "Loja", 
+          address: addr, 
+          lat: parseFloat(addr.lat), 
+          lng: parseFloat(addr.lng), 
+          isReady: o.status === 'WAITING_FOR_DRIVER' 
+        });
       } else if (o.status === 'OUT_FOR_DELIVERY') {
-        res.push({ type: 'delivery', orderId: o.id, name: "Cliente", address: o.delivery_address, lat: parseFloat(o.delivery_address?.lat), lng: parseFloat(o.delivery_address?.lng), code: o.confirmation_code });
+        res.push({ 
+          type: 'delivery', 
+          orderId: o.id, 
+          name: o.customer_name, 
+          address: o.delivery_address, 
+          lat: parseFloat(o.delivery_address?.lat), 
+          lng: parseFloat(o.delivery_address?.lng), 
+          code: o.confirmation_code 
+        });
       }
     });
     return res;
