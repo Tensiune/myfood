@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { OtpInput } from "@/components/shared/OtpInput";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import OrderReceipt from "@/components/merchant/OrderReceipt"; // Importando o novo componente
+import ReactDOMServer from 'react-dom/server';
 
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
 
@@ -30,6 +32,7 @@ const MerchantOrdersPage = () => {
   const [orderToRecall, setOrderToRecall] = useState<any>(null);
   const [manualDescription, setManualDescription] = useState("");
   const [isRecalling, setIsRecalling] = useState(false);
+  const [merchantName, setMerchantName] = useState("Minha Loja");
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -46,14 +49,82 @@ const MerchantOrdersPage = () => {
     }
   }, [audioEnabled]);
 
+  const printOrderReceipt = (order: any) => {
+    const receiptHtml = ReactDOMServer.renderToString(
+      <OrderReceipt order={order} merchantName={merchantName} />
+    );
+
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Comanda #${order.id.slice(0, 6)}</title>
+            <style>
+              @media print {
+                @page { size: 80mm auto; margin: 0; }
+                body { margin: 0; padding: 0; }
+                .print-container { width: 80mm; padding: 5mm; }
+              }
+              /* Estilos básicos para visualização em tela */
+              body { font-family: monospace; font-size: 12px; line-height: 1.4; }
+              .text-center { text-align: center; }
+              .font-bold { font-weight: bold; }
+              .font-extrabold { font-weight: 900; }
+              .text-lg { font-size: 1.125rem; }
+              .text-xs { font-size: 0.75rem; }
+              .uppercase { text-transform: uppercase; }
+              .border-dashed { border-style: dashed; }
+              .border-dotted { border-style: dotted; }
+              .pb-2 { padding-bottom: 0.5rem; }
+              .mb-2 { margin-bottom: 0.5rem; }
+              .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+              .p-4 { padding: 1rem; }
+              .space-y-1 > * + * { margin-top: 0.25rem; }
+              .flex { display: flex; }
+              .justify-between { justify-content: space-between; }
+              .items-center { align-items: center; }
+              .items-start { align-items: flex-start; }
+              .gap-1 { gap: 0.25rem; }
+              .mt-0\.5 { margin-top: 0.125rem; }
+              .shrink-0 { flex-shrink: 0; }
+              .ml-2 { margin-left: 0.5rem; }
+              .italic { font-style: italic; }
+              .bg-yellow-100 { background-color: #fefce8; }
+              .p-1 { padding: 0.25rem; }
+              .rounded { border-radius: 0.25rem; }
+            </style>
+          </head>
+          <body>
+            <div class="print-container">
+              ${receiptHtml}
+            </div>
+            <script>
+              window.onload = function() {
+                window.print();
+                window.onafterprint = function() {
+                  window.close();
+                }
+              }
+            </script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+  };
+
   const fetchOrders = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: merchantData } = await supabase.from('merchant_applications').select('is_open').eq('id', user.id).single();
-      if (merchantData) setIsStoreOpen(merchantData.is_open);
+      const { data: merchantData } = await supabase.from('merchant_applications').select('is_open, store_name').eq('id', user.id).single();
+      if (merchantData) {
+        setIsStoreOpen(merchantData.is_open);
+        setMerchantName(merchantData.store_name || "Minha Loja");
+      }
 
       const { data, error } = await supabase
         .from('orders')
@@ -95,7 +166,7 @@ const MerchantOrdersPage = () => {
     }
   };
 
-  const handleAcceptOrder = async (id: string) => {
+  const handleAcceptOrder = async (order: any) => {
     const tid = showLoading("Aceitando pedido...");
     try {
       const { error: updateError } = await supabase
@@ -104,19 +175,23 @@ const MerchantOrdersPage = () => {
           status: 'PREPARING',
           merchant_acceptance_deadline: null,
         })
-        .eq('id', id);
+        .eq('id', order.id);
       
       if (updateError) throw updateError;
 
       // Dispara a busca por entregador
       const { data, error: functionError } = await supabase.functions.invoke('dispatch-order', {
-        body: { orderId: id }
+        body: { orderId: order.id }
       });
 
       if (functionError) throw functionError;
 
-      showSuccess("Pedido aceito!");
       dismissToast(tid);
+      showSuccess("Pedido aceito e comanda impressa!");
+      
+      // IMPRIMIR COMANDA
+      printOrderReceipt(order);
+
       fetchOrders(true);
     } catch (err: any) {
       dismissToast(tid);
@@ -308,7 +383,7 @@ const MerchantOrdersPage = () => {
           {renderSection("Novos", "text-blue-600", o => o.status === "PENDING", o => (
             <div className="flex gap-2">
               <Button variant="ghost" className="flex-1 text-red-500 rounded-xl" onClick={() => handleCancelOrder(o.id)}>Recusar</Button>
-              <Button className="flex-1 bg-blue-600 text-white font-bold rounded-xl h-12" onClick={() => handleAcceptOrder(o.id)}>Aceitar</Button>
+              <Button className="flex-1 bg-blue-600 text-white font-bold rounded-xl h-12" onClick={() => handleAcceptOrder(o)}>Aceitar e Imprimir</Button>
             </div>
           ))}
           
