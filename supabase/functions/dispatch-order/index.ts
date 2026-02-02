@@ -15,7 +15,10 @@ serve(async (req) => {
   )
 
   try {
-    const { orderId, driverId: specificDriverId } = await req.json()
+    const body = await req.json()
+    const { orderId, driverId: specificDriverId } = body
+    
+    console.log("[dispatch-order] Requisição recebida", { orderId, specificDriverId });
     
     if (orderId) {
       return await matchOrderToDriver(supabaseAdmin, orderId);
@@ -23,7 +26,8 @@ serve(async (req) => {
       return await matchDriverToOrders(supabaseAdmin, specificDriverId);
     }
 
-    return new Response(JSON.stringify({ success: false, error: 'Missing parameters' }));
+    console.warn("[dispatch-order] Parâmetros ausentes no corpo da requisição");
+    return new Response(JSON.stringify({ success: false, error: 'Missing parameters' }), { headers: corsHeaders });
 
   } catch (err: any) {
     console.error(`[dispatch-order] Erro fatal:`, err.message);
@@ -34,27 +38,44 @@ serve(async (req) => {
 async function matchOrderToDriver(supabase, orderId) {
     console.log(`[dispatch-order] Buscando entregador para pedido: ${orderId}`);
     
-    const { data: order } = await supabase.from('orders').select('*, merchant:merchant_applications(*)').eq('id', orderId).single();
-    if (!order || ['CANCELLED', 'DELIVERED', 'OUT_FOR_DELIVERY'].includes(order.status)) {
-        return new Response(JSON.stringify({ success: false, reason: 'order_status_not_eligible' }));
+    const { data: order, error: orderErr } = await supabase.from('orders').select('*, merchant:merchant_applications(*)').eq('id', orderId).single();
+    
+    if (orderErr || !order) {
+        console.error("[dispatch-order] Pedido não encontrado ou erro no DB", { orderErr });
+        return new Response(JSON.stringify({ success: false, reason: 'order_not_found' }), { headers: corsHeaders });
+    }
+
+    if (['CANCELLED', 'DELIVERED', 'OUT_FOR_DELIVERY'].includes(order.status)) {
+        console.log(`[dispatch-order] Pedido ${orderId} está em status não elegível: ${order.status}`);
+        return new Response(JSON.stringify({ success: false, reason: 'status_ineligible' }), { headers: corsHeaders });
     }
 
     const storeAddr = order.merchant?.metadata?.store_details?.address || order.merchant?.metadata?.address;
-    if (!storeAddr) return new Response(JSON.stringify({ success: false, error: 'store_address_missing' }));
+    if (!storeAddr) {
+        console.error("[dispatch-order] Endereço da loja ausente para o pedido", orderId);
+        return new Response(JSON.stringify({ success: false, error: 'store_address_missing' }), { headers: corsHeaders });
+    }
 
     const { data: drivers } = await supabase.from('driver_applications').select('id').eq('status', 'APPROVED');
     const { data: locations } = await supabase.from('driver_locations').select('*');
     const { data: activeOrders } = await supabase.from('orders').select('*').not('status', 'in', '(DELIVERED,CANCELLED)');
 
+    console.log(`[dispatch-order] Candidatos iniciais: ${drivers?.length || 0} entregadores aprovados.`);
+
     const candidates = drivers?.map(driver => {
       const loc = locations?.find(l => l.driver_id === driver.id);
       if (!loc) return null;
       
-      // Se o motorista já recusou este pedido especificamente
-      if ((order.refused_drivers_ids || []).includes(driver.id)) return null;
+      if ((order.refused_drivers_ids || []).includes(driver.id)) {
+          console.log(`[dispatch-order] Entregador ${driver.id} ignorado (já recusou este pedido)`);
+          return null;
+      }
 
       const currentDriverOrders = activeOrders?.filter(o => o.driver_id === driver.id) || [];
-      if (currentDriverOrders.length >= 3) return null;
+      if (currentDriverOrders.length >= 3) {
+          console.log(`[dispatch-order] Entregador ${driver.id} ignorado (limite de 3 pedidos atingido)`);
+          return null;
+      }
 
       const driverLat = parseFloat(loc.latitude);
       const driverLng = parseFloat(loc.longitude);
@@ -75,16 +96,19 @@ async function matchOrderToDriver(supabase, orderId) {
                   parseFloat(order.delivery_address.lat), parseFloat(order.delivery_address.lng)
               );
 
-              if (distBetweenDestinations > 4) return null; 
+              if (distBetweenDestinations > 4) {
+                  console.log(`[dispatch-order] Entregador ${driver.id} ignorado (desvio de rota > 4km)`);
+                  return null; 
+              }
               synergyBonus += 500;
               
               const isSameCustomer = currentDriverOrders.some(o => o.customer_id === order.customer_id);
               if (isSameCustomer) synergyBonus += 1000;
           } else {
-              score -= 300;
+              score -= 300; // Penalidade por ser de loja diferente (dar chance a outros)
           }
       } else {
-          score += 200;
+          score += 200; // Bônus por estar totalmente ocioso
       }
 
       return { id: driver.id, score: score + synergyBonus };
@@ -95,44 +119,48 @@ async function matchOrderToDriver(supabase, orderId) {
       const { data: config } = await supabase.from('app_settings').select('value').eq('key', 'driver_offer_timeout').single();
       const expiresAt = new Date(Date.now() + ((config?.value?.seconds || 30) * 1000)).toISOString();
       
-      await supabase.from('orders').update({ 
+      const { error: updErr } = await supabase.from('orders').update({ 
           current_driver_offered_id: winner.id, 
           offer_expires_at: expiresAt 
       }).eq('id', orderId);
 
-      console.log(`[dispatch-order] Oferta enviada para o entregador ${winner.id}`);
-      return new Response(JSON.stringify({ success: true, driverId: winner.id }));
+      if (updErr) {
+          console.error("[dispatch-order] Erro ao salvar oferta no DB", updErr);
+          throw updErr;
+      }
+
+      console.log(`[dispatch-order] Oferta enviada com sucesso para o entregador ${winner.id}`);
+      return new Response(JSON.stringify({ success: true, driverId: winner.id }), { headers: corsHeaders });
     }
 
-    return new Response(JSON.stringify({ success: false, reason: 'no_candidates_found' }));
+    console.warn("[dispatch-order] Nenhum entregador elegível encontrado no momento.");
+    return new Response(JSON.stringify({ success: false, reason: 'no_candidates_found' }), { headers: corsHeaders });
 }
 
 async function matchDriverToOrders(supabase, driverId) {
-    console.log(`[dispatch-order] Buscando trabalho elegível para o entregador: ${driverId}`);
+    console.log(`[dispatch-order] Buscando trabalho para o entregador: ${driverId}`);
     
-    // CORREÇÃO CRUCIAL: Busca pedidos que estão PENDING, PREPARING ou WAITING_FOR_DRIVER
-    // que ainda não têm entregador nem oferta ativa.
     const { data: eligibleOrders } = await supabase
         .from('orders')
         .select('*')
         .in('status', ['PENDING', 'PREPARING', 'WAITING_FOR_DRIVER'])
         .is('driver_id', null)
         .is('current_driver_offered_id', null)
-        .order('created_at', { ascending: true }); // Prioriza o mais antigo
+        .order('created_at', { ascending: true });
 
     if (!eligibleOrders || eligibleOrders.length === 0) {
-        console.log(`[dispatch-order] Nenhum pedido elegível encontrado para o entregador ${driverId}`);
-        return new Response(JSON.stringify({ success: false, reason: 'no_eligible_orders' }));
+        console.log(`[dispatch-order] Entregador ${driverId} está livre mas não há pedidos disponíveis.`);
+        return new Response(JSON.stringify({ success: false, reason: 'no_eligible_orders' }), { headers: corsHeaders });
     }
 
-    // Filtra ordens que este motorista já recusou
     const availableOrder = eligibleOrders.find(o => !(o.refused_drivers_ids || []).includes(driverId));
 
     if (!availableOrder) {
-        return new Response(JSON.stringify({ success: false, reason: 'all_eligible_orders_previously_refused' }));
+        console.log(`[dispatch-order] Entregador ${driverId} já recusou todos os pedidos pendentes.`);
+        return new Response(JSON.stringify({ success: false, reason: 'all_refused' }), { headers: corsHeaders });
     }
 
-    // Tenta casar o entregador com este pedido
+    console.log(`[dispatch-order] Auto-match: Vinculando entregador ${driverId} ao pedido ${availableOrder.id}`);
     return await matchOrderToDriver(supabase, availableOrder.id);
 }
 
