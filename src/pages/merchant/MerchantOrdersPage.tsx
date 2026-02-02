@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User, RotateCcw, X } from "lucide-react";
+import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User, RotateCcw, X, Send } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -87,16 +87,35 @@ const MerchantOrdersPage = () => {
   };
 
   const handleAcceptOrder = async (id: string) => {
-    // Limpa o prazo de aceite para evitar cancelamento automático
-    const { error } = await supabase.from('orders').update({ 
-      status: 'PREPARING',
-      merchant_acceptance_deadline: null, // CRÍTICO: Limpa o deadline ao aceitar
-    }).eq('id', id);
-    
-    if (!error) {
-      showSuccess("Pedido aceito! Buscando entregador...");
-      supabase.functions.invoke('dispatch-order', { body: { orderId: id } });
+    const tid = showLoading("Aceitando e buscando entregador...");
+    try {
+      // 1. Atualizar status do pedido
+      const { error: updateError } = await supabase.from('orders').update({ 
+        status: 'PREPARING',
+        merchant_acceptance_deadline: null,
+      }).eq('id', id);
+      
+      if (updateError) throw updateError;
+
+      // 2. Chamar a Edge Function de Despacho (Explicitamente aguardando)
+      console.log("[Merchant] Disparando dispatch-order para:", id);
+      const { data: dispatchData, error: dispatchError } = await supabase.functions.invoke('dispatch-order', { 
+        body: { orderId: id } 
+      });
+
+      if (dispatchError) {
+        console.error("[Merchant] Erro na Edge Function:", dispatchError);
+        showError("Pedido aceito, mas houve um erro ao buscar entregadores. Tentaremos novamente em instantes.");
+      } else {
+        console.log("[Merchant] Resposta do despacho:", dispatchData);
+        showSuccess("Pedido aceito! Sistema de busca ativado.");
+      }
+
+      dismissToast(tid);
       fetchOrders(true);
+    } catch (err: any) {
+      dismissToast(tid);
+      showError("Erro ao processar aceite: " + err.message);
     }
   };
 
@@ -110,7 +129,7 @@ const MerchantOrdersPage = () => {
     
     const { error } = await supabase.from('orders').update({ 
       status: 'CANCELLED',
-      driver_id: null, // Remove qualquer atribuição de motorista
+      driver_id: null,
       current_driver_offered_id: null,
       offer_expires_at: null,
     }).eq('id', id);
@@ -145,7 +164,7 @@ const MerchantOrdersPage = () => {
         if (error) throw error;
 
         // Dispara nova busca
-        supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } });
+        await supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } });
 
         dismissToast(tid);
         showSuccess("Novo entregador solicitado!");
@@ -201,7 +220,6 @@ const MerchantOrdersPage = () => {
                   ))}
                 </div>
 
-                {/* Info do Entregador (Se houver) */}
                 {o.driver && (
                   <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100 space-y-2">
                      <div className="flex items-center justify-between">
@@ -312,9 +330,14 @@ const MerchantOrdersPage = () => {
                    <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300 mb-1" />
                    <span className="text-[10px] font-bold text-gray-400 uppercase">Aguardando Aceite...</span>
                  </div>
-                 <Button variant="ghost" className="w-full text-red-500 rounded-xl h-10" onClick={() => handleCancelOrder(o.id)}>
-                   <X className="h-4 w-4 mr-2" /> Cancelar Pedido
-                 </Button>
+                 <div className="flex gap-2">
+                   <Button variant="ghost" className="flex-1 text-red-500 rounded-xl h-10" onClick={() => handleCancelOrder(o.id)}>
+                     <X className="h-4 w-4 mr-1" /> Cancelar
+                   </Button>
+                   <Button variant="outline" className="flex-1 text-indigo-600 border-indigo-100 rounded-xl h-10" onClick={() => supabase.functions.invoke('dispatch-order', { body: { orderId: o.id } })}>
+                     <Send className="h-3 w-3 mr-1" /> Re-despachar
+                   </Button>
+                 </div>
                </div>
              )
           ))}
