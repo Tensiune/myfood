@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Loader2, Store, User, CheckCircle2, MapPin, Navigation, LocateFixed, MousePointer2 } from "lucide-react";
+import { ArrowLeft, Loader2, Store, User, CheckCircle2, MapPin, Navigation, LocateFixed, MousePointer2, Clock, ChevronRight } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { OtpInput } from "@/components/shared/OtpInput";
@@ -42,8 +42,13 @@ const NavigationPage = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [otpCode, setOtpCode] = useState("");
-  const [isFollowing, setIsFollowing] = useState(true); // Controle do modo "Travar GPS"
+  const [isFollowing, setIsFollowing] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // New Offer States
+  const [offer, setOffer] = useState<any>(null);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   
   const { currentLocation, heading } = useDriverLocationTracker(true);
 
@@ -66,6 +71,7 @@ const NavigationPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { navigate("/login"); return; }
       
+      // 1. Fetch Accepted Orders
       const { data, error } = await supabase
           .from('orders')
           .select('*, merchant:merchant_applications(*)')
@@ -74,13 +80,40 @@ const NavigationPage = () => {
       
       if (error) throw error;
 
-      // Buscar nomes reais dos clientes para cada pedido ativo
       const ordersWithCustomerNames = await Promise.all((data || []).map(async (order) => {
         const { data: customerName } = await supabase.rpc('get_user_full_name', { user_id: order.customer_id });
         return { ...order, customer_name: customerName || "Consumidor" };
       }));
 
       setOrders(ordersWithCustomerNames);
+      
+      // 2. Fetch Offers (if no active orders)
+      if (ordersWithCustomerNames.length === 0) {
+        const { data: offers } = await supabase
+            .from('orders')
+            .select('*, merchant:merchant_applications(*)')
+            .eq('current_driver_offered_id', user.id)
+            .is('driver_id', null)
+            .neq('status', 'CANCELLED');
+        
+        if (offers && offers.length > 0) {
+          const activeOffer = offers[0];
+          const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
+          const initialTime = Math.floor((expiresAt - Date.now()) / 1000);
+          
+          if (initialTime > 0) {
+              setTimeLeft(initialTime);
+              setOffer(activeOffer);
+          } else {
+              setOffer(null);
+          }
+        } else {
+          setOffer(null);
+        }
+      } else {
+        setOffer(null); // Clear offer if driver has active orders
+      }
+
     } catch (err) { 
       console.error("Erro na rota:", err);
       showError("Não foi possível sincronizar os dados da rota."); 
@@ -94,6 +127,25 @@ const NavigationPage = () => {
     const channel = supabase.channel('nav_sync').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchActiveOrders()).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [navigate]);
+  
+  // Timer logic for the offer
+  useEffect(() => {
+    if (offer && timeLeft > 0) {
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = setInterval(() => {
+            setTimeLeft(prev => {
+                if (prev <= 1) {
+                    setOffer(null);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+    }
+    return () => {
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, [offer, timeLeft]);
 
   const stops = useMemo(() => {
     const res: any[] = [];
@@ -145,14 +197,12 @@ const NavigationPage = () => {
         showSuccess(stop.type === 'pickup' ? "Retirada confirmada!" : "Pedido entregue com sucesso!");
         setOtpCode("");
 
-        // CORREÇÃO: Avisa ao sistema que este entregador está livre/disponível para novas ordens
         if (user) {
             supabase.functions.invoke('dispatch-order', {
                 body: { driverId: user.id }
             }).catch(e => console.error("Auto-match fail", e));
         }
 
-        // Se foi a última entrega, volta para o radar
         if (stops.length <= 1 && stop.type === 'delivery') {
             navigate("/driver/orders");
         }
@@ -162,6 +212,43 @@ const NavigationPage = () => {
         dismissToast(tid);
         setIsProcessing(false);
     }
+  };
+  
+  const handleAcceptOffer = async () => {
+    if (!offer) return;
+    setIsProcessing(true);
+    const tid = showLoading("Confirmando...");
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Usuário não autenticado");
+
+        const { data, error } = await supabase
+            .from('orders')
+            .update({ driver_id: user.id, current_driver_offered_id: null, offer_expires_at: null })
+            .eq('id', offer.id)
+            .is('driver_id', null)
+            .select();
+
+        if (error) throw error;
+        if (data && data.length > 0) {
+            showSuccess("Pedido aceito!");
+            await fetchActiveOrders(); 
+            setOffer(null);
+        } else {
+            showError("Oferta expirada.");
+            setOffer(null);
+        }
+    } catch (err: any) {
+        showError("Erro ao aceitar.");
+    } finally {
+        dismissToast(tid);
+        setIsProcessing(false);
+    }
+  };
+
+  const handleRejectOffer = () => {
+    setOffer(null);
+    showSuccess("Oferta ignorada.");
   };
 
   if (loading) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin h-10 w-10 text-indigo-600" /></div>;
@@ -196,7 +283,6 @@ const NavigationPage = () => {
                 className="absolute top-6 left-1/2 -translate-x-1/2 z-[1000] bg-brand-accent text-white font-black rounded-full shadow-2xl h-12 px-6 border-none animate-in fade-in slide-in-from-top-4"
                 onClick={() => {
                     setIsFollowing(true);
-                    // Força um pan imediato ao clicar
                     if (currentLocation[0] !== 0) showSuccess("Seguindo sua posição");
                 }}
             >
@@ -216,7 +302,40 @@ const NavigationPage = () => {
 
       <div className="bg-white rounded-t-[2.5rem] shadow-[0_-10px_40px_rgba(0,0,0,0.1)] p-6 z-20 max-h-[45%] overflow-y-auto shrink-0">
         <div className="w-12 h-1.5 bg-gray-100 rounded-full mx-auto mb-6" />
-        {stops.length > 0 ? (
+        
+        {/* Exibir Oferta se não houver paradas ativas */}
+        {stops.length === 0 && offer && timeLeft > 0 ? (
+            <Card className="rounded-[2rem] border-4 border-brand-accent shadow-2xl bg-white overflow-hidden animate-in zoom-in-95 duration-300">
+                <div className="bg-brand-accent p-4 text-white flex justify-between items-center">
+                    <span className="font-black text-sm uppercase">Nova Oferta!</span>
+                    <div className="bg-white text-brand-accent px-4 py-1 rounded-full font-black text-xl tabular-nums">
+                        {Math.floor(timeLeft / 60)}:{timeLeft % 60 < 10 ? '0' : ''}{timeLeft % 60}
+                    </div>
+                </div>
+                <CardContent className="p-6 space-y-6">
+                    <div className="space-y-4">
+                        <div className="flex gap-4">
+                          <div className="p-2 bg-indigo-50 rounded-full h-fit"><Store className="h-4 w-4 text-indigo-600" /></div>
+                          <div className="flex-1">
+                            <p className="text-[10px] font-black text-gray-400 uppercase">Coleta Próxima</p>
+                            <p className="font-bold text-gray-800">{offer.merchant?.store_name || "Loja Parceira"}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-4">
+                          <div className="p-2 bg-green-50 rounded-full h-fit"><MapPin className="h-4 w-4 text-green-600" /></div>
+                          <div className="flex-1">
+                            <p className="text-[10px] font-black text-gray-400 uppercase">Destino Final</p>
+                            <p className="text-xs text-gray-500 line-clamp-1">{offer.delivery_address?.neighborhood}, {offer.delivery_address?.city}</p>
+                          </div>
+                        </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <Button variant="ghost" className="flex-1 h-16 rounded-2xl text-red-500 font-bold" onClick={handleRejectOffer}>Ignorar</Button>
+                      <Button className="flex-2 h-16 rounded-2xl bg-green-600 text-white font-black text-xl shadow-lg active:scale-95 transition-all" onClick={handleAcceptOffer}>ACEITAR</Button>
+                    </div>
+                </CardContent>
+            </Card>
+        ) : stops.length > 0 ? (
             <div className="space-y-4">
                 <div className="flex items-center gap-4">
                     <div className={cn("p-4 rounded-2xl", activeStop.type === 'pickup' ? "bg-orange-100 text-orange-600" : "bg-green-100 text-green-600")}>
