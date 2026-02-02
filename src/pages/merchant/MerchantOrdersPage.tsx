@@ -18,6 +18,7 @@ import OrderReceipt from "@/components/merchant/OrderReceipt";
 import ReactDOMServer from 'react-dom/server';
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import OrderCardDetails from "@/components/merchant/OrderCardDetails";
 
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
 
@@ -402,18 +403,24 @@ const MerchantOrdersPage = () => {
                      </Button>
                    )}
                 </div>
-                <div className="space-y-1">
-                  <p className="text-sm font-bold text-gray-800 flex items-center gap-1">
-                    <User className="h-3 w-3 text-indigo-400" /> {o.customer_full_name}
-                  </p>
-                  {showItemDetails && (
-                    <div className="mt-2 space-y-1 animate-in fade-in">
-                      {o.items.map((it: any, i: number) => (
-                        <p key={i} className="text-xs text-gray-600"><span className="font-bold text-indigo-600">{it.quantity}x</span> {it.name}</p>
-                      ))}
+                
+                {/* Exibição de Detalhes ou Resumo */}
+                {showItemDetails ? (
+                    <OrderCardDetails order={o} />
+                ) : (
+                    <div className="space-y-1">
+                        <p className="text-sm font-bold text-gray-800 flex items-center gap-1">
+                            <User className="h-3 w-3 text-indigo-400" /> {o.customer_full_name}
+                        </p>
+                        <p className="text-xs text-gray-600 flex items-center gap-1">
+                            <MapPin className="h-3 w-3 text-brand-accent" /> {o.delivery_address?.street}, {o.delivery_address?.number}
+                        </p>
+                        <p className="text-xs text-gray-500 pt-1">
+                            {o.items.length} item(s) • R$ {o.total.toFixed(2)}
+                        </p>
                     </div>
-                  )}
-                </div>
+                )}
+
                 {o.driver && (
                   <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100">
                     <p className="text-[10px] font-black text-indigo-400 uppercase">Entregador</p>
@@ -486,16 +493,16 @@ const MerchantOrdersPage = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
           {renderSection("Novos", "text-blue-600", o => o.status === "PENDING", o => (
             <div className="flex gap-2">
-              <Button variant="ghost" className="flex-1 text-red-500 rounded-xl" onClick={() => handleCancelOrder(o.id)}>Recusar</Button>
-              <Button className="flex-1 bg-blue-600 text-white font-bold rounded-xl h-12" onClick={() => handleAcceptOrder(o)}>Aceitar</Button>
+              <Button variant="ghost" className="flex-1 text-red-500 rounded-xl" onClick={(e) => { e.stopPropagation(); handleCancelOrder(o.id); }}>Recusar</Button>
+              <Button className="flex-1 bg-blue-600 text-white font-bold rounded-xl h-12" onClick={(e) => { e.stopPropagation(); handleAcceptOrder(o); }}>Aceitar</Button>
             </div>
           ))}
           
           {renderSection("Em Preparo", "text-orange-500", o => o.status === "PREPARING", o => (
             <div className="space-y-2">
-               <Button className="w-full bg-orange-500 text-white font-bold rounded-xl h-12" onClick={() => handleAction(o.id, 'WAITING_FOR_DRIVER')}>Pronto p/ Retirada</Button>
+               <Button className="w-full bg-orange-500 text-white font-bold rounded-xl h-12" onClick={(e) => { e.stopPropagation(); handleAction(o.id, 'WAITING_FOR_DRIVER'); }}>Pronto p/ Retirada</Button>
                {!o.driver && <div className="text-[10px] font-bold text-gray-400 text-center uppercase animate-pulse">Buscando Entregador...</div>}
-               <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={() => handleCancelOrder(o.id)}>Cancelar Pedido</Button>
+               <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={(e) => { e.stopPropagation(); handleCancelOrder(o.id); }}>Cancelar Pedido</Button>
             </div>
           ))}
           
@@ -503,7 +510,7 @@ const MerchantOrdersPage = () => {
             o.driver ? (
               <div className="space-y-2">
                 <Dialog>
-                    <DialogTrigger asChild><Button className="w-full bg-indigo-600 text-white font-bold rounded-xl h-12">Confirmar Retirada</Button></DialogTrigger>
+                    <DialogTrigger asChild><Button className="w-full bg-indigo-600 text-white font-bold rounded-xl h-12" onClick={(e) => e.stopPropagation()}>Confirmar Retirada</Button></DialogTrigger>
                     <DialogContent className="rounded-3xl sm:max-w-md p-8">
                     <DialogHeader className="text-center"><DialogTitle className="text-2xl font-black">Validar Entregador</DialogTitle></DialogHeader>
                     <p className="text-center text-sm text-gray-500 mb-4">Insira os 4 últimos dígitos do telefone do entregador para liberar o pedido.</p>
@@ -511,7 +518,7 @@ const MerchantOrdersPage = () => {
                     <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg" onClick={() => handleConfirmPickup(o)} disabled={verificationCode.length < 4 || isVerifying}>Liberar Pedido</Button>
                     </DialogContent>
                 </Dialog>
-                <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={() => handleCancelOrder(o.id)}>Cancelar Pedido</Button>
+                <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={(e) => { e.stopPropagation(); handleCancelOrder(o.id); }}>Cancelar Pedido</Button>
               </div>
             ) : (
               <div className="space-y-3">
@@ -519,7 +526,7 @@ const MerchantOrdersPage = () => {
                     <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300 mb-1" />
                     <span className="text-[10px] font-bold text-gray-400 uppercase">Buscando Entregador...</span>
                 </div>
-                <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={() => handleCancelOrder(o.id)}>Cancelar Pedido</Button>
+                <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={(e) => { e.stopPropagation(); handleCancelOrder(o.id); }}>Cancelar Pedido</Button>
               </div>
             )
           ))}
@@ -532,11 +539,11 @@ const MerchantOrdersPage = () => {
                <Button 
                   variant="outline" 
                   className="w-full border-indigo-200 text-indigo-600 rounded-xl h-12 font-bold gap-2 hover:bg-indigo-50"
-                  onClick={() => handleOpenRecallDialog(o)}
+                  onClick={(e) => { e.stopPropagation(); handleOpenRecallDialog(o); }}
                >
                   <RotateCcw className="h-4 w-4" /> Nova Entrega
                </Button>
-               <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={() => handleCancelOrder(o.id)}>Cancelar (Emergência)</Button>
+               <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={(e) => { e.stopPropagation(); handleCancelOrder(o.id); }}>Cancelar (Emergência)</Button>
             </div>
           ))}
 
@@ -548,7 +555,7 @@ const MerchantOrdersPage = () => {
                <Button 
                   variant="outline" 
                   className="w-full border-indigo-200 text-indigo-600 rounded-xl h-12 font-bold gap-2 hover:bg-indigo-50"
-                  onClick={() => handleOpenRecallDialog(o)}
+                  onClick={(e) => { e.stopPropagation(); handleOpenRecallDialog(o); }}
                >
                   <Send className="h-4 w-4" /> Nova Entrega
                </Button>
