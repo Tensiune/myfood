@@ -3,13 +3,21 @@
 import React from "react";
 import { MapPin, Clock, Package, Store, User, Phone } from "lucide-react";
 
+interface PrintSettings {
+  paperWidth: "80mm" | "58mm";
+  fontSize: "small" | "medium" | "large";
+  includeLogo: boolean;
+  margin: number; // em mm
+}
+
 interface OrderReceiptProps {
   order: any;
   merchantName: string;
-  customerName: string; // Novo prop para o nome do cliente
+  customerName: string;
+  printSettings: PrintSettings; // Novo prop
 }
 
-const OrderReceipt: React.FC<OrderReceiptProps> = ({ order, merchantName, customerName }) => {
+const OrderReceipt: React.FC<OrderReceiptProps> = ({ order, merchantName, customerName, printSettings }) => {
   const deliveryAddress = order.delivery_address;
   const orderTime = new Date(order.created_at).toLocaleString('pt-BR', { 
     day: '2-digit', 
@@ -18,24 +26,42 @@ const OrderReceipt: React.FC<OrderReceiptProps> = ({ order, merchantName, custom
     minute: '2-digit' 
   });
 
+  const baseFontSize = printSettings.fontSize === 'small' ? '10px' : 
+                       printSettings.fontSize === 'large' ? '14px' : '12px';
+  
+  const headerFontSize = printSettings.fontSize === 'small' ? '14px' : 
+                         printSettings.fontSize === 'large' ? '18px' : '16px';
+
   return (
-    <div className="p-4 max-w-xs mx-auto bg-white text-black border border-black" style={{ fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.4' }}>
+    <div 
+      className="p-4 max-w-xs mx-auto bg-white text-black" 
+      style={{ 
+        fontFamily: 'monospace', 
+        fontSize: baseFontSize, 
+        lineHeight: '1.4',
+        width: printSettings.paperWidth, // Define a largura do contêiner
+        padding: `${printSettings.margin}mm`, // Aplica a margem
+      }}
+    >
       <div className="text-center border-b border-dashed border-black pb-2 mb-2">
-        <h1 className="text-lg font-bold uppercase">{merchantName}</h1>
+        {printSettings.includeLogo && order.merchantLogoUrl && (
+          <img src={order.merchantLogoUrl} alt="Logo" style={{ maxWidth: '100%', height: 'auto', marginBottom: '5px' }} />
+        )}
+        <h1 style={{ fontSize: headerFontSize, fontWeight: 'bold', textTransform: 'uppercase' }}>{merchantName}</h1>
         <p className="text-xs">Comanda de Pedido #{order.id.slice(0, 6)}</p>
       </div>
 
       <div className="border-b border-dashed border-black py-2 mb-2 space-y-1">
         <div className="flex items-center gap-1">
-          <User className="h-3 w-3" />
+          <User style={{ height: '12px', width: '12px' }} />
           <span className="font-bold">Cliente:</span> {customerName}
         </div>
         <div className="flex items-center gap-1">
-          <Clock className="h-3 w-3" />
+          <Clock style={{ height: '12px', width: '12px' }} />
           <span className="font-bold">Hora do Pedido:</span> {orderTime}
         </div>
         <div className="flex items-start gap-1">
-          <MapPin className="h-3 w-3 mt-0.5 shrink-0" />
+          <MapPin style={{ height: '12px', width: '12px', marginTop: '2px' }} />
           <div className="flex-1">
             <span className="font-bold">Entrega:</span> {deliveryAddress.street}, {deliveryAddress.number}
             {deliveryAddress.complement && ` (${deliveryAddress.complement})`}
@@ -44,7 +70,7 @@ const OrderReceipt: React.FC<OrderReceiptProps> = ({ order, merchantName, custom
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <Phone className="h-3 w-3" />
+          <Phone style={{ height: '12px', width: '12px' }} />
           <span className="font-bold">Pagamento:</span> {order.payment_method}
         </div>
       </div>

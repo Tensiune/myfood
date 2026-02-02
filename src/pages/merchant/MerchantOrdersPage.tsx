@@ -22,6 +22,21 @@ import OrderCardDetails from "@/components/merchant/OrderCardDetails";
 
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
 
+// Tipagem para as configurações de impressão (sincronizada com MerchantSettingsPage)
+interface PrintSettings {
+  paperWidth: "80mm" | "58mm";
+  fontSize: "small" | "medium" | "large";
+  includeLogo: boolean;
+  margin: number; // em mm
+}
+
+const defaultPrintSettings: PrintSettings = {
+  paperWidth: "80mm",
+  fontSize: "medium",
+  includeLogo: false,
+  margin: 5,
+};
+
 const MerchantOrdersPage = () => {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -43,6 +58,7 @@ const MerchantOrdersPage = () => {
   const [manualDescription, setManualDescription] = useState("");
   const [isRecalling, setIsRecalling] = useState(false);
   const [merchantName, setMerchantName] = useState("Minha Loja");
+  const [printSettings, setPrintSettings] = useState<PrintSettings>(defaultPrintSettings);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -63,9 +79,49 @@ const MerchantOrdersPage = () => {
   }, [audioEnabled]);
 
   const printOrderReceipt = (order: any, customerName: string) => {
+    // 1. Renderiza o componente com as configurações
     const receiptHtml = ReactDOMServer.renderToString(
-      <OrderReceipt order={order} merchantName={merchantName} customerName={customerName} />
+      <OrderReceipt 
+        order={order} 
+        merchantName={merchantName} 
+        customerName={customerName} 
+        printSettings={printSettings}
+      />
     );
+
+    // 2. Gera o CSS de impressão dinâmico
+    const printCss = `
+      @media print {
+        @page { 
+          size: ${printSettings.paperWidth} auto; 
+          margin: 0; 
+        }
+        body { 
+          margin: 0; 
+          padding: 0; 
+          width: ${printSettings.paperWidth};
+          color: #000 !important;
+          background: #fff !important;
+        }
+        .print-container { 
+          width: ${printSettings.paperWidth}; 
+          padding: ${printSettings.margin}mm; 
+        }
+        /* Força fontes simples e monocromáticas */
+        * {
+          font-family: monospace !important;
+          color: #000 !important;
+          box-shadow: none !important;
+          text-shadow: none !important;
+          background: #fff !important;
+        }
+        /* Remove elementos de tela */
+        .no-print { display: none; }
+        /* Garante que bordas tracejadas sejam visíveis */
+        .border-dashed { border-style: dashed !important; }
+        .border-dotted { border-style: dotted !important; }
+      }
+    `;
 
     const printWindow = window.open('', '_blank');
     if (printWindow) {
@@ -73,40 +129,7 @@ const MerchantOrdersPage = () => {
         <html>
           <head>
             <title>Comanda #${order.id.slice(0, 6)}</title>
-            <style>
-              @media print {
-                @page { size: 80mm auto; margin: 0; }
-                body { margin: 0; padding: 0; }
-                .print-container { width: 80mm; padding: 5mm; }
-              }
-              /* Estilos básicos para visualização em tela */
-              body { font-family: monospace; font-size: 12px; line-height: 1.4; }
-              .text-center { text-align: center; }
-              .font-bold { font-weight: bold; }
-              .font-extrabold { font-weight: 900; }
-              .text-lg { font-size: 1.125rem; }
-              .text-xs { font-size: 0.75rem; }
-              .uppercase { text-transform: uppercase; }
-              .border-dashed { border-style: dashed; }
-              .border-dotted { border-style: dotted; }
-              .pb-2 { padding-bottom: 0.5rem; }
-              .mb-2 { margin-bottom: 0.5rem; }
-              .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
-              .p-4 { padding: 1rem; }
-              .space-y-1 > * + * { margin-top: 0.25rem; }
-              .flex { display: flex; }
-              .justify-between { justify-content: space-between; }
-              .items-center { align-items: center; }
-              .items-start { align-items: flex-start; }
-              .gap-1 { gap: 0.25rem; }
-              .mt-0\.5 { margin-top: 0.125rem; }
-              .shrink-0 { flex-shrink: 0; }
-              .ml-2 { margin-left: 0.5rem; }
-              .italic { font-style: italic; }
-              .bg-yellow-100 { background-color: #fefce8; }
-              .p-1 { padding: 0.25rem; }
-              .rounded { border-radius: 0.25rem; }
-            </style>
+            <style>${printCss}</style>
           </head>
           <body>
             <div class="print-container">
@@ -133,10 +156,12 @@ const MerchantOrdersPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: merchantData } = await supabase.from('merchant_applications').select('is_open, store_name').eq('id', user.id).single();
+      const { data: merchantData } = await supabase.from('merchant_applications').select('is_open, store_name, metadata').eq('id', user.id).single();
       if (merchantData) {
         setIsStoreOpen(merchantData.is_open);
         setMerchantName(merchantData.store_name || "Minha Loja");
+        // Carrega as configurações de impressão
+        setPrintSettings(merchantData.metadata?.print_settings || defaultPrintSettings);
       }
 
       const { data, error } = await supabase
@@ -578,6 +603,7 @@ const MerchantOrdersPage = () => {
                   order={selectedOrderDetails} 
                   merchantName={merchantName} 
                   customerName={selectedOrderDetails.customer_full_name} 
+                  printSettings={printSettings}
                 />
               )}
             </div>

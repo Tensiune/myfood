@@ -17,7 +17,8 @@ import {
   Save, 
   Loader2,
   ImagePlus,
-  ShieldCheck
+  ShieldCheck,
+  Printer
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
@@ -25,6 +26,7 @@ import BusinessHoursManager, { DayHours } from "@/components/merchant/BusinessHo
 import MerchantAddressForm from "@/components/merchant/MerchantAddressForm";
 import DeliveryAreaManager from "@/components/merchant/DeliveryAreaManager";
 import { uploadImage } from "@/lib/storage";
+import { Switch } from "@/components/ui/switch";
 
 const BRAZILIAN_BANKS = [
   { code: "001", name: "001 - Banco do Brasil" },
@@ -35,6 +37,21 @@ const BRAZILIAN_BANKS = [
   { code: "260", name: "260 - Nu Pagamentos (Nubank)" },
   { code: "077", name: "077 - Banco Inter" },
 ].sort((a, b) => a.name.localeCompare(b.name));
+
+// Tipagem para as novas configurações de impressão
+interface PrintSettings {
+  paperWidth: "80mm" | "58mm";
+  fontSize: "small" | "medium" | "large";
+  includeLogo: boolean;
+  margin: number; // em mm
+}
+
+const defaultPrintSettings: PrintSettings = {
+  paperWidth: "80mm",
+  fontSize: "medium",
+  includeLogo: false,
+  margin: 5,
+};
 
 const MerchantSettingsPage = () => {
   const [loading, setLoading] = useState(true);
@@ -83,6 +100,8 @@ const MerchantSettingsPage = () => {
     account: "",
     accountDigit: ""
   });
+  
+  const [printSettings, setPrintSettings] = useState<PrintSettings>(defaultPrintSettings);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -95,6 +114,7 @@ const MerchantSettingsPage = () => {
           if (meta.business_hours) setHours(meta.business_hours);
           if (meta.delivery_area) setDeliveryArea(meta.delivery_area);
           if (meta.bank_info) setBankInfo(meta.bank_info);
+          if (meta.print_settings) setPrintSettings(meta.print_settings);
         }
       } catch (err) {
         showError("Erro ao carregar configurações.");
@@ -132,14 +152,17 @@ const MerchantSettingsPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { error } = await supabase.auth.updateUser({
-        data: {
+      const updatedMetadata = {
           store_details: storeInfo,
           business_hours: hours,
           delivery_area: deliveryArea,
           bank_info: bankInfo,
-          store_name: storeInfo.name // Atualiza o nome amigável para o sistema
-        }
+          print_settings: printSettings, // Salva as novas configurações
+          store_name: storeInfo.name 
+      };
+
+      const { error } = await supabase.auth.updateUser({
+        data: updatedMetadata
       });
 
       if (error) throw error;
@@ -149,13 +172,7 @@ const MerchantSettingsPage = () => {
         .from('merchant_applications')
         .update({ 
           store_name: storeInfo.name,
-          metadata: {
-            ...user.user_metadata,
-            store_details: storeInfo,
-            business_hours: hours,
-            delivery_area: deliveryArea,
-            bank_info: bankInfo
-          }
+          metadata: updatedMetadata
         })
         .eq('id', user.id);
 
@@ -207,6 +224,9 @@ const MerchantSettingsPage = () => {
           <TabsTrigger value="financial" className="rounded-xl px-6 py-3 font-bold data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
             <CreditCard className="h-4 w-4 mr-2" /> Financeiro
           </TabsTrigger>
+          <TabsTrigger value="print" className="rounded-xl px-6 py-3 font-bold data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+            <Printer className="h-4 w-4 mr-2" /> Impressão
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="space-y-6">
@@ -222,7 +242,7 @@ const MerchantSettingsPage = () => {
                   ) : (
                     <div className="text-center p-4">
                       <ImagePlus className="h-10 w-10 text-gray-300 mx-auto mb-2" />
-                      <span className="text-[10px] font-bold text-gray-400">UPLOAD FOTO</span>
+                      <span className="text-[10px] font-bold text-gray-400">Adicionar Foto</span>
                     </div>
                   )}
                   <input 
@@ -367,6 +387,77 @@ const MerchantSettingsPage = () => {
                   <Label className="font-bold text-indigo-900">Dígito</Label>
                   <Input value={bankInfo.accountDigit} onChange={(e) => setBankInfo({...bankInfo, accountDigit: e.target.value})} className="rounded-xl h-12 text-center" maxLength={1} placeholder="X" />
                 </div>
+              </div>
+            </div>
+          </Card>
+        </TabsContent>
+        
+        <TabsContent value="print" className="space-y-6">
+          <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-8 max-w-2xl">
+            <div className="mb-8 flex items-center gap-4 bg-indigo-50 p-6 rounded-3xl">
+              <div className="p-3 bg-white rounded-2xl shadow-sm"><Printer className="h-8 w-8 text-indigo-600" /></div>
+              <div>
+                <h3 className="text-xl font-black text-indigo-900">Configurações de Impressão</h3>
+                <p className="text-indigo-700/70 text-sm">Ajuste o formato da comanda para sua impressora térmica.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6">
+              <div className="space-y-2">
+                <Label className="font-bold text-indigo-900">Largura do Papel</Label>
+                <Select 
+                  value={printSettings.paperWidth} 
+                  onValueChange={(v) => setPrintSettings({ ...printSettings, paperWidth: v as "80mm" | "58mm" })}
+                >
+                  <SelectTrigger className="rounded-xl h-12 border-gray-100">
+                    <SelectValue placeholder="Selecione a largura" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="80mm">80 mm (Padrão)</SelectItem>
+                    <SelectItem value="58mm">58 mm (Compacto)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="font-bold text-indigo-900">Tamanho da Fonte</Label>
+                  <Select 
+                    value={printSettings.fontSize} 
+                    onValueChange={(v) => setPrintSettings({ ...printSettings, fontSize: v as "small" | "medium" | "large" })}
+                  >
+                    <SelectTrigger className="rounded-xl h-12 border-gray-100">
+                      <SelectValue placeholder="Selecione o tamanho" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl">
+                      <SelectItem value="small">Pequena (10px)</SelectItem>
+                      <SelectItem value="medium">Média (12px)</SelectItem>
+                      <SelectItem value="large">Grande (14px)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-bold text-indigo-900">Margem (mm)</Label>
+                  <Input 
+                    type="number"
+                    value={printSettings.margin} 
+                    onChange={(e) => setPrintSettings({...printSettings, margin: parseInt(e.target.value) || 0})}
+                    className="rounded-xl h-12 border-gray-100" 
+                    placeholder="5"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                <div className="flex flex-col">
+                  <Label className="text-indigo-900 font-bold cursor-pointer" htmlFor="include-logo-switch">Incluir Logo</Label>
+                  <span className="text-[10px] text-gray-500 uppercase font-bold">Pode ser lento em algumas impressoras</span>
+                </div>
+                <Switch 
+                  id="include-logo-switch"
+                  checked={printSettings.includeLogo} 
+                  onCheckedChange={(v) => setPrintSettings({...printSettings, includeLogo: v})} 
+                />
               </div>
             </div>
           </Card>
