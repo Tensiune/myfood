@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User, RotateCcw, X, Send, AlertTriangle } from "lucide-react";
+import { Loader2, Volume2, VolumeX, Bike, MapPin, CheckCircle2, Key, Phone, User, RotateCcw, X, Send, AlertTriangle, Search, Check, List, Settings } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -14,8 +14,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { OtpInput } from "@/components/shared/OtpInput";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import OrderReceipt from "@/components/merchant/OrderReceipt"; // Importando o novo componente
+import OrderReceipt from "@/components/merchant/OrderReceipt";
 import ReactDOMServer from 'react-dom/server';
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
 
@@ -27,7 +29,14 @@ const MerchantOrdersPage = () => {
   const [verificationCode, setVerificationCode] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   
-  // Novos estados para o modal de Nova Entrega
+  // Novos estados de UI
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showItemDetails, setShowItemDetails] = useState(false);
+  const [autoAccept, setAutoAccept] = useState(false);
+  const [selectedOrderDetails, setSelectedOrderDetails] = useState<any>(null);
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
+
+  // Estados de Nova Entrega
   const [isRecallDialogOpen, setIsRecallDialogOpen] = useState(false);
   const [orderToRecall, setOrderToRecall] = useState<any>(null);
   const [manualDescription, setManualDescription] = useState("");
@@ -40,6 +49,9 @@ const MerchantOrdersPage = () => {
     if (!audioRef.current) {
       audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
     }
+    // Carregar estado de aceite automático do localStorage
+    const savedAutoAccept = localStorage.getItem('merchant_auto_accept') === 'true';
+    setAutoAccept(savedAutoAccept);
   }, []);
 
   const playAlert = useCallback(() => {
@@ -143,13 +155,21 @@ const MerchantOrdersPage = () => {
         return { ...order, customer_full_name: 'Cliente' };
       }));
 
+      // Se o aceite automático estiver ativo, aceita novos pedidos
+      if (autoAccept) {
+        const pendingOrders = ordersWithCustomerNames.filter(o => o.status === 'PENDING');
+        for (const order of pendingOrders) {
+          await handleAcceptOrder(order, true); // Aceite silencioso
+        }
+      }
+
       setOrders(ordersWithCustomerNames);
     } catch (err) {
       console.error(err);
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, []);
+  }, [autoAccept]);
 
   useEffect(() => {
     let channel: any;
@@ -175,9 +195,15 @@ const MerchantOrdersPage = () => {
       showSuccess(val ? "Loja Online" : "Loja Offline");
     }
   };
+  
+  const handleToggleAutoAccept = (checked: boolean) => {
+    setAutoAccept(checked);
+    localStorage.setItem('merchant_auto_accept', checked.toString());
+    showSuccess(checked ? "Aceite automático ativado!" : "Aceite automático desativado.");
+  };
 
-  const handleAcceptOrder = async (order: any) => {
-    const tid = showLoading("Aceitando pedido...");
+  const handleAcceptOrder = async (order: any, isSilent = false) => {
+    const tid = isSilent ? null : showLoading("Aceitando pedido...");
     try {
       const { error: updateError } = await supabase
         .from('orders')
@@ -196,15 +222,17 @@ const MerchantOrdersPage = () => {
 
       if (functionError) throw functionError;
 
-      dismissToast(tid);
-      showSuccess("Pedido aceito e comanda impressa!");
+      if (!isSilent) {
+        dismissToast(tid);
+        showSuccess("Pedido aceito e comanda impressa!");
+      }
       
       // IMPRIMIR COMANDA
       printOrderReceipt(order, order.customer_full_name);
 
       fetchOrders(true);
     } catch (err: any) {
-      dismissToast(tid);
+      if (!isSilent) dismissToast(tid);
       showError("Erro: " + (err.message || "Erro desconhecido"));
     }
   };
@@ -318,9 +346,29 @@ const MerchantOrdersPage = () => {
     }
     setIsVerifying(false);
   };
+  
+  const handleCardClick = (order: any) => {
+    setSelectedOrderDetails(order);
+    setIsDetailsDialogOpen(true);
+  };
+
+  const filteredOrders = useMemo(() => {
+    if (!searchTerm) return orders;
+    const lowerCaseSearch = searchTerm.toLowerCase();
+    
+    return orders.filter(order => {
+      const matchesId = order.id.slice(0, 6).toLowerCase().includes(lowerCaseSearch);
+      const matchesCustomer = order.customer_full_name?.toLowerCase().includes(lowerCaseSearch);
+      const matchesAddress = order.delivery_address?.street?.toLowerCase().includes(lowerCaseSearch) ||
+                             order.delivery_address?.neighborhood?.toLowerCase().includes(lowerCaseSearch);
+      const matchesItems = order.items.some((item: any) => item.name.toLowerCase().includes(lowerCaseSearch));
+      
+      return matchesId || matchesCustomer || matchesAddress || matchesItems;
+    });
+  }, [orders, searchTerm]);
 
   const renderSection = (title: string, color: string, filter: (o: any) => boolean, action: (o: any) => React.ReactNode) => {
-    const filtered = orders.filter(filter);
+    const filtered = filteredOrders.filter(filter);
     return (
       <div className="space-y-4">
         <h2 className={cn("font-black text-[10px] uppercase tracking-widest flex items-center gap-2 px-2", color)}>
@@ -331,7 +379,11 @@ const MerchantOrdersPage = () => {
           <div className="p-10 border-2 border-dashed border-gray-100 rounded-[2.5rem] text-center opacity-30">Vazio</div>
         ) : (
           filtered.map(o => (
-            <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden animate-in fade-in">
+            <Card 
+              key={o.id} 
+              className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden animate-in fade-in cursor-pointer hover:shadow-md transition-all"
+              onClick={() => handleCardClick(o)}
+            >
               <CardContent className="p-5 space-y-4">
                 <div className="flex justify-between items-start">
                    <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
@@ -342,8 +394,8 @@ const MerchantOrdersPage = () => {
                      <Button 
                         variant="ghost" 
                         size="icon" 
-                        className="h-6 w-6 text-gray-300 hover:text-red-500 rounded-full"
-                        onClick={() => handleCancelOrder(o.id)}
+                        className="h-6 w-6 text-gray-300 hover:text-red-500 rounded-full shrink-0"
+                        onClick={(e) => { e.stopPropagation(); handleCancelOrder(o.id); }}
                         title="Cancelar Pedido"
                      >
                         <X className="h-4 w-4" />
@@ -351,9 +403,16 @@ const MerchantOrdersPage = () => {
                    )}
                 </div>
                 <div className="space-y-1">
-                  {o.items.map((it: any, i: number) => (
-                    <p key={i} className="text-sm font-bold text-gray-800"><span className="text-indigo-600">{it.quantity}x</span> {it.name}</p>
-                  ))}
+                  <p className="text-sm font-bold text-gray-800 flex items-center gap-1">
+                    <User className="h-3 w-3 text-indigo-400" /> {o.customer_full_name}
+                  </p>
+                  {showItemDetails && (
+                    <div className="mt-2 space-y-1 animate-in fade-in">
+                      {o.items.map((it: any, i: number) => (
+                        <p key={i} className="text-xs text-gray-600"><span className="font-bold text-indigo-600">{it.quantity}x</span> {it.name}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {o.driver && (
                   <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100">
@@ -361,7 +420,7 @@ const MerchantOrdersPage = () => {
                     <p className="text-xs font-bold text-indigo-900">{o.driver.full_name}</p>
                   </div>
                 )}
-                <div className="pt-2">{action(o)}</div>
+                <div className="pt-2" onClick={(e) => e.stopPropagation()}>{action(o)}</div>
               </CardContent>
             </Card>
           ))
@@ -385,6 +444,41 @@ const MerchantOrdersPage = () => {
           </div>
         </div>
       </div>
+      
+      {/* Barra de Ferramentas e Filtro */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Input
+            placeholder="Buscar pedido (ID, cliente, item, rua...)"
+            className="rounded-2xl pl-12 h-12 bg-white border-gray-100 shadow-sm focus:ring-2 focus:ring-indigo-100 text-base"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-300" />
+        </div>
+        
+        <div className="flex gap-3 shrink-0">
+          <Button 
+            variant={showItemDetails ? "default" : "outline"} 
+            className={cn("rounded-2xl h-12 px-4 gap-2", showItemDetails ? "bg-indigo-600 text-white" : "border-gray-200 text-gray-600")}
+            onClick={() => setShowItemDetails(!showItemDetails)}
+            title="Mostrar detalhes dos itens"
+          >
+            <List className="h-5 w-5" />
+            <span className="hidden sm:inline">Detalhes</span>
+          </Button>
+          
+          <Button 
+            variant={autoAccept ? "default" : "outline"} 
+            className={cn("rounded-2xl h-12 px-4 gap-2", autoAccept ? "bg-green-600 text-white" : "border-gray-200 text-gray-600")}
+            onClick={() => handleToggleAutoAccept(!autoAccept)}
+            title="Aceitar pedidos automaticamente"
+          >
+            <Check className="h-5 w-5" />
+            <span className="hidden sm:inline">Auto Aceite</span>
+          </Button>
+        </div>
+      </div>
 
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="animate-spin text-indigo-600 h-10 w-10" /></div>
@@ -393,7 +487,7 @@ const MerchantOrdersPage = () => {
           {renderSection("Novos", "text-blue-600", o => o.status === "PENDING", o => (
             <div className="flex gap-2">
               <Button variant="ghost" className="flex-1 text-red-500 rounded-xl" onClick={() => handleCancelOrder(o.id)}>Recusar</Button>
-              <Button className="flex-1 bg-blue-600 text-white font-bold rounded-xl h-12" onClick={() => handleAcceptOrder(o)}>Aceitar e Imprimir</Button>
+              <Button className="flex-1 bg-blue-600 text-white font-bold rounded-xl h-12" onClick={() => handleAcceptOrder(o)}>Aceitar</Button>
             </div>
           ))}
           
@@ -463,6 +557,35 @@ const MerchantOrdersPage = () => {
         </div>
       )}
       
+      {/* Modal de Detalhes do Pedido (Comanda) */}
+      <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
+        <DialogContent className="rounded-3xl sm:max-w-md p-0 overflow-hidden border-none shadow-2xl h-[90vh] flex flex-col">
+          <DialogHeader className="p-6 pb-4 bg-indigo-900 text-white shrink-0">
+            <DialogTitle className="text-2xl font-bold">Detalhes do Pedido</DialogTitle>
+            <p className="text-indigo-200 text-sm">#{selectedOrderDetails?.id.slice(0, 6)}</p>
+          </DialogHeader>
+          <ScrollArea className="flex-1 w-full bg-white">
+            <div className="p-6">
+              {selectedOrderDetails && (
+                <OrderReceipt 
+                  order={selectedOrderDetails} 
+                  merchantName={merchantName} 
+                  customerName={selectedOrderDetails.customer_full_name} 
+                />
+              )}
+            </div>
+          </ScrollArea>
+          <DialogFooter className="p-6 border-t border-gray-100 shrink-0">
+            <Button 
+              className="w-full rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black h-12"
+              onClick={() => printOrderReceipt(selectedOrderDetails, selectedOrderDetails.customer_full_name)}
+            >
+              Imprimir Comanda
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Modal de Nova Entrega */}
       <Dialog open={isRecallDialogOpen} onOpenChange={(open) => { setIsRecallDialogOpen(open); if (!open) { setOrderToRecall(null); setManualDescription(""); } }}>
         <DialogContent className="rounded-3xl sm:max-w-lg p-8">
