@@ -14,7 +14,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { OtpInput } from "@/components/shared/OtpInput";
 
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
-const PROJECT_ID = "ulaosfxeilccmptlpwxr";
 
 const MerchantOrdersPage = () => {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
@@ -88,51 +87,39 @@ const MerchantOrdersPage = () => {
   };
 
   const handleAcceptOrder = async (id: string) => {
-    const tid = showLoading("Aceitando e buscando entregador...");
+    const tid = showLoading("Aceitando pedido...");
     try {
-      // 1. Atualizar status do pedido
-      const { error: updateError } = await supabase.from('orders').update({ 
-        status: 'PREPARING',
-        merchant_acceptance_deadline: null,
-      }).eq('id', id);
+      // 1. Atualizar status do pedido para 'PREPARING'
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({ 
+          status: 'PREPARING',
+          merchant_acceptance_deadline: null,
+        })
+        .eq('id', id);
       
       if (updateError) throw updateError;
 
-      // 2. Chamar a Edge Function usando a URL completa (mais robusto)
-      console.log("[Merchant] Invocando dispatch-order...");
-      const functionUrl = `https://${PROJECT_ID}.supabase.co/functions/v1/dispatch-order`;
-      
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        },
-        body: JSON.stringify({ orderId: id })
+      // 2. Invocar a Edge Function de despacho usando o método oficial
+      console.log("[Merchant] Disparando Edge Function dispatch-order...");
+      const { data, error: functionError } = await supabase.functions.invoke('dispatch-order', {
+        body: { orderId: id }
       });
 
-      if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error || "Erro na Edge Function");
-      }
+      if (functionError) throw functionError;
 
-      const result = await response.json();
-      console.log("[Merchant] Resposta do despacho:", result);
-
-      if (result.success) {
-          showSuccess("Pedido aceito! Buscando entregador próximo.");
+      if (data?.success) {
+          showSuccess("Pedido aceito! Buscando entregador...");
       } else {
-          showError("Pedido aceito, mas não há entregadores online no momento.");
+          showError("Pedido aceito, mas não há entregadores disponíveis agora.");
       }
 
       dismissToast(tid);
       fetchOrders(true);
     } catch (err: any) {
       dismissToast(tid);
-      console.error("[Merchant] Erro fatal no aceite:", err);
-      showError("Erro ao processar: " + err.message);
+      console.error("[Merchant] Erro no aceite/despacho:", err);
+      showError("Erro: " + (err.message || "Erro desconhecido"));
     }
   };
 
@@ -142,76 +129,21 @@ const MerchantOrdersPage = () => {
   };
   
   const handleCancelOrder = async (id: string) => {
-    if (!window.confirm("Tem certeza que deseja cancelar este pedido? O cliente será notificado.")) return;
-    
-    const { error } = await supabase.from('orders').update({ 
-      status: 'CANCELLED',
-      driver_id: null,
-      current_driver_offered_id: null,
-      offer_expires_at: null,
-    }).eq('id', id);
-    
-    if (!error) {
-      showSuccess("Pedido cancelado com sucesso.");
-      fetchOrders(true);
-    } else {
-      showError("Erro ao cancelar pedido.");
-    }
-  };
-
-  const handleRequestNewDriver = async (order: any) => {
-    if (!window.confirm("Deseja remover este entregador e buscar um novo? O entregador atual não poderá mais aceitar este pedido.")) return;
-    
-    const tid = showLoading("Processando nova busca...");
-    try {
-        const currentDriverId = order.driver_id;
-        const updatedRefused = Array.from(new Set([...(order.refused_drivers_ids || []), currentDriverId]));
-
-        const { error } = await supabase
-            .from('orders')
-            .update({
-                driver_id: null,
-                current_driver_offered_id: null,
-                offer_expires_at: null,
-                refused_drivers_ids: updatedRefused,
-                status: 'PREPARING'
-            })
-            .eq('id', order.id);
-
-        if (error) throw error;
-
-        // Dispara nova busca (usando fetch para garantir log)
-        const { data: { session } } = await supabase.auth.getSession();
-        await fetch(`https://${PROJECT_ID}.supabase.co/functions/v1/dispatch-order`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`
-          },
-          body: JSON.stringify({ orderId: order.id })
-        });
-
-        dismissToast(tid);
-        showSuccess("Novo entregador solicitado!");
-        fetchOrders(true);
-    } catch (err) {
-        dismissToast(tid);
-        showError("Erro ao solicitar novo entregador.");
-    }
+    if (!window.confirm("Deseja cancelar o pedido?")) return;
+    const { error } = await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', id);
+    if (!error) fetchOrders(true);
   };
 
   const handleConfirmPickup = async (order: any) => {
     const driverPhoneCode = (order.driver?.phone || "").replace(/\D/g, "").slice(-4);
-    
     if (verificationCode !== driverPhoneCode) {
-      showError("Código de verificação incorreto.");
+      showError("Código incorreto.");
       return;
     }
-
     setIsVerifying(true);
     const { error } = await supabase.from('orders').update({ status: 'OUT_FOR_DELIVERY' }).eq('id', order.id);
     if (!error) {
-      showSuccess("Pedido liberado para entrega!");
+      showSuccess("Pedido em rota!");
       setVerificationCode("");
       fetchOrders(true);
     }
@@ -230,7 +162,7 @@ const MerchantOrdersPage = () => {
           <div className="p-10 border-2 border-dashed border-gray-100 rounded-[2.5rem] text-center opacity-30">Vazio</div>
         ) : (
           filtered.map(o => (
-            <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden animate-in slide-in-from-top-2">
+            <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden">
               <CardContent className="p-5 space-y-4">
                 <div className="flex justify-between items-start">
                    <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
@@ -238,38 +170,17 @@ const MerchantOrdersPage = () => {
                      <AcceptanceTimer deadline={o.merchant_acceptance_deadline} onExpire={() => handleAction(o.id, 'CANCELLED')} />
                    )}
                 </div>
-
                 <div className="space-y-1">
                   {o.items.map((it: any, i: number) => (
                     <p key={i} className="text-sm font-bold text-gray-800"><span className="text-indigo-600">{it.quantity}x</span> {it.name}</p>
                   ))}
                 </div>
-
                 {o.driver && (
-                  <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100 space-y-2">
-                     <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                           <div className="p-2 bg-white rounded-xl"><Bike className="h-4 w-4 text-indigo-600" /></div>
-                           <div>
-                              <p className="text-[10px] font-black text-indigo-400 uppercase">Entregador</p>
-                              <p className="text-xs font-bold text-indigo-900">{o.driver.full_name}</p>
-                           </div>
-                        </div>
-                        {o.status === 'WAITING_FOR_DRIVER' && (
-                           <Button 
-                             variant="ghost" 
-                             size="icon" 
-                             className="h-8 w-8 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-full"
-                             title="Trocar Entregador"
-                             onClick={() => handleRequestNewDriver(o)}
-                           >
-                             <RotateCcw className="h-4 w-4" />
-                           </Button>
-                        )}
-                     </div>
+                  <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100">
+                    <p className="text-[10px] font-black text-indigo-400 uppercase">Entregador</p>
+                    <p className="text-xs font-bold text-indigo-900">{o.driver.full_name}</p>
                   </div>
                 )}
-
                 <div className="pt-2">{action(o)}</div>
               </CardContent>
             </Card>
@@ -282,18 +193,15 @@ const MerchantOrdersPage = () => {
   return (
     <div className="space-y-8 pb-20">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-black text-indigo-900 tracking-tighter">Painel de Pedidos</h1>
-          <p className="text-gray-500 text-sm">Gerenciamento dinâmico de entregas e despacho.</p>
-        </div>
+        <div><h1 className="text-4xl font-black text-indigo-900 tracking-tighter">Painel de Pedidos</h1></div>
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={() => setAudioEnabled(!audioEnabled)} variant={audioEnabled ? "outline" : "default"} className={cn("rounded-2xl gap-2 h-12 px-6", !audioEnabled ? "bg-red-500 animate-bounce" : "border-indigo-100 text-indigo-600")}>
+          <Button onClick={() => setAudioEnabled(!audioEnabled)} variant={audioEnabled ? "outline" : "default"} className={cn("rounded-2xl gap-2 h-12 px-6", !audioEnabled && "bg-red-500 animate-bounce")}>
             {audioEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             {audioEnabled ? "Som Ativo" : "ATIVAR ALARME"}
           </Button>
           <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-3xl shadow-sm border border-gray-100">
             <span className="text-xs font-black uppercase text-indigo-900">{isStoreOpen ? 'Online' : 'Offline'}</span>
-            <Switch checked={isStoreOpen} onCheckedChange={handleToggleStore} className="data-[state=checked]:bg-green-500" />
+            <Switch checked={isStoreOpen} onCheckedChange={handleToggleStore} />
           </div>
         </div>
       </div>
@@ -308,72 +216,31 @@ const MerchantOrdersPage = () => {
               <Button className="flex-1 bg-blue-600 text-white font-bold rounded-xl h-12" onClick={() => handleAcceptOrder(o.id)}>Aceitar</Button>
             </div>
           ))}
-          
           {renderSection("Em Preparo", "text-orange-500", o => o.status === "PREPARING", o => (
-             <div className="space-y-2">
-                <Button className="w-full bg-orange-500 text-white font-bold rounded-xl h-12" onClick={() => handleAction(o.id, 'WAITING_FOR_DRIVER')}>Pronto p/ Retirada</Button>
-                <Button variant="ghost" className="w-full text-red-500 rounded-xl h-10" onClick={() => handleCancelOrder(o.id)}>
-                  <X className="h-4 w-4 mr-2" /> Cancelar Pedido
-                </Button>
-                {!o.driver && (
-                  <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-gray-400 uppercase animate-pulse">
-                    <Loader2 className="h-3 w-3 animate-spin" /> Buscando Entregador...
-                  </div>
-                )}
-             </div>
+            <div className="space-y-2">
+               <Button className="w-full bg-orange-500 text-white font-bold rounded-xl h-12" onClick={() => handleAction(o.id, 'WAITING_FOR_DRIVER')}>Pronto p/ Retirada</Button>
+               {!o.driver && <div className="text-[10px] font-bold text-gray-400 text-center uppercase animate-pulse">Buscando Entregador...</div>}
+            </div>
           ))}
-
           {renderSection("Aguardando Coleta", "text-indigo-600", o => o.status === "WAITING_FOR_DRIVER", o => (
-             o.driver ? (
-               <Dialog>
-                 <DialogTrigger asChild>
-                   <Button className="w-full bg-indigo-600 text-white font-bold rounded-xl h-12 shadow-lg shadow-indigo-100">
-                     Confirmar Retirada
-                   </Button>
-                 </DialogTrigger>
-                 <DialogContent className="rounded-3xl sm:max-w-md p-8">
-                    <DialogHeader className="text-center space-y-2">
-                       <div className="bg-indigo-100 h-16 w-16 rounded-full flex items-center justify-center mx-auto mb-2"><Key className="h-8 w-8 text-indigo-600" /></div>
-                       <DialogTitle className="text-2xl font-black text-indigo-900">Validar Código</DialogTitle>
-                       <p className="text-gray-500 text-sm">Solicite ao entregador os 4 últimos dígitos do celular dele.</p>
-                    </DialogHeader>
-                    <div className="py-6 flex justify-center">
-                       <OtpInput length={4} value={verificationCode} onChange={setVerificationCode} />
-                    </div>
-                    <Button 
-                      className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg"
-                      onClick={() => handleConfirmPickup(o)}
-                      disabled={verificationCode.length < 4 || isVerifying}
-                    >
-                      {isVerifying ? <Loader2 className="animate-spin" /> : "Liberar Pedido"}
-                    </Button>
-                 </DialogContent>
-               </Dialog>
-             ) : (
-               <div className="space-y-2">
-                 <div className="bg-gray-50 p-3 rounded-2xl text-center border-2 border-dashed border-gray-100">
-                   <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300 mb-1" />
-                   <span className="text-[10px] font-bold text-gray-400 uppercase">Aguardando Aceite...</span>
-                 </div>
-                 <div className="flex gap-2">
-                   <Button variant="ghost" className="flex-1 text-red-500 rounded-xl h-10" onClick={() => handleCancelOrder(o.id)}>
-                     <X className="h-4 w-4 mr-1" /> Cancelar
-                   </Button>
-                   <Button variant="outline" className="flex-1 text-indigo-600 border-indigo-100 rounded-xl h-10" onClick={() => handleRequestNewDriver(o)}>
-                     <Send className="h-3 w-3 mr-1" /> Re-despachar
-                   </Button>
-                 </div>
-               </div>
-             )
+            o.driver ? (
+              <Dialog>
+                <DialogTrigger asChild><Button className="w-full bg-indigo-600 text-white font-bold rounded-xl h-12">Confirmar Retirada</Button></DialogTrigger>
+                <DialogContent className="rounded-3xl sm:max-w-md p-8">
+                   <DialogHeader className="text-center"><DialogTitle className="text-2xl font-black">Validar Código</DialogTitle></DialogHeader>
+                   <div className="py-6 flex justify-center"><OtpInput length={4} value={verificationCode} onChange={setVerificationCode} /></div>
+                   <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg" onClick={() => handleConfirmPickup(o)} disabled={verificationCode.length < 4 || isVerifying}>Liberar Pedido</Button>
+                </DialogContent>
+              </Dialog>
+            ) : (
+              <div className="text-center p-3 bg-gray-50 rounded-2xl border border-dashed border-gray-100">
+                <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300 mb-1" />
+                <span className="text-[10px] font-bold text-gray-400 uppercase">Aguardando Aceite...</span>
+              </div>
+            )
           ))}
-
           {renderSection("Finalizados", "text-green-600", o => ['OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'].includes(o.status), o => (
-             <Badge className={cn(
-               "w-full py-3 justify-center border-none rounded-xl text-xs font-bold uppercase tracking-widest",
-               o.status === 'DELIVERED' ? 'bg-green-50 text-green-700' : 
-               o.status === 'OUT_FOR_DELIVERY' ? 'bg-yellow-50 text-yellow-700' :
-               'bg-red-50 text-red-700'
-             )}>
+             <Badge className={cn("w-full py-3 justify-center border-none rounded-xl text-xs font-bold uppercase", o.status === 'DELIVERED' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700')}>
                {o.status === 'DELIVERED' ? 'Entregue ✓' : o.status === 'OUT_FOR_DELIVERY' ? 'Em Rota...' : 'Cancelado'}
              </Badge>
           ))}
