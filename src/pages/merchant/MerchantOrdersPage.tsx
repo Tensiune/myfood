@@ -127,8 +127,6 @@ const MerchantOrdersPage = () => {
     
     const tid = showLoading("Cancelando pedido...");
     try {
-        // MANTEMOS o driver_id para que o Realtime do entregador receba o status 'CANCELLED'
-        // Limpamos apenas os campos de oferta pendente
         const { error } = await supabase.from('orders').update({ 
           status: 'CANCELLED',
           current_driver_offered_id: null,
@@ -142,6 +140,44 @@ const MerchantOrdersPage = () => {
         showError("Não foi possível cancelar o pedido.");
     } finally {
         dismissToast(tid);
+    }
+  };
+
+  const handleReCallDriver = async (order: any) => {
+    const isFinalized = order.status === 'DELIVERED';
+    const msg = isFinalized 
+      ? "Deseja chamar um novo entregador para reenviar ou corrigir este pedido? O status voltará para 'Em Preparo'."
+      : "O entregador atual não conseguirá concluir a entrega? Ao confirmar, removeremos o entregador atual e você poderá chamar um novo assim que marcar o pedido como pronto novamente.";
+
+    if (!window.confirm(msg)) return;
+
+    const tid = showLoading("Reiniciando processo...");
+    try {
+      const currentRefused = order.refused_drivers_ids || [];
+      // Se havia um entregador, adicionamos aos recusados para esta nova busca não cair pra ele de novo
+      if (order.driver_id) {
+          currentRefused.push(order.driver_id);
+      }
+
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: 'PREPARING',
+          driver_id: null,
+          current_driver_offered_id: null,
+          offer_expires_at: null,
+          refused_drivers_ids: Array.from(new Set(currentRefused))
+        })
+        .eq('id', order.id);
+
+      if (error) throw error;
+
+      showSuccess("O pedido voltou para o preparo. Quando estiver pronto, clique em 'Pronto para Retirada' para chamar um novo entregador.");
+      fetchOrders(true);
+    } catch (err: any) {
+      showError("Erro: " + err.message);
+    } finally {
+      dismissToast(tid);
     }
   };
 
@@ -277,14 +313,32 @@ const MerchantOrdersPage = () => {
                <Badge className="w-full py-3 justify-center border-none rounded-xl text-xs font-bold uppercase bg-yellow-50 text-yellow-700">
                  Saiu para Entrega
                </Badge>
+               <Button 
+                  variant="outline" 
+                  className="w-full border-red-200 text-red-600 rounded-xl h-12 font-bold gap-2 hover:bg-red-50"
+                  onClick={() => handleReCallDriver(o)}
+               >
+                  <RotateCcw className="h-4 w-4" /> Chamar Outro Entregador
+               </Button>
                <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={() => handleCancelOrder(o.id)}>Cancelar (Emergência)</Button>
             </div>
           ))}
 
           {renderSection("Finalizados", "text-green-600", o => ['DELIVERED', 'CANCELLED'].includes(o.status), o => (
-             <Badge className={cn("w-full py-3 justify-center border-none rounded-xl text-xs font-bold uppercase", o.status === 'DELIVERED' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")}>
-               {o.status === 'DELIVERED' ? 'Entregue ✓' : 'Cancelado'}
-             </Badge>
+             <div className="space-y-2">
+               <Badge className={cn("w-full py-3 justify-center border-none rounded-xl text-xs font-bold uppercase", o.status === 'DELIVERED' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")}>
+                 {o.status === 'DELIVERED' ? 'Entregue ✓' : 'Cancelado'}
+               </Badge>
+               {o.status === 'DELIVERED' && (
+                  <Button 
+                    variant="outline" 
+                    className="w-full border-indigo-200 text-indigo-600 rounded-xl h-12 font-bold gap-2 hover:bg-indigo-50"
+                    onClick={() => handleReCallDriver(o)}
+                  >
+                    <Send className="h-4 w-4" /> Reenviar / Corrigir Pedido
+                  </Button>
+               )}
+             </div>
           ))}
         </div>
       )}
