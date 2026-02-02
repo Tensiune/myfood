@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MapPin, Store, ShoppingBag, Clock, Map, XCircle, AlertTriangle } from "lucide-react";
+import { Loader2, MapPin, Store, ShoppingBag, Clock, Map, XCircle, AlertTriangle, Power } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
@@ -23,12 +23,15 @@ const AvailableOrdersPage = () => {
   const [driverStats, setDriverStats] = useState<any>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
   const [feeSettings, setFeeSettings] = useState<any[]>([]);
+  const [isOnline, setIsOnline] = useState(false);
   
   const lastOfferIdRef = useRef<string | null>(null);
   const lastStatusRef = useRef<string | null>(null);
   const pollingRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const { currentLocation } = useDriverLocationTracker(true);
+  
+  // O hook de localização é o que define se o motorista está sendo rastreado (online)
+  const { currentLocation, isTracking } = useDriverLocationTracker(true);
 
   useEffect(() => {
     if (!audioRef.current) {
@@ -65,7 +68,7 @@ const AvailableOrdersPage = () => {
             const diff = Math.floor((expiresAt - Date.now()) / 1000);
             setTimeLeft(diff > 0 ? diff : 30);
             lastOfferIdRef.current = activeOffer.id;
-            playAlert(); // Som ao receber nova oferta
+            playAlert(); 
         }
         setOffer(activeOffer);
       } else {
@@ -82,7 +85,6 @@ const AvailableOrdersPage = () => {
 
       if (accepted && accepted.length > 0) {
         const order = accepted[0];
-        // ALERTA SONORO: Se o status mudou para WAITING_FOR_DRIVER (Pronto para retirada)
         if (order.status === 'WAITING_FOR_DRIVER' && lastStatusRef.current !== 'WAITING_FOR_DRIVER') {
            playAlert();
            showSuccess("Pedido pronto para retirada!");
@@ -132,11 +134,19 @@ const AvailableOrdersPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || !isMounted) return;
       setDriverId(user.id);
+      
       const { data: stats } = await supabase.from('driver_applications').select('*').eq('id', user.id).single();
       setDriverStats(stats);
+      
       await fetchFeeSettings();
       await syncOrders(user.id);
-      pollingRef.current = setInterval(() => syncOrders(user.id), 8000);
+      
+      pollingRef.current = setInterval(() => {
+        // Só sincroniza se estiver online (rastreamento ativo)
+        if (localStorage.getItem('driver_location_permission') === 'granted') {
+           syncOrders(user.id);
+        }
+      }, 8000);
     };
     initialize();
     return () => { 
@@ -144,6 +154,18 @@ const AvailableOrdersPage = () => {
         if (pollingRef.current) clearInterval(pollingRef.current); 
     };
   }, [syncOrders]);
+
+  // Detector de estado online baseado no localStorage (mesma lógica do Layout)
+  useEffect(() => {
+    const checkStatus = () => {
+      const hasPermission = localStorage.getItem('driver_location_permission') === 'granted';
+      setIsOnline(hasPermission);
+    };
+    
+    checkStatus();
+    const interval = setInterval(checkStatus, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleAccept = async () => {
     if (!driverId || !offer) return;
@@ -195,7 +217,7 @@ const AvailableOrdersPage = () => {
       <div className="flex justify-between items-center px-1">
         <h1 className="text-2xl font-black text-indigo-900">Radar</h1>
         <Badge className={cn(driverStats?.status === 'APPROVED' ? "bg-green-500" : "bg-orange-500")}>
-          {driverStats?.status === 'APPROVED' ? 'Disponível' : 'Em Análise'}
+          {driverStats?.status === 'APPROVED' ? (isOnline ? 'Online' : 'Offline') : 'Em Análise'}
         </Badge>
       </div>
 
@@ -254,10 +276,18 @@ const AvailableOrdersPage = () => {
             </div>
           </CardContent>
         </Card>
-      ) : !activeOrder && (
+      ) : isOnline && !activeOrder ? (
         <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-indigo-50">
           <Loader2 className="h-10 w-10 text-indigo-200 animate-spin mb-4" />
           <p className="text-gray-400 font-black uppercase text-[10px] text-center px-8">Buscando novos pedidos...</p>
+        </div>
+      ) : !isOnline && !activeOrder && (
+        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-gray-100 opacity-60">
+          <div className="bg-gray-100 p-4 rounded-full mb-4">
+            <Power className="h-8 w-8 text-gray-400" />
+          </div>
+          <p className="text-gray-500 font-black uppercase text-[10px] text-center px-8">Você está Offline</p>
+          <p className="text-gray-400 text-xs text-center px-8 mt-2">Fique online para começar a receber ofertas.</p>
         </div>
       )}
     </div>
