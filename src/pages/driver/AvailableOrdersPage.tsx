@@ -4,7 +4,20 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MapPin, Store, ShoppingBag, Clock, Map, XCircle, AlertTriangle, Power, FileText, Bell } from "lucide-react";
+import { 
+  Loader2, 
+  MapPin, 
+  Store, 
+  ShoppingBag, 
+  Clock, 
+  Phone, 
+  MessageCircle, 
+  XCircle, 
+  AlertTriangle, 
+  Power, 
+  User,
+  ChevronRight
+} from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
@@ -44,7 +57,7 @@ const AvailableOrdersPage = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // 1. Sincronizar Ofertas
+    // 1. Sincronizar Ofertas (Nova Entrega)
     const { data: offers } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
@@ -73,18 +86,24 @@ const AvailableOrdersPage = () => {
       lastOfferIdRef.current = null;
     }
 
-    // 2. Sincronizar Pedidos em Andamento
+    // 2. Sincronizar Pedidos em Andamento com Detalhes do Cliente
     const { data: accepted } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
         .eq('driver_id', user.id)
         .not('status', 'in', '(DELIVERED,CANCELLED)');
     
-    setActiveOrders(accepted || []);
+    if (accepted) {
+        const ordersWithCustomer = await Promise.all(accepted.map(async (order) => {
+            const { data: customerName } = await supabase.rpc('get_user_full_name', { user_id: order.customer_id });
+            return { ...order, customer_name: customerName || "Cliente" };
+        }));
+        setActiveOrders(ordersWithCustomer);
+    }
+    
     setLoading(false);
   }, [playAlert, sendNotification]);
 
-  // Efeito para o Timer de 1 em 1 segundo
   useEffect(() => {
     if (offer && timeLeft > 0) {
         timerIntervalRef.current = setInterval(() => {
@@ -106,18 +125,16 @@ const AvailableOrdersPage = () => {
     const checkStatus = () => setIsOnline(localStorage.getItem('driver_online_status') === 'online');
     checkStatus();
     
-    // Sincronização periódica mais leve
     const interval = setInterval(() => {
         if (localStorage.getItem('driver_online_status') === 'online') sync();
     }, 5000);
     
-    sync(); // Carga inicial
+    sync();
     return () => clearInterval(interval);
   }, [sync]);
 
   const handleAccept = async () => {
     if (!offer) return;
-    
     const tid = showLoading("Confirmando...");
     try {
         const { data: { user } } = await supabase.auth.getUser();
@@ -125,26 +142,37 @@ const AvailableOrdersPage = () => {
 
         const { data, error } = await supabase
             .from('orders')
-            .update({ 
-                driver_id: user.id, 
-                current_driver_offered_id: null, 
-                offer_expires_at: null 
-            })
+            .update({ driver_id: user.id, current_driver_offered_id: null, offer_expires_at: null })
             .eq('id', offer.id)
             .is('driver_id', null)
             .select();
 
         if (error) throw error;
-        
         if (data && data.length > 0) {
-            showSuccess("Pedido adicionado à sua rota!");
+            showSuccess("Pedido aceito!");
             navigate(`/driver/map?orderId=${offer.id}`);
         } else {
-            showError("Ops! Esta oferta expirou ou outro entregador aceitou.");
+            showError("Oferta expirada.");
             setOffer(null);
         }
     } catch (err: any) {
-        showError("Erro ao aceitar pedido.");
+        showError("Erro ao aceitar.");
+    } finally {
+        dismissToast(tid);
+    }
+  };
+
+  const handleAbandon = async (orderId: string) => {
+    if (!window.confirm("Tem certeza que deseja abandonar esta rota? Você poderá ser penalizado por cancelamentos frequentes.")) return;
+    
+    const tid = showLoading("Cancelando sua participação...");
+    try {
+        const { error } = await supabase.rpc('abandon_order', { p_order_id: orderId });
+        if (error) throw error;
+        showSuccess("Rota abandonada com sucesso.");
+        sync();
+    } catch (err: any) {
+        showError("Erro ao abandonar: " + err.message);
     } finally {
         dismissToast(tid);
     }
@@ -154,19 +182,72 @@ const AvailableOrdersPage = () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-black text-indigo-900">Radar de Entregas</h1>
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-black text-indigo-900">Radar de Entregas</h1>
+        {activeOrders.length > 0 && <Badge className="bg-indigo-600 rounded-full">{activeOrders.length} Ativo(s)</Badge>}
+      </div>
 
       {activeOrders.length > 0 && (
-        <div className="space-y-3">
-            <p className="text-xs font-bold text-gray-400 uppercase ml-1">Sua Rota Atual ({activeOrders.length})</p>
+        <div className="space-y-4">
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Sua Rota Ativa</p>
             {activeOrders.map(order => (
-                <Card key={order.id} className="rounded-2xl border-indigo-100 bg-indigo-50/30">
-                    <CardContent className="p-4 flex items-center justify-between">
-                        <div>
-                            <p className="font-bold text-gray-800">{order.merchant?.store_name}</p>
-                            <Badge className="bg-indigo-600 text-[9px] uppercase mt-1">Status: {order.status}</Badge>
+                <Card key={order.id} className="rounded-3xl border-none shadow-md bg-white overflow-hidden animate-in slide-in-from-bottom-2">
+                    <CardContent className="p-0">
+                        <div className="p-5 space-y-4">
+                            <div className="flex justify-between items-start">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-2 bg-indigo-50 rounded-xl"><Store className="h-4 w-4 text-indigo-600" /></div>
+                                    <div>
+                                        <p className="text-[10px] font-black text-gray-400 uppercase">Loja</p>
+                                        <p className="font-bold text-gray-800">{order.merchant?.store_name}</p>
+                                    </div>
+                                </div>
+                                <Badge className={cn("rounded-full uppercase text-[9px]", order.status === 'OUT_FOR_DELIVERY' ? "bg-yellow-500" : "bg-indigo-600")}>
+                                    {order.status === 'OUT_FOR_DELIVERY' ? "Em Rota" : "Coleta"}
+                                </Badge>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <div className="p-2 bg-green-50 rounded-xl"><User className="h-4 w-4 text-green-600" /></div>
+                                <div>
+                                    <p className="text-[10px] font-black text-gray-400 uppercase">Cliente</p>
+                                    <p className="font-bold text-gray-800">{order.customer_name}</p>
+                                </div>
+                            </div>
+
+                            <div className="bg-gray-50 p-3 rounded-2xl flex gap-3 items-start">
+                                <MapPin className="h-4 w-4 text-brand-accent mt-0.5 shrink-0" />
+                                <p className="text-xs text-gray-600 font-medium leading-tight">
+                                    {order.delivery_address?.street}, {order.delivery_address?.number}<br/>
+                                    <span className="text-[10px] text-gray-400">{order.delivery_address?.neighborhood} - {order.delivery_address?.city}</span>
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                                <Button variant="outline" className="rounded-xl border-gray-100 h-11 text-indigo-600 font-bold gap-2" onClick={() => navigate(`/chat/${order.merchant_id}`)}>
+                                    <MessageCircle className="h-4 w-4" /> Chat Loja
+                                </Button>
+                                <Button variant="outline" className="rounded-xl border-gray-100 h-11 text-indigo-600 font-bold gap-2" onClick={() => window.open(`tel:${order.merchant?.phone}`)}>
+                                    <Phone className="h-4 w-4" /> Ligar Loja
+                                </Button>
+                            </div>
                         </div>
-                        <Button size="sm" className="rounded-xl h-10 px-4 font-bold" onClick={() => navigate(`/driver/map?orderId=${order.id}`)}>Ver no Mapa</Button>
+
+                        <div className="px-4 pb-4 flex gap-2">
+                            <Button 
+                                variant="ghost" 
+                                className="w-1/3 rounded-2xl text-red-400 hover:text-red-500 hover:bg-red-50 font-bold text-xs"
+                                onClick={() => handleAbandon(order.id)}
+                            >
+                                <XCircle className="h-4 w-4 mr-1" /> Abandonar
+                            </Button>
+                            <Button 
+                                className="flex-1 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase tracking-widest h-14 shadow-lg shadow-indigo-100"
+                                onClick={() => navigate(`/driver/map?orderId=${order.id}`)}
+                            >
+                                Iniciar Navegação <ChevronRight className="ml-1 h-4 w-4" />
+                            </Button>
+                        </div>
                     </CardContent>
                 </Card>
             ))}
@@ -176,9 +257,7 @@ const AvailableOrdersPage = () => {
       {offer && timeLeft > 0 && (
         <Card className="rounded-[2.5rem] border-4 border-brand-accent shadow-2xl bg-white overflow-hidden animate-in zoom-in-95 duration-300">
           <div className="bg-brand-accent p-4 text-white flex justify-between items-center">
-            <span className="font-black text-sm uppercase">
-                {activeOrders.length > 0 ? "Oferta Agrupada!" : "Nova Oferta!"}
-            </span>
+            <span className="font-black text-sm uppercase">Nova Oferta!</span>
             <div className="bg-white text-brand-accent px-4 py-1 rounded-full font-black text-xl tabular-nums">
                 {Math.floor(timeLeft / 60)}:{timeLeft % 60 < 10 ? '0' : ''}{timeLeft % 60}
             </div>
@@ -190,15 +269,15 @@ const AvailableOrdersPage = () => {
                   <div className="flex-1">
                     <p className="text-[10px] font-black text-gray-400 uppercase">Coleta Próxima</p>
                     <p className="font-bold text-gray-800">{offer.merchant?.store_name || "Loja Parceira"}</p>
-                    <p className="text-xs text-gray-500 line-clamp-1">{offer.delivery_address?.street}, {offer.delivery_address?.number}</p>
                   </div>
                 </div>
-                {activeOrders.length > 0 && (
-                    <div className="bg-green-50 p-4 rounded-2xl border border-green-100 flex items-start gap-3">
-                        <AlertTriangle className="h-4 w-4 text-green-600 mt-0.5" />
-                        <p className="text-xs text-green-800 font-bold">Esta entrega está no caminho da sua rota atual. Aproveite!</p>
-                    </div>
-                )}
+                <div className="flex gap-4">
+                  <div className="p-2 bg-green-50 rounded-full h-fit"><MapPin className="h-4 w-4 text-green-600" /></div>
+                  <div className="flex-1">
+                    <p className="text-[10px] font-black text-gray-400 uppercase">Destino Final</p>
+                    <p className="text-xs text-gray-500 line-clamp-1">{offer.delivery_address?.neighborhood}, {offer.delivery_address?.city}</p>
+                  </div>
+                </div>
             </div>
             <div className="flex gap-3">
               <Button variant="ghost" className="flex-1 h-16 rounded-2xl text-red-500 font-bold" onClick={() => { setOffer(null); lastOfferIdRef.current = null; }}>Ignorar</Button>
