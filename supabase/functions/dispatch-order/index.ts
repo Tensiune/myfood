@@ -26,7 +26,7 @@ serve(async (req) => {
 
     const storeAddr = order.merchant?.metadata?.store_details?.address || order.merchant?.metadata?.address;
     if (!storeAddr) {
-        console.error(`[dispatch-order] Loja sem endereço definido.`);
+        console.error(`[dispatch-order] Erro: Loja sem endereço definido.`);
         return new Response(JSON.stringify({ success: false, error: 'store_address_missing' }));
     }
 
@@ -44,7 +44,6 @@ serve(async (req) => {
       const driverOrders = activeOrders?.filter(o => o.driver_id === driver.id) || [];
       if (driverOrders.length >= 3) return null;
 
-      // Score simplificado para proximidade
       const dist = calculateDistance(parseFloat(loc.latitude), parseFloat(loc.longitude), parseFloat(storeAddr.lat), parseFloat(storeAddr.lng));
       let score = 1000 - (dist * 50);
       if (driverOrders.length === 0) score += 200;
@@ -61,7 +60,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ success: true }));
     }
 
-    console.log(`[dispatch-order] Nenhum entregador disponível para ${orderId}`);
+    console.log(`[dispatch-order] Nenhum entregador disponível para o pedido ${orderId}`);
     return new Response(JSON.stringify({ success: false, reason: 'no_candidates' }));
 
   } catch (err: any) {

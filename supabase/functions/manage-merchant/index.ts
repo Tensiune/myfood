@@ -15,16 +15,16 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    const { userId, status, type } = await req.json() // type: 'MERCHANT' | 'DRIVER'
+    const { userId, status, type } = await req.json()
 
-    // 1. Atualizar metadados no Auth (Fonte da verdade para o login)
+    console.log(`[manage-merchant] Iniciando atualização para ${userId} (${type}) para o status ${status}`);
+
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
       userId,
       { user_metadata: { status: status } }
     )
     if (authError) throw authError
 
-    // 2. Atualizar na tabela pública correspondente
     const table = type === 'DRIVER' ? 'driver_applications' : 'merchant_applications';
     
     const { error: dbError } = await supabaseAdmin
@@ -34,14 +34,14 @@ serve(async (req) => {
     
     if (dbError) throw dbError
 
-    console.log(`[manage-user] ${type} ${userId} atualizado para ${status}`);
+    console.log(`[manage-merchant] Sucesso: ${type} ${userId} atualizado.`);
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     })
   } catch (error) {
-    console.error("[manage-user] Error:", error.message);
+    console.error(`[manage-merchant] Erro:`, error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,

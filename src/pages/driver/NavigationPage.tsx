@@ -4,8 +4,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Navigation, Key, Loader2, Store, User, CheckCircle2, Map, ExternalLink, List, AlertTriangle } from "lucide-react";
-import { showSuccess, showError } from "@/utils/toast";
+import { ArrowLeft, Navigation, Key, Loader2, Store, User, CheckCircle2, Map, ExternalLink, List, AlertTriangle, MapPin } from "lucide-react";
+import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { OtpInput } from "@/components/shared/OtpInput";
 import { useDriverLocationTracker } from "@/hooks/useDriverLocationTracker";
@@ -28,7 +28,7 @@ const NavigationPage = () => {
             return;
         }
 
-        // Busca pedidos que NÃO estão finalizados nem cancelados
+        // Sintaxe de consulta mais segura usando múltiplos .neq
         const { data, error } = await supabase
             .from('orders')
             .select('*, merchant:merchant_applications(*)')
@@ -47,8 +47,7 @@ const NavigationPage = () => {
     };
     fetchActiveOrders();
 
-    // Inscrição para atualizações em tempo real nesta rota
-    const channel = supabase.channel('navigation_updates')
+    const channel = supabase.channel('navigation_realtime')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
         fetchActiveOrders();
       })
@@ -57,27 +56,29 @@ const NavigationPage = () => {
     return () => { supabase.removeChannel(channel); };
   }, [navigate]);
 
-  // Lógica de Paradas com Proteção Máxima
+  // Lógica de Paradas com Proteção Máxima contra nulos
   const stops = useMemo(() => {
     if (!orders || orders.length === 0) return [];
 
     try {
+        // Coleta (Pickups)
         const pickups = orders
-            .filter(o => ['PREPARING', 'WAITING_FOR_DRIVER'].includes(o.status))
+            .filter(o => o && (o.status === 'PREPARING' || o.status === 'WAITING_FOR_DRIVER'))
             .map(o => {
                 const meta = o.merchant?.metadata || {};
-                const addr = meta.store_details?.address || meta.address;
+                const addr = meta.store_details?.address || meta.address || { street: "Endereço não informado", number: "" };
                 return {
                     type: 'pickup',
                     orderId: o.id,
                     name: o.merchant?.store_name || "Loja Parceira",
-                    address: addr || { street: "Endereço não informado", number: "" },
+                    address: addr,
                     isReady: o.status === 'WAITING_FOR_DRIVER'
                 };
             });
 
+        // Entregas (Deliveries)
         const deliveries = orders
-            .filter(o => o.status === 'OUT_FOR_DELIVERY')
+            .filter(o => o && o.status === 'OUT_FOR_DELIVERY')
             .map(o => ({
                 type: 'delivery',
                 orderId: o.id,
@@ -88,7 +89,7 @@ const NavigationPage = () => {
 
         return [...pickups, ...deliveries];
     } catch (e) {
-        console.error("[NavigationPage] Stop calculation crash:", e);
+        console.error("[NavigationPage] Erro ao calcular paradas:", e);
         return [];
     }
   }, [orders]);
@@ -129,7 +130,7 @@ const NavigationPage = () => {
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="icon" onClick={() => navigate("/driver/orders")} className="rounded-full"><ArrowLeft /></Button>
         <h1 className="text-xl font-black text-indigo-900">Minha Rota</h1>
-        <div className="w-10" /> {/* Spacer */}
+        <div className="w-10" />
       </div>
 
       <div className="space-y-4">
@@ -179,7 +180,7 @@ const NavigationPage = () => {
                                             <p className="text-xs font-bold text-green-800 text-center uppercase tracking-widest mb-3">Código do Cliente</p>
                                             <div className="flex justify-center"><OtpInput length={4} value={otpCode} onChange={setOtpCode} /></div>
                                         </div>
-                                        <Button className="w-full bg-green-600 hover:bg-green-700 h-16 rounded-2xl font-black text-lg" onClick={() => handleFinishStep(stop)} disabled={otpCode.length < 4}>Confirmar Entrega</Button>
+                                        <Button className="w-full bg-green-600 hover:bg-green-700 h-16 rounded-2xl font-black text-lg shadow-xl shadow-green-100" onClick={() => handleFinishStep(stop)} disabled={otpCode.length < 4}>Confirmar Entrega</Button>
                                     </div>
                                 ) : (
                                     <div className="space-y-3">
@@ -190,11 +191,11 @@ const NavigationPage = () => {
                                             </div>
                                         )}
                                         <Button 
-                                            className={cn("w-full h-16 rounded-2xl font-black text-lg", stop.isReady ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-400")} 
+                                            className={cn("w-full h-16 rounded-2xl font-black text-lg shadow-xl", stop.isReady ? "bg-indigo-600 text-white shadow-indigo-100" : "bg-gray-100 text-gray-400 shadow-none")} 
                                             onClick={() => handleFinishStep(stop)}
                                             disabled={!stop.isReady}
                                         >
-                                            {stop.isReady ? "Retirada em Mãos" : "Aguardando Preparo"}
+                                            {stop.isReady ? "Confirmar Retirada" : "Aguardando Preparo"}
                                         </Button>
                                     </div>
                                 )}
