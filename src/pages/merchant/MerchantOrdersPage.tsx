@@ -49,7 +49,7 @@ const MerchantOrdersPage = () => {
   // Novos estados de UI
   const [searchTerm, setSearchTerm] = useState("");
   const [showItemDetails, setShowItemDetails] = useState(false);
-  const [autoAccept, setAutoAccept] = useState(false);
+  const [autoAccept, setAutoAccept] = useState(() => localStorage.getItem('merchant_auto_accept') === 'true');
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any>(null);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
 
@@ -68,9 +68,6 @@ const MerchantOrdersPage = () => {
     if (!audioRef.current) {
       audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
     }
-    // Carregar estado de aceite automático do localStorage
-    const savedAutoAccept = localStorage.getItem('merchant_auto_accept') === 'true';
-    setAutoAccept(savedAutoAccept);
   }, []);
 
   const playAlert = useCallback(() => {
@@ -80,108 +77,13 @@ const MerchantOrdersPage = () => {
     }
   }, [audioEnabled]);
 
-  // Função de impressão refatorada para usar o utilitário
-  const handlePrintReceipt = (order: any, customerName: string) => {
+  // 1. Função de impressão (depende de estados que mudam raramente)
+  const handlePrintReceipt = useCallback((order: any, customerName: string) => {
     printReceipt(order, merchantName, customerName, printSettings);
-  };
+  }, [merchantName, printSettings]);
 
-  const fetchOrders = useCallback(async (isSilent = false) => {
-    if (!isSilent) setLoading(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: merchantData } = await supabase.from('merchant_applications').select('is_open, store_name, metadata').eq('id', user.id).single();
-      if (merchantData) {
-        setIsStoreOpen(merchantData.is_open);
-        setMerchantName(merchantData.store_name || "Minha Loja");
-        // Carrega as configurações de impressão
-        setPrintSettings(merchantData.metadata?.print_settings || defaultPrintSettings);
-      }
-
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`*, driver:driver_applications!driver_id (id, full_name, phone, metadata)`)
-        .eq('merchant_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      
-      const fetchedOrders = data || []; // Garante que é um array
-
-      // Fetch customer names for all orders
-      const ordersWithCustomerNames = await Promise.all(fetchedOrders.map(async (order) => {
-        if (order.customer_id) {
-          const { data: customerNameData } = await supabase.rpc('get_user_full_name', { user_id: order.customer_id });
-          return { ...order, customer_full_name: customerNameData || 'Cliente' };
-        }
-        return { ...order, customer_full_name: 'Cliente' };
-      }));
-
-      // Se o aceite automático estiver ativo, aceita novos pedidos
-      if (autoAccept) {
-        const pendingOrders = ordersWithCustomerNames.filter(o => o.status === 'PENDING');
-        for (const order of pendingOrders) {
-          await handleAcceptOrder(order, true); // Aceite silencioso
-        }
-      }
-
-      // Verifica se há novos pedidos PENDING que não estavam na lista anterior
-      const previousOrderIds = new Set(orders.map(o => o.id));
-      const newPendingOrders = ordersWithCustomerNames.filter(o => o.status === 'PENDING' && !previousOrderIds.has(o.id));
-      
-      if (newPendingOrders.length > 0 && autoPrint) {
-          newPendingOrders.forEach(order => handlePrintReceipt(order, order.customer_full_name));
-      }
-
-      setOrders(ordersWithCustomerNames);
-    } catch (err) {
-      console.error(err);
-      // Em caso de erro, garante que orders seja um array vazio para evitar falhas de renderização
-      setOrders([]);
-    } finally {
-      if (!isSilent) setLoading(false);
-    }
-  }, [autoAccept, autoPrint, orders]);
-
-  useEffect(() => {
-    let channel: any;
-    const setup = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      await fetchOrders();
-      channel = supabase.channel(`orders_merchant_${user.id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `merchant_id=eq.${user.id}` }, (p) => {
-          if (p.eventType === 'INSERT') playAlert();
-          fetchOrders(true);
-        }).subscribe();
-    };
-    setup();
-    return () => { if (channel) supabase.removeChannel(channel); };
-  }, [fetchOrders, playAlert]);
-
-  const handleToggleStore = async (val: boolean) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    const { error } = await supabase.from('merchant_applications').update({ is_open: val }).eq('id', user.id);
-    if (!error) {
-      setIsStoreOpen(val);
-      showSuccess(val ? "Loja Online" : "Loja Offline");
-    }
-  };
-  
-  const handleToggleAutoAccept = (checked: boolean) => {
-    setAutoAccept(checked);
-    localStorage.setItem('merchant_auto_accept', checked.toString());
-    showSuccess(checked ? "Aceite automático ativado!" : "Aceite automático desativado.");
-  };
-  
-  const handleToggleAutoPrint = (checked: boolean) => {
-    setAutoPrint(checked);
-    localStorage.setItem('merchant_auto_print', checked.toString());
-    showSuccess(checked ? "Auto impressão ativada!" : "Auto impressão desativada.");
-  };
-
-  const handleAcceptOrder = async (order: any, isSilent = false) => {
+  // 2. Função de aceitar pedido (depende de autoPrint e handlePrintReceipt)
+  const handleAcceptOrder = useCallback(async (order: any, isSilent = false) => {
     const tid = isSilent ? null : showLoading("Aceitando pedido...");
     try {
       const { error: updateError } = await supabase
@@ -206,23 +108,130 @@ const MerchantOrdersPage = () => {
         showSuccess("Pedido aceito e comanda impressa!");
       }
       
-      // IMPRIMIR COMANDA (apenas se não for auto-print, pois o auto-print já cuidou disso no fetch)
+      // IMPRIMIR COMANDA (se autoPrint estiver desligado, pois o autoPrint no channel cuida do INSERT)
       if (!autoPrint) {
         handlePrintReceipt(order, order.customer_full_name);
       }
+      
+      // REMOVIDO: fetchOrders(true); -> O canal de realtime fará o refresh.
 
-      fetchOrders(true);
     } catch (err: any) {
       if (!isSilent) dismissToast(tid);
       showError("Erro: " + (err.message || "Erro desconhecido"));
     }
+  }, [autoPrint, handlePrintReceipt]);
+
+  // 3. Função principal de fetch (NÃO depende de 'orders')
+  const fetchOrders = useCallback(async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Fetch Merchant Data and Settings
+      const { data: merchantData } = await supabase.from('merchant_applications').select('is_open, store_name, metadata').eq('id', user.id).single();
+      if (merchantData) {
+        setIsStoreOpen(merchantData.is_open);
+        setMerchantName(merchantData.store_name || "Minha Loja");
+        setPrintSettings(merchantData.metadata?.print_settings || defaultPrintSettings);
+      }
+
+      // Fetch Orders
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`*, driver:driver_applications!driver_id (id, full_name, phone, metadata)`)
+        .eq('merchant_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      const fetchedOrders = data || [];
+
+      // Fetch customer names for all orders
+      const ordersWithCustomerNames = await Promise.all(fetchedOrders.map(async (order) => {
+        if (order.customer_id) {
+          const { data: customerNameData } = await supabase.rpc('get_user_full_name', { user_id: order.customer_id });
+          return { ...order, customer_full_name: customerNameData || 'Cliente' };
+        }
+        return { ...order, customer_full_name: 'Cliente' };
+      }));
+
+      // Se o aceite automático estiver ativo, aceita novos pedidos
+      if (autoAccept) {
+        const pendingOrders = ordersWithCustomerNames.filter(o => o.status === 'PENDING');
+        for (const order of pendingOrders) {
+          // Chama a função de aceite estável
+          await handleAcceptOrder(order, true); 
+        }
+      }
+
+      setOrders(ordersWithCustomerNames);
+    } catch (err) {
+      console.error(err);
+      setOrders([]);
+    } finally {
+      if (!isSilent) setLoading(false);
+    }
+  }, [autoAccept, handleAcceptOrder, handlePrintReceipt]); // Dependências estáveis
+
+  // 4. Efeito principal para setup e real-time
+  useEffect(() => {
+    let channel: any;
+    const setup = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      // 1. Fetch inicial
+      await fetchOrders();
+      
+      // 2. Configura o canal de real-time
+      channel = supabase.channel(`orders_merchant_${user.id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `merchant_id=eq.${user.id}` }, async (p) => {
+          if (p.eventType === 'INSERT') {
+            playAlert();
+            
+            // Se auto-print estiver ativo, imprime o novo pedido
+            if (autoPrint) {
+                const newOrder = p.new;
+                // Busca o nome do cliente para a impressão
+                const { data: customerNameData } = await supabase.rpc('get_user_full_name', { user_id: newOrder.customer_id });
+                handlePrintReceipt(newOrder, customerNameData || 'Cliente');
+            }
+          }
+          // Em qualquer evento (INSERT, UPDATE, DELETE), atualiza a lista
+          fetchOrders(true);
+        }).subscribe();
+    };
+    setup();
+    return () => { if (channel) supabase.removeChannel(channel); };
+  }, [fetchOrders, playAlert, autoPrint, handlePrintReceipt]); // fetchOrders é estável
+
+  const handleToggleStore = async (val: boolean) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('merchant_applications').update({ is_open: val }).eq('id', user.id);
+    if (!error) {
+      setIsStoreOpen(val);
+      showSuccess(val ? "Loja Online" : "Loja Offline");
+    }
+  };
+  
+  const handleToggleAutoAccept = (checked: boolean) => {
+    setAutoAccept(checked);
+    localStorage.setItem('merchant_auto_accept', checked.toString());
+    showSuccess(checked ? "Aceite automático ativado!" : "Aceite automático desativado.");
+  };
+  
+  const handleToggleAutoPrint = (checked: boolean) => {
+    setAutoPrint(checked);
+    localStorage.setItem('merchant_auto_print', checked.toString());
+    showSuccess(checked ? "Auto impressão ativada!" : "Auto impressão desativada.");
   };
 
   const handleAction = async (id: string, status: string) => {
       const { error } = await supabase.from('orders').update({ status }).eq('id', id);
       if (!error) {
           showSuccess("Status atualizado!");
-          fetchOrders(true);
+          // Não precisa chamar fetchOrders, o canal fará isso.
       }
   };
   
@@ -239,7 +248,7 @@ const MerchantOrdersPage = () => {
 
         if (error) throw error;
         showSuccess("Pedido cancelado com sucesso.");
-        fetchOrders(true);
+        // Não precisa chamar fetchOrders, o canal fará isso.
     } catch (err) {
         showError("Não foi possível cancelar o pedido.");
     } finally {
@@ -302,7 +311,7 @@ const MerchantOrdersPage = () => {
       if (dispatchError) throw dispatchError;
 
       showSuccess("Nova entrega solicitada! Buscando entregador...");
-      fetchOrders(true);
+      // Não precisa chamar fetchOrders, o canal fará isso.
       setIsRecallDialogOpen(false);
     } catch (err: any) {
       showError("Erro ao solicitar nova entrega: " + err.message);
@@ -323,7 +332,7 @@ const MerchantOrdersPage = () => {
     if (!error) {
       showSuccess("Pedido liberado para entrega!");
       setVerificationCode("");
-      fetchOrders(true);
+      // Não precisa chamar fetchOrders, o canal fará isso.
     }
     setIsVerifying(false);
   };
