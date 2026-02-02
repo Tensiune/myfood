@@ -144,10 +144,10 @@ const MerchantOrdersPage = () => {
   };
 
   const handleReCallDriver = async (order: any) => {
-    const isFinalized = order.status === 'DELIVERED';
+    const isFinalized = order.status === 'DELIVERED' || order.status === 'CANCELLED';
     const msg = isFinalized 
-      ? "Deseja chamar um novo entregador para reenviar ou corrigir este pedido? O status voltará para 'Em Preparo'."
-      : "O entregador atual não conseguirá concluir a entrega? Ao confirmar, removeremos o entregador atual e você poderá chamar um novo assim que marcar o pedido como pronto novamente.";
+      ? "Deseja solicitar uma NOVA ENTREGA para este pedido? O status voltará para 'Em Preparo' e você poderá chamar um novo entregador assim que estiver pronto."
+      : "O entregador atual não conseguirá concluir a entrega? Ao confirmar, removeremos o entregador atual e o pedido voltará para 'Em Preparo' para que você chame um novo parceiro.";
 
     if (!window.confirm(msg)) return;
 
@@ -315,10 +315,10 @@ const MerchantOrdersPage = () => {
                </Badge>
                <Button 
                   variant="outline" 
-                  className="w-full border-red-200 text-red-600 rounded-xl h-12 font-bold gap-2 hover:bg-red-50"
+                  className="w-full border-indigo-200 text-indigo-600 rounded-xl h-12 font-bold gap-2 hover:bg-indigo-50"
                   onClick={() => handleReCallDriver(o)}
                >
-                  <RotateCcw className="h-4 w-4" /> Chamar Outro Entregador
+                  <RotateCcw className="h-4 w-4" /> Nova Entrega
                </Button>
                <Button variant="ghost" className="w-full text-red-400 text-[10px] font-bold uppercase" onClick={() => handleCancelOrder(o.id)}>Cancelar (Emergência)</Button>
             </div>
@@ -329,15 +329,13 @@ const MerchantOrdersPage = () => {
                <Badge className={cn("w-full py-3 justify-center border-none rounded-xl text-xs font-bold uppercase", o.status === 'DELIVERED' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")}>
                  {o.status === 'DELIVERED' ? 'Entregue ✓' : 'Cancelado'}
                </Badge>
-               {o.status === 'DELIVERED' && (
-                  <Button 
-                    variant="outline" 
-                    className="w-full border-indigo-200 text-indigo-600 rounded-xl h-12 font-bold gap-2 hover:bg-indigo-50"
-                    onClick={() => handleReCallDriver(o)}
-                  >
-                    <Send className="h-4 w-4" /> Reenviar / Corrigir Pedido
-                  </Button>
-               )}
+               <Button 
+                  variant="outline" 
+                  className="w-full border-indigo-200 text-indigo-600 rounded-xl h-12 font-bold gap-2 hover:bg-indigo-50"
+                  onClick={() => handleReCallDriver(o)}
+               >
+                  <Send className="h-4 w-4" /> Nova Entrega
+               </Button>
              </div>
           ))}
         </div>
