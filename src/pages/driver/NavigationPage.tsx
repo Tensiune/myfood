@@ -89,15 +89,16 @@ const NavigationPage = () => {
       .channel(`nav_order_${orderId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` }, (payload) => {
         const updatedOrder = payload.new;
-        setOrder(prev => ({ ...prev, ...updatedOrder })); // Sincroniza o objeto do pedido
         
         const newStatus = updatedOrder.status;
         
         if (newStatus === 'CANCELLED') {
-          showError("Atenção: Este pedido foi cancelado pelo lojista.");
+          showError("O pedido foi cancelado pela loja ou pelo cliente.");
           navigate("/driver/orders");
           return;
         }
+
+        setOrder(prev => ({ ...prev, ...updatedOrder })); // Sincroniza o objeto do pedido
 
         if (newStatus === 'WAITING_FOR_DRIVER') {
           playAlert();
@@ -137,12 +138,13 @@ const NavigationPage = () => {
           .single();
         if (error) throw error;
         if (data) {
-          setOrder(data);
-          if (data.status === 'OUT_FOR_DELIVERY' || data.status === 'DELIVERED') setStep("to_client");
           if (data.status === 'CANCELLED') {
               showError("Este pedido já foi cancelado.");
               navigate("/driver/orders");
+              return;
           }
+          setOrder(data);
+          if (data.status === 'OUT_FOR_DELIVERY' || data.status === 'DELIVERED') setStep("to_client");
         }
       } catch (err) {
         showError("Erro ao carregar rota.");
@@ -191,6 +193,12 @@ const NavigationPage = () => {
 
   const handleAbandonOrder = async () => {
     if (!order) return;
+    // Se o pedido já foi cancelado, apenas saímos da tela
+    if (order.status === 'CANCELLED') {
+        navigate("/driver/orders");
+        return;
+    }
+
     const confirmation = window.confirm("ATENÇÃO: Tem certeza que deseja desistir desta entrega?");
     if (!confirmation) return;
 
