@@ -30,8 +30,8 @@ const AvailableOrdersPage = () => {
   const pollingRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   
-  // O hook de localização é o que define se o motorista está sendo rastreado (online)
-  const { currentLocation, isTracking } = useDriverLocationTracker(true);
+  // Sincroniza a localização (o hook já trata de não rastrear se estiver offline)
+  useDriverLocationTracker(true);
 
   useEffect(() => {
     if (!audioRef.current) {
@@ -128,6 +128,18 @@ const AvailableOrdersPage = () => {
     }
   }, [offer, timeLeft, handleTimeout]);
 
+  // Detector de estado online sincronizado
+  useEffect(() => {
+    const checkStatus = () => {
+      const isActuallyOnline = localStorage.getItem('driver_online_status') === 'online';
+      setIsOnline(isActuallyOnline);
+    };
+    
+    checkStatus();
+    const interval = setInterval(checkStatus, 1000); // Checa rápido para UX suave
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
     const initialize = async () => {
@@ -139,14 +151,20 @@ const AvailableOrdersPage = () => {
       setDriverStats(stats);
       
       await fetchFeeSettings();
-      await syncOrders(user.id);
       
       pollingRef.current = setInterval(() => {
-        // Só sincroniza se estiver online (rastreamento ativo)
-        if (localStorage.getItem('driver_location_permission') === 'granted') {
+        // Só sincroniza e busca pedidos se estiver ONLINE no localStorage
+        if (localStorage.getItem('driver_online_status') === 'online') {
            syncOrders(user.id);
         }
-      }, 8000);
+      }, 5000);
+
+      // Sincronia inicial se estiver online
+      if (localStorage.getItem('driver_online_status') === 'online') {
+        syncOrders(user.id);
+      } else {
+        setLoading(false);
+      }
     };
     initialize();
     return () => { 
@@ -154,18 +172,6 @@ const AvailableOrdersPage = () => {
         if (pollingRef.current) clearInterval(pollingRef.current); 
     };
   }, [syncOrders]);
-
-  // Detector de estado online baseado no localStorage (mesma lógica do Layout)
-  useEffect(() => {
-    const checkStatus = () => {
-      const hasPermission = localStorage.getItem('driver_location_permission') === 'granted';
-      setIsOnline(hasPermission);
-    };
-    
-    checkStatus();
-    const interval = setInterval(checkStatus, 2000);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleAccept = async () => {
     if (!driverId || !offer) return;
@@ -216,7 +222,7 @@ const AvailableOrdersPage = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center px-1">
         <h1 className="text-2xl font-black text-indigo-900">Radar</h1>
-        <Badge className={cn(driverStats?.status === 'APPROVED' ? "bg-green-500" : "bg-orange-500")}>
+        <Badge className={cn(driverStats?.status === 'APPROVED' ? (isOnline ? "bg-green-500" : "bg-red-500") : "bg-orange-500")}>
           {driverStats?.status === 'APPROVED' ? (isOnline ? 'Online' : 'Offline') : 'Em Análise'}
         </Badge>
       </div>
@@ -277,12 +283,12 @@ const AvailableOrdersPage = () => {
           </CardContent>
         </Card>
       ) : isOnline && !activeOrder ? (
-        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-indigo-50">
+        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-indigo-50 animate-in fade-in">
           <Loader2 className="h-10 w-10 text-indigo-200 animate-spin mb-4" />
           <p className="text-gray-400 font-black uppercase text-[10px] text-center px-8">Buscando novos pedidos...</p>
         </div>
       ) : !isOnline && !activeOrder && (
-        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-gray-100 opacity-60">
+        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-gray-100 opacity-60 animate-in fade-in">
           <div className="bg-gray-100 p-4 rounded-full mb-4">
             <Power className="h-8 w-8 text-gray-400" />
           </div>

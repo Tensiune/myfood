@@ -13,26 +13,34 @@ import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
 
 const DriverLayout = () => {
-  const [isOnline, setIsOnline] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => {
+      // Tenta recuperar o estado anterior
+      return localStorage.getItem('driver_online_status') === 'online';
+  });
   const [driverStatus, setDriverStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const location = useLocation();
   const navigate = useNavigate();
   
-  // Busca o status atual do entregador
   useEffect(() => {
     const fetchStatus = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        setDriverStatus(user.user_metadata?.status || 'NEEDS_SETUP');
+        const status = user.user_metadata?.status || 'NEEDS_SETUP';
+        setDriverStatus(status);
+        // Se o motorista for bloqueado ou estiver em setup, força offline
+        if (status !== 'APPROVED') {
+            setIsOnline(false);
+            localStorage.setItem('driver_online_status', 'offline');
+        }
       }
       setLoading(false);
     };
     fetchStatus();
   }, []);
 
-  // Ativa o rastreamento quando o motorista está online
-  const { isTracking } = useDriverLocationTracker(isOnline);
+  // Ativa o rastreamento apenas quando online
+  useDriverLocationTracker(isOnline);
 
   const navItems = [
     { path: "/driver/orders", icon: List, label: "Pedidos" },
@@ -42,7 +50,6 @@ const DriverLayout = () => {
   
   const handleToggleOnline = (checked: boolean) => {
     if (checked) {
-      // VALIDAÇÃO CRÍTICA: Só permite ficar online se estiver aprovado
       if (driverStatus !== 'APPROVED') {
         let msg = "Sua conta ainda não foi aprovada pelo administrador.";
         if (driverStatus === 'NEEDS_SETUP') msg = "Você precisa completar seu cadastro primeiro.";
@@ -53,21 +60,24 @@ const DriverLayout = () => {
         return;
       }
 
-      // Permissão de localização
+      // Permissão de localização (simulada ou real)
       if (localStorage.getItem('driver_location_permission') !== 'granted') {
-        if (window.confirm("Para ficar online, você precisa permitir o acesso à sua localização em segundo plano. Isso é essencial para receber pedidos. Deseja autorizar?")) {
+        if (window.confirm("Para ficar online, você precisa permitir o acesso à sua localização. Deseja autorizar?")) {
           localStorage.setItem('driver_location_permission', 'granted');
-          showSuccess("Permissão concedida! Você está online.");
           setIsOnline(true);
+          localStorage.setItem('driver_online_status', 'online');
+          showSuccess("Você está online!");
         } else {
           showError("Você precisa conceder a permissão para ficar online.");
           setIsOnline(false);
         }
       } else {
         setIsOnline(true);
+        localStorage.setItem('driver_online_status', 'online');
       }
     } else {
       setIsOnline(false);
+      localStorage.setItem('driver_online_status', 'offline');
     }
   };
 
@@ -75,7 +85,6 @@ const DriverLayout = () => {
     switch (driverStatus) {
       case 'PENDING': return <Badge className="bg-yellow-100 text-yellow-700 border-none gap-1"><Clock className="h-3 w-3" /> Em Análise</Badge>;
       case 'REJECTED': return <Badge variant="destructive" className="gap-1"><AlertCircle className="h-3 w-3" /> Recusado</Badge>;
-      case 'APPROVED': return null; // Não mostra nada se estiver tudo ok
       default: return null;
     }
   };
@@ -84,7 +93,6 @@ const DriverLayout = () => {
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
-      {/* Driver Status Header */}
       <header className="bg-white p-4 sticky top-0 z-20 border-b border-gray-100 flex items-center justify-between shadow-sm">
         <div className="flex flex-col">
           <div className="flex items-center gap-3">
@@ -108,7 +116,6 @@ const DriverLayout = () => {
         />
       </header>
       
-      {/* Tracking Status Alert */}
       {isOnline && (
         <div className="bg-green-500 text-white p-2 text-center text-xs font-bold flex items-center justify-center gap-2">
           <MapPin className="h-3 w-3 animate-pulse" />
@@ -116,7 +123,6 @@ const DriverLayout = () => {
         </div>
       )}
 
-      {/* Content */}
       <main className="flex-grow container mx-auto p-4 max-w-2xl pb-24">
         {driverStatus === 'PENDING' && location.pathname !== "/driver/profile" && (
           <div className="bg-indigo-900 text-white p-6 rounded-3xl mb-6 shadow-xl shadow-indigo-200">
@@ -124,32 +130,14 @@ const DriverLayout = () => {
               <Clock className="h-8 w-8 text-yellow-400 shrink-0" />
               <div>
                 <h2 className="text-xl font-bold mb-1">Perfil em Análise</h2>
-                <p className="text-indigo-100 text-sm">
-                  Recebemos seus documentos! Nossa equipe está validando os dados. 
-                  Você não poderá ficar online até ser aprovado.
-                </p>
+                <p className="text-indigo-100 text-sm">Nossa equipe está validando seus dados. Você não poderá ficar online até ser aprovado.</p>
               </div>
             </div>
           </div>
         )}
-
-        {driverStatus === 'APPROVED' && !isOnline && location.pathname !== "/driver/profile" && (
-          <div className="bg-indigo-900 text-white p-6 rounded-3xl mb-6 shadow-xl shadow-indigo-200">
-            <h2 className="text-xl font-bold mb-2">Pronto para rodar?</h2>
-            <p className="text-indigo-100 text-sm mb-4">Fique online para começar a receber pedidos próximos de você.</p>
-            <Button 
-              className="w-full bg-brand-accent hover:bg-brand-accent/90 text-white font-bold rounded-xl"
-              onClick={() => handleToggleOnline(true)}
-            >
-              Ficar Online Agora
-            </Button>
-          </div>
-        )}
-        
         <Outlet />
       </main>
 
-      {/* Driver Bottom Nav */}
       <nav className="bg-white border-t border-gray-100 p-2 fixed bottom-0 left-0 right-0 z-20 safe-area-bottom">
         <div className="flex justify-around items-center max-w-md mx-auto">
           {navItems.map((item) => {
@@ -166,9 +154,7 @@ const DriverLayout = () => {
               >
                 <Icon className="h-6 w-6" />
                 <span className="text-[10px] mt-1 font-bold">{item.label}</span>
-                {isActive && (
-                  <span className="absolute -top-1 h-1 w-1 bg-indigo-600 rounded-full" />
-                )}
+                {isActive && <span className="absolute -top-1 h-1 w-1 bg-indigo-600 rounded-full" />}
               </Link>
             );
           })}
