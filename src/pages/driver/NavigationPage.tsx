@@ -138,10 +138,20 @@ const NavigationPage = () => {
     const nextStatus = stop.type === 'pickup' ? 'OUT_FOR_DELIVERY' : 'DELIVERED';
     
     try {
+        const { data: { user } } = await supabase.auth.getUser();
         const { error } = await supabase.from('orders').update({ status: nextStatus }).eq('id', stop.orderId);
+        
         if (error) throw error;
         showSuccess(stop.type === 'pickup' ? "Retirada confirmada!" : "Pedido entregue com sucesso!");
         setOtpCode("");
+
+        // CORREÇÃO: Avisa ao sistema que este entregador está livre/disponível para novas ordens
+        if (user) {
+            supabase.functions.invoke('dispatch-order', {
+                body: { driverId: user.id }
+            }).catch(e => console.error("Auto-match fail", e));
+        }
+
         // Se foi a última entrega, volta para o radar
         if (stops.length <= 1 && stop.type === 'delivery') {
             navigate("/driver/orders");

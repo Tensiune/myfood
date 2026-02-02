@@ -68,7 +68,27 @@ const DriverLayout = () => {
       setIsOnline(true);
       localStorage.setItem('driver_online_status', 'online');
       showSuccess("Você está pronto para receber pedidos!");
+
+      // AUTO-MATCH: Ao ficar online, avisa o servidor para buscar trabalho
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+          supabase.functions.invoke('dispatch-order', {
+              body: { driverId: user.id }
+          }).catch(e => console.error("Initial match fail", e));
+      }
+
     } else {
+      setIsOnline(true); // Manter estado local enquanto processa
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      // Antes de deslogar, limpamos ofertas atuais se houver
+      if (user) {
+          await supabase.from('orders').update({ 
+              current_driver_offered_id: null, 
+              offer_expires_at: null 
+          }).eq('current_driver_offered_id', user.id).is('driver_id', null);
+      }
+
       setIsOnline(false);
       localStorage.setItem('driver_online_status', 'offline');
     }
