@@ -146,12 +146,18 @@ const MerchantOrdersPage = () => {
       if (error) throw error;
       
       const fetchedOrders = data || [];
+      console.log(`[MerchantOrdersPage] Fetched ${fetchedOrders.length} orders.`);
 
       // Fetch customer names for all orders
       const ordersWithCustomerNames = await Promise.all(fetchedOrders.map(async (order) => {
         if (order.customer_id) {
-          const { data: customerNameData } = await supabase.rpc('get_user_full_name', { user_id: order.customer_id });
-          return { ...order, customer_full_name: customerNameData || 'Cliente' };
+          try {
+            const { data: customerNameData } = await supabase.rpc('get_user_full_name', { user_id: order.customer_id });
+            return { ...order, customer_full_name: customerNameData || 'Cliente' };
+          } catch (rpcError) {
+            console.error("[MerchantOrdersPage] RPC Error fetching customer name:", rpcError);
+            return { ...order, customer_full_name: 'Cliente (Erro RPC)' };
+          }
         }
         return { ...order, customer_full_name: 'Cliente' };
       }));
@@ -167,12 +173,12 @@ const MerchantOrdersPage = () => {
 
       setOrders(ordersWithCustomerNames);
     } catch (err) {
-      console.error(err);
+      console.error("[MerchantOrdersPage] Main fetch error:", err);
       setOrders([]);
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, [autoAccept, handleAcceptOrder, handlePrintReceipt]); // Dependências estáveis
+  }, [autoAccept, handleAcceptOrder, handlePrintReceipt]);
 
   // 4. Efeito principal para setup e real-time
   useEffect(() => {
