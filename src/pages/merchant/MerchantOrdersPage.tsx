@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { OtpInput } from "@/components/shared/OtpInput";
 
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
+const PROJECT_ID = "ulaosfxeilccmptlpwxr";
 
 const MerchantOrdersPage = () => {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
@@ -97,25 +98,41 @@ const MerchantOrdersPage = () => {
       
       if (updateError) throw updateError;
 
-      // 2. Chamar a Edge Function de Despacho (Explicitamente aguardando)
-      console.log("[Merchant] Disparando dispatch-order para:", id);
-      const { data: dispatchData, error: dispatchError } = await supabase.functions.invoke('dispatch-order', { 
-        body: { orderId: id } 
+      // 2. Chamar a Edge Function usando a URL completa (mais robusto)
+      console.log("[Merchant] Invocando dispatch-order...");
+      const functionUrl = `https://${PROJECT_ID}.supabase.co/functions/v1/dispatch-order`;
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({ orderId: id })
       });
 
-      if (dispatchError) {
-        console.error("[Merchant] Erro na Edge Function:", dispatchError);
-        showError("Pedido aceito, mas houve um erro ao buscar entregadores. Tentaremos novamente em instantes.");
+      if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.error || "Erro na Edge Function");
+      }
+
+      const result = await response.json();
+      console.log("[Merchant] Resposta do despacho:", result);
+
+      if (result.success) {
+          showSuccess("Pedido aceito! Buscando entregador próximo.");
       } else {
-        console.log("[Merchant] Resposta do despacho:", dispatchData);
-        showSuccess("Pedido aceito! Sistema de busca ativado.");
+          showError("Pedido aceito, mas não há entregadores online no momento.");
       }
 
       dismissToast(tid);
       fetchOrders(true);
     } catch (err: any) {
       dismissToast(tid);
-      showError("Erro ao processar aceite: " + err.message);
+      console.error("[Merchant] Erro fatal no aceite:", err);
+      showError("Erro ao processar: " + err.message);
     }
   };
 
@@ -163,8 +180,16 @@ const MerchantOrdersPage = () => {
 
         if (error) throw error;
 
-        // Dispara nova busca
-        await supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } });
+        // Dispara nova busca (usando fetch para garantir log)
+        const { data: { session } } = await supabase.auth.getSession();
+        await fetch(`https://${PROJECT_ID}.supabase.co/functions/v1/dispatch-order`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({ orderId: order.id })
+        });
 
         dismissToast(tid);
         showSuccess("Novo entregador solicitado!");
@@ -334,7 +359,7 @@ const MerchantOrdersPage = () => {
                    <Button variant="ghost" className="flex-1 text-red-500 rounded-xl h-10" onClick={() => handleCancelOrder(o.id)}>
                      <X className="h-4 w-4 mr-1" /> Cancelar
                    </Button>
-                   <Button variant="outline" className="flex-1 text-indigo-600 border-indigo-100 rounded-xl h-10" onClick={() => supabase.functions.invoke('dispatch-order', { body: { orderId: o.id } })}>
+                   <Button variant="outline" className="flex-1 text-indigo-600 border-indigo-100 rounded-xl h-10" onClick={() => handleRequestNewDriver(o)}>
                      <Send className="h-3 w-3 mr-1" /> Re-despachar
                    </Button>
                  </div>

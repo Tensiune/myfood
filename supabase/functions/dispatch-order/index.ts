@@ -16,37 +16,45 @@ serve(async (req) => {
 
   try {
     const { orderId } = await req.json()
-    console.log(`[dispatch-order] Processando busca para pedido: ${orderId}`);
+    console.log(`[dispatch-order] Iniciando busca para pedido: ${orderId}`);
 
-    // 1. Buscar o pedido e sua localização (loja)
+    // 1. Buscar o pedido de forma simples
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .select('*, merchant:merchant_applications(*)')
+      .select('*')
       .eq('id', orderId)
       .single()
 
-    if (orderError || !order) throw new Error("Pedido não encontrado")
+    if (orderError || !order) {
+        console.error(`[dispatch-order] Erro ao buscar pedido: ${orderError?.message}`);
+        throw new Error("Pedido não encontrado");
+    }
     
-    // O pedido deve estar em preparo ou já aguardando motorista
-    if (order.status !== 'PREPARING' && order.status !== 'WAITING_FOR_DRIVER') {
-        console.log(`[dispatch-order] Pedido ${orderId} ignorado pois status é ${order.status}`);
-        return new Response(JSON.stringify({ success: true, message: 'Status does not require dispatch' }), { headers: corsHeaders });
+    // 2. Buscar o lojista separadamente para evitar erros de join
+    const { data: merchant, error: merchantError } = await supabaseAdmin
+      .from('merchant_applications')
+      .select('*')
+      .eq('id', order.merchant_id)
+      .single()
+
+    if (merchantError || !merchant) {
+        console.error(`[dispatch-order] Erro ao buscar lojista: ${merchantError?.message}`);
+        throw new Error("Lojista não encontrado");
     }
 
-    const meta = order.merchant?.metadata || {}
+    const meta = merchant.metadata || {}
     const addr = meta.store_details?.address || meta.address || {}
     const storeLat = parseFloat(addr.lat)
     const storeLng = parseFloat(addr.lng)
 
-    // Log de coordenadas para depuração
     console.log(`[dispatch-order] Coordenadas da loja: ${storeLat}, ${storeLng}`);
 
     if (isNaN(storeLat) || isNaN(storeLng)) {
-        console.error("[dispatch-order] Loja sem coordenadas válidas.");
+        console.error("[dispatch-order] Loja sem coordenadas válidas no metadata.");
         return new Response(JSON.stringify({ error: "Store missing coordinates" }), { status: 400, headers: corsHeaders });
     }
 
-    // 2. Buscar motoristas aprovados
+    // 3. Buscar motoristas aprovados
     const { data: drivers, error: driversError } = await supabaseAdmin
       .from('driver_applications')
       .select('id, full_name, status')
@@ -55,48 +63,41 @@ serve(async (req) => {
     if (driversError) throw driversError;
 
     if (!drivers || drivers.length === 0) {
-        console.log("[dispatch-order] Nenhum entregador APROVADO encontrado no banco.");
+        console.log("[dispatch-order] Nenhum entregador APROVADO no sistema.");
         return new Response(JSON.stringify({ success: false, reason: 'no_approved_drivers' }), { headers: corsHeaders });
     }
 
-    // 3. Buscar localizações atuais de quem está online
+    // 4. Buscar localizações
     const { data: locations } = await supabaseAdmin
       .from('driver_locations')
-      .select('driver_id, latitude, longitude, updated_at')
+      .select('driver_id, latitude, longitude')
 
-    // Raio de busca estendido para testes: 50km
     const MAX_DISTANCE_KM = 50.0; 
     const refusedIds = order.refused_drivers_ids || [];
 
-    // 4. Filtrar e Rankear motoristas por distância
     const availableDrivers = drivers.map(d => {
         const loc = locations?.find(l => l.driver_id === d.id);
-        // Se não tem localização, está offline ou nunca abriu o app
         if (!loc) return { ...d, distance: 9999, hasRefused: refusedIds.includes(d.id) };
         
         const dist = calculateDistance(storeLat, storeLng, parseFloat(loc.latitude), parseFloat(loc.longitude));
         return { ...d, distance: dist, hasRefused: refusedIds.includes(d.id) };
     }).filter(d => d.distance <= MAX_DISTANCE_KM);
 
-    console.log(`[dispatch-order] Entregadores no raio (${MAX_DISTANCE_KM}km): ${availableDrivers.length}`);
+    console.log(`[dispatch-order] Entregadores no raio: ${availableDrivers.length}`);
 
-    // Tenta primeiro quem não recusou ainda
     let nextDriver = availableDrivers
         .filter(d => !d.hasRefused && d.distance < 9999)
         .sort((a, b) => a.distance - b.distance)[0];
 
-    // Se todos recusaram, mas há motoristas no raio, oferece novamente para o mais perto
     if (!nextDriver && availableDrivers.filter(d => d.distance < 9999).length > 0) {
-        console.log("[dispatch-order] Ciclo de recusa completo. Reiniciando oferta.");
+        console.log("[dispatch-order] Reiniciando ciclo de ofertas.");
         nextDriver = availableDrivers
           .filter(d => d.distance < 9999)
           .sort((a, b) => a.distance - b.distance)[0];
     }
 
     if (nextDriver) {
-      // Oferta expira em 60 segundos
       const expiresAt = new Date(Date.now() + 60000).toISOString();
-      
       const { error: updateError } = await supabaseAdmin
         .from('orders')
         .update({
@@ -107,12 +108,12 @@ serve(async (req) => {
 
       if (updateError) throw updateError;
 
-      console.log(`[dispatch-order] Pedido ${orderId} oferecido para: ${nextDriver.full_name}`);
+      console.log(`[dispatch-order] Pedido oferecido para: ${nextDriver.full_name}`);
       return new Response(JSON.stringify({ success: true, driverId: nextDriver.id }), { headers: corsHeaders });
     }
 
-    console.log("[dispatch-order] Nenhum entregador online encontrado próximo à loja.");
-    return new Response(JSON.stringify({ success: false, reason: 'no_drivers_online' }), { headers: corsHeaders });
+    console.log("[dispatch-order] Nenhum entregador qualificado encontrado.");
+    return new Response(JSON.stringify({ success: false, reason: 'no_drivers_available' }), { headers: corsHeaders });
 
   } catch (err: any) {
     console.error("[dispatch-order] Erro fatal:", err.message);
