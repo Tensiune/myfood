@@ -19,6 +19,7 @@ import ReactDOMServer from 'react-dom/server';
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import OrderCardDetails from "@/components/merchant/OrderCardDetails";
+import { printReceipt } from "@/utils/print"; // Importando o novo utilitário
 
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
 
@@ -78,76 +79,9 @@ const MerchantOrdersPage = () => {
     }
   }, [audioEnabled]);
 
-  const printOrderReceipt = (order: any, customerName: string) => {
-    // 1. Renderiza o componente com as configurações
-    const receiptHtml = ReactDOMServer.renderToString(
-      <OrderReceipt 
-        order={order} 
-        merchantName={merchantName} 
-        customerName={customerName} 
-        printSettings={printSettings}
-      />
-    );
-
-    // 2. Gera o CSS de impressão dinâmico
-    const printCss = `
-      @media print {
-        @page { 
-          size: ${printSettings.paperWidth} auto; 
-          margin: 0; 
-        }
-        body { 
-          margin: 0; 
-          padding: 0; 
-          width: ${printSettings.paperWidth};
-          color: #000 !important;
-          background: #fff !important;
-        }
-        .print-container { 
-          width: ${printSettings.paperWidth}; 
-          padding: ${printSettings.margin}mm; 
-        }
-        /* Força fontes simples e monocromáticas */
-        * {
-          font-family: monospace !important;
-          color: #000 !important;
-          box-shadow: none !important;
-          text-shadow: none !important;
-          background: #fff !important;
-        }
-        /* Remove elementos de tela */
-        .no-print { display: none; }
-        /* Garante que bordas tracejadas sejam visíveis */
-        .border-dashed { border-style: dashed !important; }
-        .border-dotted { border-style: dotted !important; }
-      }
-    `;
-
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Comanda #${order.id.slice(0, 6)}</title>
-            <style>${printCss}</style>
-          </head>
-          <body>
-            <div class="print-container">
-              ${receiptHtml}
-            </div>
-            <script>
-              window.onload = function() {
-                window.print();
-                window.onafterprint = function() {
-                  window.close();
-                }
-              }
-            </script>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-    }
+  // Função de impressão refatorada para usar o utilitário
+  const handlePrintReceipt = (order: any, customerName: string) => {
+    printReceipt(order, merchantName, customerName, printSettings);
   };
 
   const fetchOrders = useCallback(async (isSilent = false) => {
@@ -254,7 +188,7 @@ const MerchantOrdersPage = () => {
       }
       
       // IMPRIMIR COMANDA
-      printOrderReceipt(order, order.customer_full_name);
+      handlePrintReceipt(order, order.customer_full_name);
 
       fetchOrders(true);
     } catch (err: any) {
@@ -611,7 +545,7 @@ const MerchantOrdersPage = () => {
           <DialogFooter className="p-6 border-t border-gray-100 shrink-0">
             <Button 
               className="w-full rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black h-12"
-              onClick={() => printOrderReceipt(selectedOrderDetails, selectedOrderDetails.customer_full_name)}
+              onClick={() => handlePrintReceipt(selectedOrderDetails, selectedOrderDetails.customer_full_name)}
             >
               Imprimir Comanda
             </Button>
