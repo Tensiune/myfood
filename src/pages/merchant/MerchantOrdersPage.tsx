@@ -113,8 +113,6 @@ const MerchantOrdersPage = () => {
         handlePrintReceipt(order, order.customer_full_name);
       }
       
-      // REMOVIDO: fetchOrders(true); -> O canal de realtime fará o refresh.
-
     } catch (err: any) {
       if (!isSilent) dismissToast(tid);
       showError("Erro: " + (err.message || "Erro desconhecido"));
@@ -143,7 +141,10 @@ const MerchantOrdersPage = () => {
         .eq('merchant_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error("[MerchantOrdersPage] Error fetching orders:", error);
+        throw error;
+      }
       
       const fetchedOrders = data || [];
       console.log(`[MerchantOrdersPage] Fetched ${fetchedOrders.length} orders.`);
@@ -175,6 +176,8 @@ const MerchantOrdersPage = () => {
     } catch (err) {
       console.error("[MerchantOrdersPage] Main fetch error:", err);
       setOrders([]);
+      // Propaga o erro para o bloco de setup lidar com o loading
+      throw err; 
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -185,32 +188,41 @@ const MerchantOrdersPage = () => {
     let channel: any;
     const setup = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
       
-      // 1. Fetch inicial
-      await fetchOrders();
-      
-      // 2. Configura o canal de real-time
-      channel = supabase.channel(`orders_merchant_${user.id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `merchant_id=eq.${user.id}` }, async (p) => {
-          if (p.eventType === 'INSERT') {
-            playAlert();
-            
-            // Se auto-print estiver ativo, imprime o novo pedido
-            if (autoPrint) {
-                const newOrder = p.new;
-                // Busca o nome do cliente para a impressão
-                const { data: customerNameData } = await supabase.rpc('get_user_full_name', { user_id: newOrder.customer_id });
-                handlePrintReceipt(newOrder, customerNameData || 'Cliente');
+      try {
+        // 1. Fetch inicial
+        await fetchOrders();
+        
+        // 2. Configura o canal de real-time
+        channel = supabase.channel(`orders_merchant_${user.id}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `merchant_id=eq.${user.id}` }, async (p) => {
+            if (p.eventType === 'INSERT') {
+              playAlert();
+              
+              // Se auto-print estiver ativo, imprime o novo pedido
+              if (autoPrint) {
+                  const newOrder = p.new;
+                  // Busca o nome do cliente para a impressão
+                  const { data: customerNameData } = await supabase.rpc('get_user_full_name', { user_id: newOrder.customer_id });
+                  handlePrintReceipt(newOrder, customerNameData || 'Cliente');
+              }
             }
-          }
-          // Em qualquer evento (INSERT, UPDATE, DELETE), atualiza a lista
-          fetchOrders(true);
-        }).subscribe();
+            // Em qualquer evento (INSERT, UPDATE, DELETE), atualiza a lista
+            fetchOrders(true);
+          }).subscribe();
+      } catch (error) {
+        console.error("[MerchantOrdersPage] Setup failed:", error);
+      } finally {
+        setLoading(false); // Garante que o loading seja desativado
+      }
     };
     setup();
     return () => { if (channel) supabase.removeChannel(channel); };
-  }, [fetchOrders, playAlert, autoPrint, handlePrintReceipt]); // fetchOrders é estável
+  }, [fetchOrders, playAlert, autoPrint, handlePrintReceipt]);
 
   const handleToggleStore = async (val: boolean) => {
     const { data: { user } } = await supabase.auth.getUser();
