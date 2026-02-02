@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, MapPin, Store, ShoppingBag, Clock, Map, XCircle, AlertTriangle, Power } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useDriverLocationTracker } from "@/hooks/useDriverLocationTracker";
 import { calculateDistance } from "@/utils/geo";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/
 
 const AvailableOrdersPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [offer, setOffer] = useState<any>(null);
   const [activeOrder, setActiveOrder] = useState<any>(null);
   const [timeLeft, setTimeLeft] = useState(0);
@@ -30,7 +31,6 @@ const AvailableOrdersPage = () => {
   const pollingRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   
-  // Sincroniza a localização (o hook já trata de não rastrear se estiver offline)
   useDriverLocationTracker(true);
 
   useEffect(() => {
@@ -54,6 +54,7 @@ const AvailableOrdersPage = () => {
   const syncOrders = useCallback(async (uid: string) => {
     if (!uid) return;
     try {
+      // 1. Sincronizar Ofertas Pendentes
       const { data: offers } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
@@ -76,11 +77,12 @@ const AvailableOrdersPage = () => {
         lastOfferIdRef.current = null;
       }
 
+      // 2. Sincronizar Pedido em Andamento (Excluindo estritamente cancelados e entregues)
       const { data: accepted } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
         .eq('driver_id', uid)
-        .not('status', 'in', '("DELIVERED", "CANCELLED")')
+        .not('status', 'in', '(DELIVERED,CANCELLED)') // Sintaxe corrigida sem aspas internas
         .order('created_at', { ascending: false });
 
       if (accepted && accepted.length > 0) {
@@ -92,6 +94,11 @@ const AvailableOrdersPage = () => {
         lastStatusRef.current = order.status;
         setActiveOrder(order);
       } else {
+        // Se o entregador tinha um pedido e agora a consulta retornou vazio, 
+        // significa que foi cancelado ou finalizado.
+        if (activeOrder) {
+            console.log("[Radar] Pedido ativo não encontrado ou cancelado pela loja.");
+        }
         setActiveOrder(null);
         lastStatusRef.current = null;
       }
@@ -101,7 +108,7 @@ const AvailableOrdersPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [playAlert]);
+  }, [playAlert, activeOrder]);
 
   const handleTimeout = useCallback(async () => {
     if (!driverId || !offer) return;
@@ -128,15 +135,14 @@ const AvailableOrdersPage = () => {
     }
   }, [offer, timeLeft, handleTimeout]);
 
-  // Detector de estado online sincronizado
+  // Detector de estado online
   useEffect(() => {
     const checkStatus = () => {
       const isActuallyOnline = localStorage.getItem('driver_online_status') === 'online';
       setIsOnline(isActuallyOnline);
     };
-    
     checkStatus();
-    const interval = setInterval(checkStatus, 1000); // Checa rápido para UX suave
+    const interval = setInterval(checkStatus, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -153,13 +159,11 @@ const AvailableOrdersPage = () => {
       await fetchFeeSettings();
       
       pollingRef.current = setInterval(() => {
-        // Só sincroniza e busca pedidos se estiver ONLINE no localStorage
         if (localStorage.getItem('driver_online_status') === 'online') {
            syncOrders(user.id);
         }
-      }, 5000);
+      }, 4000); // Polling levemente mais rápido para evitar "travamentos"
 
-      // Sincronia inicial se estiver online
       if (localStorage.getItem('driver_online_status') === 'online') {
         syncOrders(user.id);
       } else {
@@ -172,6 +176,13 @@ const AvailableOrdersPage = () => {
         if (pollingRef.current) clearInterval(pollingRef.current); 
     };
   }, [syncOrders]);
+
+  // Se o entregador volta de uma navegação de pedido cancelado, forçamos um sync imediato
+  useEffect(() => {
+    if (driverId && isOnline) {
+        syncOrders(driverId);
+    }
+  }, [location.key, driverId, isOnline, syncOrders]);
 
   const handleAccept = async () => {
     if (!driverId || !offer) return;
@@ -228,7 +239,7 @@ const AvailableOrdersPage = () => {
       </div>
 
       {activeOrder && (
-        <Card className="rounded-[2rem] border-2 border-indigo-600 bg-indigo-50/30 overflow-hidden shadow-lg">
+        <Card className="rounded-[2rem] border-2 border-indigo-600 bg-indigo-50/30 overflow-hidden shadow-lg animate-in fade-in">
           <CardContent className="p-6 space-y-4">
              <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
@@ -240,7 +251,7 @@ const AvailableOrdersPage = () => {
                 <Badge className="bg-indigo-600">R$ {getCalculatedFee(activeOrder).toFixed(2)}</Badge>
              </div>
              <p className="font-bold text-gray-800 leading-tight">Retirar em: {activeOrder.merchant?.store_name || "Loja"}</p>
-             <Button className="w-full rounded-xl bg-indigo-600 text-white font-bold" onClick={() => navigate(`/driver/map?orderId=${activeOrder.id}`)}>
+             <Button className="w-full rounded-xl bg-indigo-600 text-white font-bold h-12" onClick={() => navigate(`/driver/map?orderId=${activeOrder.id}`)}>
                <Map className="h-4 w-4 mr-2" /> Continuar Rota
              </Button>
           </CardContent>
