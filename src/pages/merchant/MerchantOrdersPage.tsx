@@ -16,7 +16,9 @@ import {
   Eye,
   MessageCircle,
   PhoneCall,
-  Trash2
+  Trash2,
+  AlertCircle,
+  RefreshCw
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
@@ -53,6 +55,7 @@ const MerchantOrdersPage = () => {
   const navigate = useNavigate();
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
@@ -61,7 +64,6 @@ const MerchantOrdersPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [showItemDetails, setShowItemDetails] = useState(() => localStorage.getItem('merchant_show_items') === 'true');
   const [autoAccept, setAutoAccept] = useState(() => localStorage.getItem('merchant_auto_accept') === 'true');
-  const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem('merchant_auto_print') === 'true');
   
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any>(null);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
@@ -118,12 +120,16 @@ const MerchantOrdersPage = () => {
   }, [handlePrint]);
 
   const fetchOrders = useCallback(async (isSilent = false) => {
-    if (!isSilent) setLoading(true);
+    if (!isSilent) {
+        setLoading(true);
+        setFetchError(null);
+    }
+    
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. Dados da Loja
+      // 1. Dados da Loja e Configurações
       const { data: merchantData } = await supabase
         .from('merchant_applications')
         .select('is_open, store_name, metadata')
@@ -138,54 +144,65 @@ const MerchantOrdersPage = () => {
         }
       }
 
-      // 2. Pedidos (Consulta sem joins para evitar erro de relação)
-      const { data: fetchedOrders, error } = await supabase
+      // 2. Busca de Pedidos (Apenas a tabela orders primeiro)
+      const { data: rawOrders, error: ordersError } = await supabase
         .from('orders')
         .select('*')
         .eq('merchant_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(50);
+        .limit(40);
 
-      if (error) throw error;
-      
-      const ordersToSet = fetchedOrders || [];
-      
-      // 3. Enriquecimento Resiliente
-      const ordersWithDetails = await Promise.all(ordersToSet.map(async (order) => {
-        let customerName = 'Cliente';
-        let driverData = null;
-
-        try {
-          if (order.customer_id) {
-            const { data: name } = await supabase.rpc('get_user_full_name', { user_id: order.customer_id });
-            customerName = name || 'Cliente';
-          }
-          if (order.driver_id) {
-            const { data: dApp } = await supabase.from('driver_applications').select('*').eq('id', order.driver_id).single();
-            driverData = dApp;
-          }
-        } catch (e) {
-          console.error("Erro ao enriquecer pedido", order.id, e);
-        }
-
-        return { 
-          ...order, 
-          customer_full_name: customerName,
-          driver: driverData
-        };
-      }));
-
-      // 4. Auto-Aceite
-      if (autoAccept) {
-          for (const o of ordersWithDetails.filter(ord => ord.status === 'PENDING')) {
-              await handleAcceptOrder(o, true);
-          }
+      if (ordersError) throw ordersError;
+      if (!rawOrders || rawOrders.length === 0) {
+        setOrders([]);
+        setLoading(false);
+        return;
       }
 
-      setOrders(ordersWithDetails);
-    } catch (err) {
-      console.error("[MerchantDashboard] Fetch Error:", err);
-      showError("Erro ao carregar pedidos.");
+      // 3. BUSCA EM LOTE (BATCH FETCH) - Otimização crucial
+      const customerIds = Array.from(new Set(rawOrders.map(o => o.customer_id).filter(Boolean)));
+      const driverIds = Array.from(new Set(rawOrders.map(o => o.driver_id).filter(Boolean)));
+
+      // Busca entregadores em uma única chamada
+      const { data: drivers } = driverIds.length > 0 
+        ? await supabase.from('driver_applications').select('*').in('id', driverIds)
+        : { data: [] };
+
+      // Busca perfis para pegar os nomes em uma única chamada
+      const { data: profiles } = customerIds.length > 0
+        ? await supabase.from('profiles').select('id, first_name, last_name').in('id', customerIds)
+        : { data: [] };
+
+      // 4. Montar a lista final localmente (Sem novas chamadas ao banco)
+      const enrichedOrders = rawOrders.map(order => {
+        const profile = profiles?.find(p => p.id === order.customer_id);
+        const driver = drivers?.find(d => d.id === order.driver_id);
+        
+        const customerName = profile 
+            ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() 
+            : 'Cliente';
+
+        return {
+          ...order,
+          customer_full_name: customerName || 'Cliente',
+          driver: driver || null,
+          items: Array.isArray(order.items) ? order.items : [],
+          delivery_address: order.delivery_address || {}
+        };
+      });
+
+      setOrders(enrichedOrders);
+
+      // Auto-Aceite se configurado
+      if (autoAccept) {
+        enrichedOrders.forEach(o => {
+          if (o.status === 'PENDING') handleAcceptOrder(o, true);
+        });
+      }
+
+    } catch (err: any) {
+      console.error("[MerchantOrders] Fetch Error:", err);
+      setFetchError(err.message || "Erro desconhecido");
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -194,10 +211,10 @@ const MerchantOrdersPage = () => {
   useEffect(() => {
     fetchOrders();
 
-    const channel = supabase.channel(`merchant_realtime`)
+    const channel = supabase.channel(`merchant_realtime_v2`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
         if (payload.eventType === 'INSERT') playAlert();
-        fetchOrders(true);
+        fetchOrders(true); // Silent refresh
       })
       .subscribe();
 
@@ -214,40 +231,12 @@ const MerchantOrdersPage = () => {
     }
   };
 
-  const handleCancelOrder = async (id: string) => {
-    if (!window.confirm("Cancelar este pedido?")) return;
-    try {
-      await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', id);
-      showSuccess("Pedido cancelado.");
-      setIsDetailsDialogOpen(false);
-      fetchOrders(true);
-    } catch (err) {
-      showError("Erro ao cancelar.");
-    }
-  };
-
-  const handleConfirmPickup = async (order: any) => {
-    const driverPhoneCode = (order.driver?.phone || "").replace(/\D/g, "").slice(-4);
-    if (verificationCode !== driverPhoneCode) {
-      showError("Código inválido.");
-      return;
-    }
-    setIsVerifying(true);
-    const { error } = await supabase.from('orders').update({ status: 'OUT_FOR_DELIVERY' }).eq('id', order.id);
-    if (!error) {
-      showSuccess("Pedido liberado!");
-      setVerificationCode("");
-      fetchOrders(true);
-    }
-    setIsVerifying(false);
-  };
-
   const filteredOrders = useMemo(() => {
     if (!searchTerm) return orders;
     const s = searchTerm.toLowerCase();
     return orders.filter(o => 
       o.id.includes(s) || 
-      o.customer_full_name?.toLowerCase().includes(s)
+      (o.customer_full_name && o.customer_full_name.toLowerCase().includes(s))
     );
   }, [orders, searchTerm]);
 
@@ -285,12 +274,12 @@ const MerchantOrdersPage = () => {
 
               <div className="flex items-start gap-2 text-xs text-gray-500 bg-gray-50 p-3 rounded-2xl">
                 <MapPin className="h-3 w-3 mt-0.5 text-brand-accent shrink-0" />
-                <p className="line-clamp-1">{o.delivery_address?.street || 'Endereço Indefinido'}</p>
+                <p className="line-clamp-1">{o.delivery_address?.street || 'Endereço não informado'}</p>
               </div>
 
-              {showItemDetails && (
+              {showItemDetails && o.items && (
                 <div className="space-y-1 pt-2 border-t border-gray-100">
-                  {o.items?.map((item: any, i: number) => (
+                  {o.items.map((item: any, i: number) => (
                     <p key={i} className="text-[11px] text-gray-600 truncate">
                       <span className="font-bold text-indigo-600">{item.quantity}x</span> {item.name}
                     </p>
@@ -302,16 +291,41 @@ const MerchantOrdersPage = () => {
             </CardContent>
           </Card>
         ))}
+        {data.length === 0 && (
+          <div className="p-8 border-2 border-dashed border-gray-100 rounded-[2rem] text-center text-gray-300 text-[10px] font-black uppercase">Sem Pedidos</div>
+        )}
       </div>
     );
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-10 w-10 text-indigo-600 animate-spin" /></div>;
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center">
+        <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
+        <p className="text-gray-500 font-bold">Otimizando sua conexão...</p>
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-center">
+        <div className="bg-red-50 p-6 rounded-[2rem] max-w-sm">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-black text-red-900 mb-2">Erro de Conexão</h2>
+          <p className="text-red-700 text-sm mb-6">{fetchError}</p>
+          <Button onClick={() => fetchOrders()} className="w-full rounded-xl bg-red-600 gap-2">
+            <RefreshCw className="h-4 w-4" /> Tentar Novamente
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-20">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-        <h1 className="text-3xl font-black text-indigo-900">Gestão de Pedidos</h1>
+        <h1 className="text-3xl font-black text-indigo-900">Painel de Pedidos</h1>
         <div className="flex gap-2">
           <Button onClick={() => setAudioEnabled(!audioEnabled)} variant={audioEnabled ? "outline" : "default"} className={cn("rounded-xl h-11", !audioEnabled && "bg-red-500 animate-pulse")}>
             {audioEnabled ? <Volume2 className="h-4 w-4 mr-2" /> : <VolumeX className="h-4 w-4 mr-2" />}
@@ -327,7 +341,7 @@ const MerchantOrdersPage = () => {
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
-          <Input placeholder="Filtrar pedidos..." className="rounded-xl pl-10 h-12" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          <Input placeholder="Buscar por cliente ou ID..." className="rounded-xl pl-10 h-12" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
         <div className="flex gap-2">
           <Button variant={showItemDetails ? "default" : "outline"} className="rounded-xl h-12" onClick={() => { setShowItemDetails(!showItemDetails); localStorage.setItem('merchant_show_items', (!showItemDetails).toString()); }}>Itens</Button>
@@ -355,23 +369,23 @@ const MerchantOrdersPage = () => {
           ) : <div className="text-[10px] text-center text-gray-400 font-bold uppercase animate-pulse">Buscando Entregador...</div>
         ))}
         {renderSection("Em Rota", "text-yellow-600", o => o.status === 'OUT_FOR_DELIVERY', o => (
-          <Badge className="w-full py-2.5 justify-center bg-yellow-50 text-yellow-700 border-none rounded-xl font-bold">A caminho</Badge>
+          <Badge className="w-full py-2.5 justify-center bg-yellow-50 text-yellow-700 border-none rounded-xl font-bold uppercase text-[10px]">A caminho</Badge>
         ))}
-        {renderSection("Finalizados", "text-green-600", o => ['DELIVERED', 'CANCELLED'].includes(o.status), o => (
-          <Badge className={cn("w-full py-2.5 justify-center border-none rounded-xl font-bold", o.status === 'DELIVERED' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")}>{o.status === 'DELIVERED' ? 'Concluído' : 'Cancelado'}</Badge>
+        {renderSection("Histórico", "text-green-600", o => ['DELIVERED', 'CANCELLED'].includes(o.status), o => (
+          <Badge className={cn("w-full py-2.5 justify-center border-none rounded-xl font-bold text-[10px] uppercase", o.status === 'DELIVERED' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")}>{o.status === 'DELIVERED' ? 'Concluído' : 'Cancelado'}</Badge>
         ))}
       </div>
 
       <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
         <DialogContent className="rounded-3xl sm:max-w-md h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
           <div className="p-6 bg-indigo-900 text-white flex justify-between items-center shrink-0">
-             <h3 className="font-bold uppercase tracking-widest text-sm">Detalhes do Pedido</h3>
+             <h3 className="font-bold uppercase tracking-widest text-xs">Detalhes do Pedido</h3>
              <Button variant="ghost" size="icon" className="text-white hover:bg-white/10 rounded-full" onClick={() => setIsDetailsDialogOpen(false)}><X className="h-5 w-5" /></Button>
           </div>
           
           <ScrollArea className="flex-1 p-6 bg-white">
             {selectedOrderDetails && (
-              <div className="space-y-8">
+              <div className="space-y-8 pb-8">
                 <div className="flex justify-center bg-gray-50 p-4 rounded-3xl border border-dashed border-gray-200">
                   <OrderReceipt 
                     order={selectedOrderDetails} 
@@ -389,11 +403,9 @@ const MerchantOrdersPage = () => {
                         <User className="h-4 w-4 text-indigo-600" />
                         <span className="font-bold text-indigo-900 text-sm">{selectedOrderDetails.customer_full_name}</span>
                       </div>
-                      <div className="flex gap-2">
-                        <Button variant="outline" className="flex-1 rounded-xl bg-white border-indigo-200 text-indigo-600 h-10 gap-2" onClick={() => navigate(`/chat/${selectedOrderDetails.customer_id}?orderId=${selectedOrderDetails.id}`)}>
-                          <MessageCircle className="h-4 w-4" /> Chat
-                        </Button>
-                      </div>
+                      <Button variant="outline" className="w-full rounded-xl bg-white border-indigo-200 text-indigo-600 h-10 gap-2" onClick={() => navigate(`/chat/${selectedOrderDetails.customer_id}?orderId=${selectedOrderDetails.id}`)}>
+                        <MessageCircle className="h-4 w-4" /> Chat com Cliente
+                      </Button>
                     </div>
 
                     {selectedOrderDetails.driver && (
@@ -402,11 +414,9 @@ const MerchantOrdersPage = () => {
                           <Bike className="h-4 w-4 text-blue-600" />
                           <span className="font-bold text-blue-900 text-sm">Entregador: {selectedOrderDetails.driver.full_name}</span>
                         </div>
-                        <div className="flex gap-2">
-                          <Button variant="outline" className="flex-1 rounded-xl bg-white border-blue-200 text-blue-600 h-10 gap-2" onClick={() => navigate(`/chat/${selectedOrderDetails.driver.id}?orderId=${selectedOrderDetails.id}`)}>
-                            <MessageCircle className="h-4 w-4" /> Chat
-                          </Button>
-                        </div>
+                        <Button variant="outline" className="w-full rounded-xl bg-white border-blue-200 text-blue-600 h-10 gap-2" onClick={() => navigate(`/chat/${selectedOrderDetails.driver.id}?orderId=${selectedOrderDetails.id}`)}>
+                          <MessageCircle className="h-4 w-4" /> Chat com Entregador
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -414,8 +424,14 @@ const MerchantOrdersPage = () => {
 
                 <div className="space-y-4">
                    <h4 className="text-[10px] font-black uppercase text-red-400 tracking-widest px-2">Ações</h4>
-                   <Button variant="ghost" className="w-full justify-start text-red-500 hover:bg-red-50 rounded-2xl h-12 gap-3 px-4" onClick={() => handleCancelOrder(selectedOrderDetails.id)}>
-                     <Trash2 className="h-5 w-5" /> Cancelar este Pedido
+                   <Button variant="ghost" className="w-full justify-start text-red-500 hover:bg-red-50 rounded-2xl h-12 gap-3 px-4" onClick={() => {
+                     if(window.confirm("Cancelar este pedido?")) {
+                       supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', selectedOrderDetails.id);
+                       setIsDetailsDialogOpen(false);
+                       fetchOrders(true);
+                     }
+                   }}>
+                     <Trash2 className="h-5 w-5" /> Cancelar Pedido
                    </Button>
                 </div>
               </div>
