@@ -4,6 +4,7 @@ import App from "./App.tsx";
 import "./globals.css";
 import { NotificationProvider } from "./context/NotificationContext";
 import { AuthProvider } from "./context/AuthContext";
+import { CallProvider } from "./context/CallContext";
 
 const rootElement = document.getElementById("root");
 
@@ -13,7 +14,9 @@ if (rootElement) {
     <React.StrictMode>
       <AuthProvider>
         <NotificationProvider>
-          <App />
+          <CallProvider>
+            <App />
+          </CallProvider>
         </NotificationProvider>
       </AuthProvider>
     </React.StrictMode>
