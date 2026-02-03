@@ -2,8 +2,9 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Bell, MessageSquare, Package } from "lucide-react";
+import { Bell, MessageSquare } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/context/AuthContext";
 import { useNativeNotifications } from "@/hooks/useNativeNotifications";
 
 export interface Notification {
@@ -29,66 +30,79 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const { sendNotification } = useNativeNotifications();
+  const { user } = useAuth();
+  const { sendNotification: sendNative } = useNativeNotifications();
 
   useEffect(() => {
-    const setupChatListener = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+    if (!user) return;
 
-      const channel = supabase
-        .channel('global_chat_notifs')
-        .on('postgres_changes', { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'order_chats',
-          filter: `receiver_id=eq.${user.id}`
-        }, async (payload) => {
-          // Busca o nome de quem enviou
-          const { data: senderName } = await supabase.rpc('get_user_full_name', { user_id: payload.new.sender_id });
-          
-          const title = `Mensagem de ${senderName || 'Contato'}`;
-          const body = payload.new.message;
+    // Criamos um canal único para o usuário escutar mensagens
+    const channel = supabase
+      .channel(`user_notifications_${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'order_chats' },
+        async (payload) => {
+          // Filtro Manual: Só processa se o destinatário for o usuário logado
+          if (payload.new.receiver_id === user.id) {
+            
+            // Busca o nome de quem enviou (RPC)
+            const { data: senderName } = await supabase.rpc('get_user_full_name', { 
+                user_id: payload.new.sender_id 
+            });
+            
+            const title = `Nova mensagem de ${senderName || 'Contato'}`;
+            const body = payload.new.message;
+            const chatLink = `/chat/${payload.new.sender_id}?orderId=${payload.new.order_id || ''}`;
 
-          addNotification({
-            title,
-            message: body,
-            type: "chat",
-            link: `/chat/${payload.new.sender_id}?orderId=${payload.new.order_id}`
-          });
+            // 1. Adiciona à lista interna (Sininho)
+            const newNotif: Notification = {
+                id: payload.new.id,
+                title,
+                message: body,
+                type: "chat",
+                time: "Agora",
+                isRead: false,
+                link: chatLink
+            };
+            setNotifications(prev => [newNotif, ...prev]);
 
-          // Notificação Nativa (Funciona em segundo plano se o navegador permitir)
-          sendNotification(title, body);
-        })
-        .subscribe();
+            // 2. Dispara o Toast no topo (Visual)
+            toast(title, {
+              description: body,
+              icon: <MessageSquare className="h-5 w-5 text-indigo-600" />,
+              duration: 5000,
+              onClick: () => {
+                window.location.href = chatLink;
+              },
+              action: {
+                label: "Responder",
+                onClick: () => window.location.href = chatLink
+              }
+            });
 
-      return () => { supabase.removeChannel(channel); };
+            // 3. Notificação Nativa (Caso o app esteja em background)
+            sendNative(title, body);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
     };
-
-    setupChatListener();
-  }, [sendNotification]);
+  }, [user, sendNative]);
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
   const addNotification = (notif: Omit<Notification, "id" | "time" | "isRead">) => {
     const newNotif: Notification = {
       ...notif,
-      id: Date.now().toString(),
+      id: Math.random().toString(36).substr(2, 9),
       time: "Agora",
       isRead: false
     };
-
     setNotifications(prev => [newNotif, ...prev]);
-
-    // Exibe o Toast no topo da tela
-    toast(newNotif.title, {
-      description: newNotif.message,
-      icon: newNotif.type === 'chat' ? <MessageSquare className="h-4 w-4 text-indigo-600" /> : <Bell className="h-4 w-4 text-indigo-600" />,
-      action: newNotif.link ? {
-        label: "Ver",
-        onClick: () => window.location.href = newNotif.link!
-      } : undefined
-    });
   };
 
   const markAsRead = (id: string) => {

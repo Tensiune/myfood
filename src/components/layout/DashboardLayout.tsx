@@ -23,11 +23,15 @@ import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import RoleSwitcher from "../shared/RoleSwitcher";
 import { useAuth } from "@/context/AuthContext";
+import { useNotifications } from "@/context/NotificationContext";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import NotificationList from "@/components/shared/NotificationList";
 
 const DashboardLayout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [role, setRole] = useState<string | null>(null);
   const { user, signOut, loading: authLoading } = useAuth();
+  const { unreadCount } = useNotifications();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -138,9 +142,23 @@ const DashboardLayout = () => {
 
           <div className="ml-auto flex items-center gap-4">
             <RoleSwitcher className="hidden sm:flex" />
-            <Button variant="ghost" size="icon" className="rounded-full text-gray-500">
-              <Bell className="h-5 w-5" />
-            </Button>
+            
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="rounded-full relative text-gray-500 hover:bg-gray-50">
+                  <Bell className="h-5 w-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-accent text-[10px] font-black text-white border-2 border-white">
+                      {unreadCount}
+                    </span>
+                  )}
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-full sm:max-w-md rounded-l-3xl p-6">
+                <NotificationList />
+              </SheetContent>
+            </Sheet>
+
             <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
               <div className="text-right hidden sm:block">
                 <p className="text-xs font-bold text-gray-900">{user?.email}</p>
