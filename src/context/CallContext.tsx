@@ -29,6 +29,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
 
   useEffect(() => {
     audioRef.current = new Audio(RINGING_SOUND);
@@ -38,19 +39,27 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const cleanup = () => {
     audioRef.current?.pause();
     if (audioRef.current) audioRef.current.currentTime = 0;
-    pcRef.current?.close();
-    pcRef.current = null;
+    
+    if (pcRef.current) {
+      pcRef.current.ontrack = null;
+      pcRef.current.onicecandidate = null;
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+    
     localStream?.getTracks().forEach(t => t.stop());
     setLocalStream(null);
     setRemoteStream(null);
     setActiveCall(null);
     setIsIncoming(false);
+    pendingCandidates.current = [];
   };
 
   const createPeerConnection = (callId: string) => {
     if (pcRef.current) return pcRef.current;
 
     const pc = new RTCPeerConnection(iceServers);
+    
     pc.onicecandidate = (event) => {
       if (event.candidate && user) {
         supabase.from('call_ice_candidates').insert({
@@ -62,22 +71,44 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     pc.ontrack = (event) => {
-      setRemoteStream(event.streams[0]);
+      if (event.streams && event.streams[0]) {
+        setRemoteStream(event.streams[0]);
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        cleanup();
+      }
     };
 
     pcRef.current = pc;
     return pc;
   };
 
-  // Listener principal de chamadas
+  const processPendingCandidates = async () => {
+    if (!pcRef.current || !pcRef.current.remoteDescription) return;
+    while (pendingCandidates.current.length > 0) {
+      const candidate = pendingCandidates.current.shift();
+      if (candidate) {
+        try {
+          await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.error("Error adding queued candidate", e);
+        }
+      }
+    }
+  };
+
+  // Listener de Realtime para sincronização de sinal
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase.channel('calls_v2')
+    const channel = supabase.channel(`calls_v3_${user.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, async (payload) => {
         const call = payload.new as any;
         
-        // NOVA CHAMADA (INCOMING)
+        // Recebendo chamada
         if (payload.eventType === 'INSERT' && call.receiver_id === user.id) {
           const { data: name } = await supabase.rpc('get_user_full_name', { user_id: call.caller_id });
           setActiveCall({ ...call, caller_name: name });
@@ -85,41 +116,54 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           audioRef.current?.play().catch(() => {});
         }
 
-        // ATUALIZAÇÕES (HANDSHAKE)
+        // Atualizações de sinal (Oferta/Resposta/Status)
         if (payload.eventType === 'UPDATE' && (call.caller_id === user.id || call.receiver_id === user.id)) {
-          setActiveCall(prev => ({ ...prev, ...call }));
-
+          
           if (['rejected', 'ended'].includes(call.status)) {
             cleanup();
             return;
           }
 
-          // FLUXO DO CHAMADOR (CALLER)
+          setActiveCall(prev => ({ ...prev, ...call }));
+
+          // 1. CALLER detecta que o RECEIVER aceitou
           if (call.status === 'accepted' && call.caller_id === user.id && !pcRef.current) {
-            handleStartHandshakeAsCaller(call);
+            await handleCallerHandshake(call);
           }
 
-          // FLUXO DO RECEBEDOR (RECEIVER) - Recebendo sinal do caller
+          // 2. RECEIVER detecta sinal vindo do CALLER
           if (call.caller_signal && call.receiver_id === user.id && pcRef.current) {
-              if (pcRef.current.signalingState === 'stable') return;
-              await pcRef.current.setRemoteDescription(new RTCSessionDescription(call.caller_signal));
-              const answer = await pcRef.current.createAnswer();
-              await pcRef.current.setLocalDescription(answer);
-              await supabase.from('calls').update({ receiver_signal: answer }).eq('id', call.id);
+            if (pcRef.current.signalingState === 'stable') return;
+            
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(call.caller_signal));
+            const answer = await pcRef.current.createAnswer();
+            await pcRef.current.setLocalDescription(answer);
+            
+            await supabase.from('calls').update({ receiver_signal: answer }).eq('id', call.id);
+            await processPendingCandidates();
           }
 
-          // FINALIZAÇÃO DO CHAMADOR (CALLER) - Recebendo resposta do receiver
+          // 3. CALLER detecta sinal vindo do RECEIVER (finaliza Handshake)
           if (call.receiver_signal && call.caller_id === user.id && pcRef.current) {
-              if (pcRef.current.signalingState === 'have-local-offer') {
-                await pcRef.current.setRemoteDescription(new RTCSessionDescription(call.receiver_signal));
-              }
+            if (pcRef.current.signalingState === 'have-local-offer') {
+              await pcRef.current.setRemoteDescription(new RTCSessionDescription(call.receiver_signal));
+              await processPendingCandidates();
+            }
           }
         }
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'call_ice_candidates' }, (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'call_ice_candidates' }, async (payload) => {
         const ice = payload.new as any;
-        if (ice.sender_id !== user.id && pcRef.current) {
-          pcRef.current.addIceCandidate(new RTCIceCandidate(ice.candidate)).catch(() => {});
+        if (ice.sender_id !== user.id) {
+          if (pcRef.current && pcRef.current.remoteDescription) {
+            try {
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(ice.candidate));
+            } catch (e) {
+              console.error("Error adding candidate", e);
+            }
+          } else {
+            pendingCandidates.current.push(ice.candidate);
+          }
         }
       })
       .subscribe();
@@ -127,21 +171,33 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => { supabase.removeChannel(channel); };
   }, [user]);
 
-  const handleStartHandshakeAsCaller = async (call: any) => {
+  const handleCallerHandshake = async (call: any) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setLocalStream(stream);
       const pc = createPeerConnection(call.id);
       stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      
       await supabase.from('calls').update({ caller_signal: offer }).eq('id', call.id);
-    } catch (e) { cleanup(); }
+    } catch (e) {
+      console.error("Caller handshake error", e);
+      cleanup();
+    }
   };
 
   const startCall = async (receiverId: string) => {
     if (!user) return;
-    const { data } = await supabase.from('calls').insert({ caller_id: user.id, receiver_id: receiverId, status: 'calling' }).select().single();
+    cleanup(); // Limpa chamadas anteriores
+    
+    const { data, error } = await supabase.from('calls').insert({ 
+      caller_id: user.id, 
+      receiver_id: receiverId, 
+      status: 'calling' 
+    }).select().single();
+    
     if (data) {
       const { data: name } = await supabase.rpc('get_user_full_name', { user_id: receiverId });
       setActiveCall({ ...data, receiver_name: name });
@@ -153,32 +209,31 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     audioRef.current?.pause();
 
     try {
-      // 1. Pede microfone antes de tudo
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setLocalStream(stream);
 
-      // 2. Prepara conexão WebRTC
       const pc = createPeerConnection(activeCall.id);
       stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-      // 3. Notifica o DB do aceite - Isso dispara o 'accepted' no caller
       await supabase.from('calls').update({ status: 'accepted' }).eq('id', activeCall.id);
-      
-      // Atualiza estado local
       setActiveCall(prev => ({ ...prev, status: 'accepted' }));
     } catch (e) { 
-      console.error("Microphone error:", e);
+      console.error("Accept call error:", e);
       cleanup(); 
     }
   };
 
   const endCall = async () => {
-    if (activeCall) await supabase.from('calls').update({ status: 'ended' }).eq('id', activeCall.id);
+    if (activeCall) {
+      await supabase.from('calls').update({ status: 'ended' }).eq('id', activeCall.id);
+    }
     cleanup();
   };
 
   const rejectCall = async () => {
-    if (activeCall) await supabase.from('calls').update({ status: 'rejected' }).eq('id', activeCall.id);
+    if (activeCall) {
+      await supabase.from('calls').update({ status: 'rejected' }).eq('id', activeCall.id);
+    }
     cleanup();
   };
 
