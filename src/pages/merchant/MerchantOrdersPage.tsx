@@ -11,14 +11,13 @@ import {
   User, 
   X, 
   Search, 
-  List, 
   Printer,
   Eye,
   MessageCircle,
-  PhoneCall,
   Trash2,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Clock
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
@@ -72,6 +71,7 @@ const MerchantOrdersPage = () => {
   const [printSettings, setPrintSettings] = useState<PrintSettings>(defaultPrintSettings);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const isInitialMount = useRef(true);
 
   useEffect(() => {
     audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
@@ -89,7 +89,8 @@ const MerchantOrdersPage = () => {
     printReceipt(order, merchantName, order.customer_full_name || 'Cliente', printSettings);
   }, [merchantName, printSettings]);
 
-  const handleAcceptOrder = useCallback(async (order: any, isSilent = false) => {
+  // Função para aceitar pedidos
+  const handleAcceptOrder = useCallback(async (orderId: string, isSilent = false) => {
     const tid = isSilent ? null : showLoading("Aceitando pedido...");
     try {
       const { error: updateError } = await supabase
@@ -98,18 +99,19 @@ const MerchantOrdersPage = () => {
           status: 'PREPARING',
           merchant_acceptance_deadline: null,
         })
-        .eq('id', order.id);
+        .eq('id', orderId);
       
       if (updateError) throw updateError;
 
       await supabase.functions.invoke('dispatch-order', {
-        body: { orderId: order.id }
+        body: { orderId: orderId }
       });
 
       if (!isSilent) {
         dismissToast(tid);
         showSuccess("Pedido aceito!");
-        handlePrint(order);
+        const order = orders.find(o => o.id === orderId);
+        if (order) handlePrint(order);
       }
     } catch (err: any) {
       if (!isSilent) {
@@ -117,7 +119,31 @@ const MerchantOrdersPage = () => {
         showError("Erro ao aceitar pedido.");
       }
     }
-  }, [handlePrint]);
+  }, [orders, handlePrint]);
+
+  // Função para confirmar coleta (pickup)
+  const handleConfirmPickup = async (order: any) => {
+    setIsVerifying(true);
+    const tid = showLoading("Validando coleta...");
+    try {
+      // Aqui poderíamos validar o código se necessário, 
+      // mas por enquanto apenas transicionamos o status
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'OUT_FOR_DELIVERY' })
+        .eq('id', order.id);
+
+      if (error) throw error;
+      
+      showSuccess("Pedido liberado para o entregador!");
+      setVerificationCode("");
+    } catch (err: any) {
+      showError("Erro ao validar coleta: " + err.message);
+    } finally {
+      dismissToast(tid);
+      setIsVerifying(false);
+    }
+  };
 
   const fetchOrders = useCallback(async (isSilent = false) => {
     if (!isSilent) {
@@ -129,28 +155,31 @@ const MerchantOrdersPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. Dados da Loja e Configurações
-      const { data: merchantData } = await supabase
-        .from('merchant_applications')
-        .select('is_open, store_name, metadata')
-        .eq('id', user.id)
-        .single();
+      // 1. Dados da Loja (Apenas no primeiro carregamento ou se explicitamente necessário)
+      if (isInitialMount.current) {
+        const { data: merchantData } = await supabase
+          .from('merchant_applications')
+          .select('is_open, store_name, metadata')
+          .eq('id', user.id)
+          .single();
 
-      if (merchantData) {
-        setIsStoreOpen(merchantData.is_open);
-        setMerchantName(merchantData.store_name || "Minha Loja");
-        if (merchantData.metadata?.print_settings) {
-          setPrintSettings(merchantData.metadata.print_settings);
+        if (merchantData) {
+          setIsStoreOpen(merchantData.is_open);
+          setMerchantName(merchantData.store_name || "Minha Loja");
+          if (merchantData.metadata?.print_settings) {
+            setPrintSettings(merchantData.metadata.print_settings);
+          }
         }
+        isInitialMount.current = false;
       }
 
-      // 2. Busca de Pedidos (Apenas a tabela orders primeiro)
+      // 2. Busca de Pedidos
       const { data: rawOrders, error: ordersError } = await supabase
         .from('orders')
         .select('*')
         .eq('merchant_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(40);
+        .limit(50);
 
       if (ordersError) throw ordersError;
       if (!rawOrders || rawOrders.length === 0) {
@@ -159,24 +188,23 @@ const MerchantOrdersPage = () => {
         return;
       }
 
-      // 3. BUSCA EM LOTE (BATCH FETCH) - Otimização crucial
+      // 3. BUSCA EM LOTE de nomes e entregadores
       const customerIds = Array.from(new Set(rawOrders.map(o => o.customer_id).filter(Boolean)));
       const driverIds = Array.from(new Set(rawOrders.map(o => o.driver_id).filter(Boolean)));
 
-      // Busca entregadores em uma única chamada
-      const { data: drivers } = driverIds.length > 0 
-        ? await supabase.from('driver_applications').select('*').in('id', driverIds)
-        : { data: [] };
+      const [profilesRes, driversRes] = await Promise.all([
+        customerIds.length > 0 
+          ? supabase.from('profiles').select('id, first_name, last_name').in('id', customerIds)
+          : Promise.resolve({ data: [] }),
+        driverIds.length > 0
+          ? supabase.from('driver_applications').select('*').in('id', driverIds)
+          : Promise.resolve({ data: [] })
+      ]);
 
-      // Busca perfis para pegar os nomes em uma única chamada
-      const { data: profiles } = customerIds.length > 0
-        ? await supabase.from('profiles').select('id, first_name, last_name').in('id', customerIds)
-        : { data: [] };
-
-      // 4. Montar a lista final localmente (Sem novas chamadas ao banco)
+      // 4. Montar a lista final
       const enrichedOrders = rawOrders.map(order => {
-        const profile = profiles?.find(p => p.id === order.customer_id);
-        const driver = drivers?.find(d => d.id === order.driver_id);
+        const profile = profilesRes.data?.find(p => p.id === order.customer_id);
+        const driver = driversRes.data?.find(d => d.id === order.driver_id);
         
         const customerName = profile 
             ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() 
@@ -196,7 +224,7 @@ const MerchantOrdersPage = () => {
       // Auto-Aceite se configurado
       if (autoAccept) {
         enrichedOrders.forEach(o => {
-          if (o.status === 'PENDING') handleAcceptOrder(o, true);
+          if (o.status === 'PENDING') handleAcceptOrder(o.id, true);
         });
       }
 
@@ -211,10 +239,10 @@ const MerchantOrdersPage = () => {
   useEffect(() => {
     fetchOrders();
 
-    const channel = supabase.channel(`merchant_realtime_v2`)
+    const channel = supabase.channel(`merchant_realtime_dashboard`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
         if (payload.eventType === 'INSERT') playAlert();
-        fetchOrders(true); // Silent refresh
+        fetchOrders(true);
       })
       .subscribe();
 
@@ -235,7 +263,7 @@ const MerchantOrdersPage = () => {
     if (!searchTerm) return orders;
     const s = searchTerm.toLowerCase();
     return orders.filter(o => 
-      o.id.includes(s) || 
+      o.id.toLowerCase().includes(s) || 
       (o.customer_full_name && o.customer_full_name.toLowerCase().includes(s))
     );
   }, [orders, searchTerm]);
@@ -351,10 +379,10 @@ const MerchantOrdersPage = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
         {renderSection("Novos", "text-blue-600", o => o.status === 'PENDING', o => (
-          <Button className="w-full bg-blue-600 rounded-xl h-11 font-bold" onClick={() => handleAcceptOrder(o)}>Aceitar</Button>
+          <Button className="w-full bg-blue-600 rounded-xl h-11 font-bold" onClick={() => handleAcceptOrder(o.id)}>Aceitar</Button>
         ))}
         {renderSection("Preparo", "text-orange-500", o => o.status === 'PREPARING', o => (
-          <Button className="w-full bg-orange-500 rounded-xl h-11 font-bold" onClick={() => { supabase.from('orders').update({ status: 'WAITING_FOR_DRIVER' }).eq('id', o.id); fetchOrders(true); }}>Pronto</Button>
+          <Button className="w-full bg-orange-500 rounded-xl h-11 font-bold" onClick={() => { supabase.from('orders').update({ status: 'WAITING_FOR_DRIVER' }).eq('id', o.id).then(() => fetchOrders(true)); }}>Pronto</Button>
         ))}
         {renderSection("Coleta", "text-indigo-600", o => o.status === 'WAITING_FOR_DRIVER', o => (
           o.driver ? (
