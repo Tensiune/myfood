@@ -89,7 +89,6 @@ const MerchantOrdersPage = () => {
     printReceipt(order, merchantName, order.customer_full_name || 'Cliente', printSettings);
   }, [merchantName, printSettings]);
 
-  // Função para aceitar pedidos
   const handleAcceptOrder = useCallback(async (orderId: string, isSilent = false) => {
     const tid = isSilent ? null : showLoading("Aceitando pedido...");
     try {
@@ -110,8 +109,7 @@ const MerchantOrdersPage = () => {
       if (!isSilent) {
         dismissToast(tid);
         showSuccess("Pedido aceito!");
-        const order = orders.find(o => o.id === orderId);
-        if (order) handlePrint(order);
+        // O print será manual ou automático via dashboard após o reload do Realtime
       }
     } catch (err: any) {
       if (!isSilent) {
@@ -119,26 +117,22 @@ const MerchantOrdersPage = () => {
         showError("Erro ao aceitar pedido.");
       }
     }
-  }, [orders, handlePrint]);
+  }, []);
 
-  // Função para confirmar coleta (pickup)
   const handleConfirmPickup = async (order: any) => {
     setIsVerifying(true);
     const tid = showLoading("Validando coleta...");
     try {
-      // Aqui poderíamos validar o código se necessário, 
-      // mas por enquanto apenas transicionamos o status
       const { error } = await supabase
         .from('orders')
         .update({ status: 'OUT_FOR_DELIVERY' })
         .eq('id', order.id);
 
       if (error) throw error;
-      
-      showSuccess("Pedido liberado para o entregador!");
+      showSuccess("Pedido liberado!");
       setVerificationCode("");
     } catch (err: any) {
-      showError("Erro ao validar coleta: " + err.message);
+      showError("Erro ao validar: " + err.message);
     } finally {
       dismissToast(tid);
       setIsVerifying(false);
@@ -155,7 +149,6 @@ const MerchantOrdersPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. Dados da Loja (Apenas no primeiro carregamento ou se explicitamente necessário)
       if (isInitialMount.current) {
         const { data: merchantData } = await supabase
           .from('merchant_applications')
@@ -173,46 +166,42 @@ const MerchantOrdersPage = () => {
         isInitialMount.current = false;
       }
 
-      // 2. Busca de Pedidos
       const { data: rawOrders, error: ordersError } = await supabase
         .from('orders')
         .select('*')
         .eq('merchant_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(50);
+        .limit(40);
 
       if (ordersError) throw ordersError;
-      if (!rawOrders || rawOrders.length === 0) {
-        setOrders([]);
-        setLoading(false);
-        return;
-      }
+      if (!rawOrders) { setOrders([]); return; }
 
-      // 3. BUSCA EM LOTE de nomes e entregadores
+      // BUSCA EM LOTE COM TRATAMENTO DE ERRO (Resiliência contra 404 profiles)
       const customerIds = Array.from(new Set(rawOrders.map(o => o.customer_id).filter(Boolean)));
       const driverIds = Array.from(new Set(rawOrders.map(o => o.driver_id).filter(Boolean)));
 
-      const [profilesRes, driversRes] = await Promise.all([
-        customerIds.length > 0 
-          ? supabase.from('profiles').select('id, first_name, last_name').in('id', customerIds)
-          : Promise.resolve({ data: [] }),
-        driverIds.length > 0
-          ? supabase.from('driver_applications').select('*').in('id', driverIds)
-          : Promise.resolve({ data: [] })
-      ]);
+      let profilesData: any[] = [];
+      let driversData: any[] = [];
 
-      // 4. Montar a lista final
+      try {
+          if (customerIds.length > 0) {
+              const res = await supabase.from('profiles').select('id, first_name, last_name').in('id', customerIds);
+              if (!res.error) profilesData = res.data || [];
+          }
+          if (driverIds.length > 0) {
+              const res = await supabase.from('driver_applications').select('*').in('id', driverIds);
+              if (!res.error) driversData = res.data || [];
+          }
+      } catch (e) {
+          console.warn("Falha ao enriquecer nomes, usando dados padrão.");
+      }
+
       const enrichedOrders = rawOrders.map(order => {
-        const profile = profilesRes.data?.find(p => p.id === order.customer_id);
-        const driver = driversRes.data?.find(d => d.id === order.driver_id);
-        
-        const customerName = profile 
-            ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() 
-            : 'Cliente';
-
+        const profile = profilesData.find(p => p.id === order.customer_id);
+        const driver = driversData.find(d => d.id === order.driver_id);
         return {
           ...order,
-          customer_full_name: customerName || 'Cliente',
+          customer_full_name: profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : 'Cliente',
           driver: driver || null,
           items: Array.isArray(order.items) ? order.items : [],
           delivery_address: order.delivery_address || {}
@@ -221,25 +210,18 @@ const MerchantOrdersPage = () => {
 
       setOrders(enrichedOrders);
 
-      // Auto-Aceite se configurado
-      if (autoAccept) {
-        enrichedOrders.forEach(o => {
-          if (o.status === 'PENDING') handleAcceptOrder(o.id, true);
-        });
-      }
-
     } catch (err: any) {
       console.error("[MerchantOrders] Fetch Error:", err);
-      setFetchError(err.message || "Erro desconhecido");
+      setFetchError(err.message || "Erro de conexão com o banco.");
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, [autoAccept, handleAcceptOrder]);
+  }, []); // Sem dependências internas para evitar o loop
 
   useEffect(() => {
     fetchOrders();
 
-    const channel = supabase.channel(`merchant_realtime_dashboard`)
+    const channel = supabase.channel(`merchant_realtime_${Math.random()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
         if (payload.eventType === 'INSERT') playAlert();
         fetchOrders(true);
@@ -277,7 +259,7 @@ const MerchantOrdersPage = () => {
           {title} ({data.length})
         </h2>
         {data.map(o => (
-          <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden group hover:shadow-md transition-all">
+          <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden hover:shadow-md transition-all">
             <CardContent className="p-5 space-y-4">
               <div className="flex justify-between items-start">
                 <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
@@ -320,35 +302,13 @@ const MerchantOrdersPage = () => {
           </Card>
         ))}
         {data.length === 0 && (
-          <div className="p-8 border-2 border-dashed border-gray-100 rounded-[2rem] text-center text-gray-300 text-[10px] font-black uppercase">Sem Pedidos</div>
+          <div className="p-8 border-2 border-dashed border-gray-100 rounded-[2rem] text-center text-gray-300 text-[10px] font-black uppercase">Vazio</div>
         )}
       </div>
     );
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center">
-        <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
-        <p className="text-gray-500 font-bold">Otimizando sua conexão...</p>
-      </div>
-    );
-  }
-
-  if (fetchError) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-center">
-        <div className="bg-red-50 p-6 rounded-[2rem] max-w-sm">
-          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-black text-red-900 mb-2">Erro de Conexão</h2>
-          <p className="text-red-700 text-sm mb-6">{fetchError}</p>
-          <Button onClick={() => fetchOrders()} className="w-full rounded-xl bg-red-600 gap-2">
-            <RefreshCw className="h-4 w-4" /> Tentar Novamente
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="min-h-[60vh] flex flex-col items-center justify-center"><Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" /><p className="text-gray-500 font-bold">Carregando painel...</p></div>;
 
   return (
     <div className="space-y-6 pb-20">
@@ -357,7 +317,7 @@ const MerchantOrdersPage = () => {
         <div className="flex gap-2">
           <Button onClick={() => setAudioEnabled(!audioEnabled)} variant={audioEnabled ? "outline" : "default"} className={cn("rounded-xl h-11", !audioEnabled && "bg-red-500 animate-pulse")}>
             {audioEnabled ? <Volume2 className="h-4 w-4 mr-2" /> : <VolumeX className="h-4 w-4 mr-2" />}
-            Som {audioEnabled ? 'Ativo' : 'Mudo'}
+            {audioEnabled ? 'Som Ativo' : 'Ativar Som'}
           </Button>
           <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm">
             <span className="text-[10px] font-black uppercase">{isStoreOpen ? 'Online' : 'Offline'}</span>
@@ -369,7 +329,7 @@ const MerchantOrdersPage = () => {
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
-          <Input placeholder="Buscar por cliente ou ID..." className="rounded-xl pl-10 h-12" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          <Input placeholder="Buscar cliente ou ID..." className="rounded-xl pl-10 h-12" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
         <div className="flex gap-2">
           <Button variant={showItemDetails ? "default" : "outline"} className="rounded-xl h-12" onClick={() => { setShowItemDetails(!showItemDetails); localStorage.setItem('merchant_show_items', (!showItemDetails).toString()); }}>Itens</Button>
@@ -454,9 +414,10 @@ const MerchantOrdersPage = () => {
                    <h4 className="text-[10px] font-black uppercase text-red-400 tracking-widest px-2">Ações</h4>
                    <Button variant="ghost" className="w-full justify-start text-red-500 hover:bg-red-50 rounded-2xl h-12 gap-3 px-4" onClick={() => {
                      if(window.confirm("Cancelar este pedido?")) {
-                       supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', selectedOrderDetails.id);
-                       setIsDetailsDialogOpen(false);
-                       fetchOrders(true);
+                       supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', selectedOrderDetails.id).then(() => {
+                          setIsDetailsDialogOpen(false);
+                          fetchOrders(true);
+                       });
                      }
                    }}>
                      <Trash2 className="h-5 w-5" /> Cancelar Pedido
