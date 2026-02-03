@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Loader2, Store, User, CheckCircle2, MapPin, Navigation, LocateFixed, Clock, ChevronRight } from "lucide-react";
+import { ArrowLeft, Loader2, Store, User, CheckCircle2, MapPin, Navigation, LocateFixed, Clock, ChevronRight, MessageCircle, PhoneCall } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { OtpInput } from "@/components/shared/OtpInput";
@@ -44,7 +44,6 @@ const NavigationPage = () => {
   const [isFollowing, setIsFollowing] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // States para Oferta (Overlay)
   const [offer, setOffer] = useState<any>(null);
   const [timeLeft, setTimeLeft] = useState(0);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -73,7 +72,6 @@ const NavigationPage = () => {
   const fetchStatusAndOffers = useCallback(async () => {
     if (!user) return;
     try {
-      // 1. Sincronizar Pedidos Aceitos
       const { data: acceptedData } = await supabase
           .from('orders')
           .select('*, merchant:merchant_applications(*)')
@@ -86,7 +84,6 @@ const NavigationPage = () => {
       }));
       setOrders(ordersWithNames);
       
-      // 2. Sincronizar Ofertas Pendentes (Sempre checa, mesmo com pedido em curso)
       const { data: offerData } = await supabase
           .from('orders')
           .select('*, merchant:merchant_applications(*)')
@@ -142,9 +139,29 @@ const NavigationPage = () => {
     orders.forEach(o => {
       if (['PREPARING', 'WAITING_FOR_DRIVER'].includes(o.status)) {
         const addr = o.merchant?.metadata?.store_details?.address || o.merchant?.metadata?.address || {};
-        res.push({ type: 'pickup', orderId: o.id, name: o.merchant?.store_name || "Loja", address: addr, lat: parseFloat(addr.lat), lng: parseFloat(addr.lng), isReady: o.status === 'WAITING_FOR_DRIVER' });
+        res.push({ 
+            type: 'pickup', 
+            orderId: o.id, 
+            name: o.merchant?.store_name || "Loja", 
+            contactId: o.merchant_id,
+            phone: o.merchant?.phone,
+            address: addr, 
+            lat: parseFloat(addr.lat), 
+            lng: parseFloat(addr.lng), 
+            isReady: o.status === 'WAITING_FOR_DRIVER' 
+        });
       } else if (o.status === 'OUT_FOR_DELIVERY') {
-        res.push({ type: 'delivery', orderId: o.id, name: o.customer_name, address: o.delivery_address, lat: parseFloat(o.delivery_address?.lat), lng: parseFloat(o.delivery_address?.lng), code: o.confirmation_code });
+        res.push({ 
+            type: 'delivery', 
+            orderId: o.id, 
+            name: o.customer_name, 
+            contactId: o.customer_id,
+            phone: o.delivery_address?.phone,
+            address: o.delivery_address, 
+            lat: parseFloat(o.delivery_address?.lat), 
+            lng: parseFloat(o.delivery_address?.lng), 
+            code: o.confirmation_code 
+        });
       }
     });
     return res;
@@ -211,7 +228,6 @@ const NavigationPage = () => {
             ))}
         </MapContainer>
 
-        {/* Alerta de Oferta em Rota (Overlay) */}
         {offer && timeLeft > 0 && (
             <div className="absolute top-4 left-4 right-4 z-[2000] animate-in slide-in-from-top-4 duration-500">
                 <Card className="rounded-3xl border-4 border-brand-accent shadow-2xl bg-white overflow-hidden">
@@ -243,9 +259,19 @@ const NavigationPage = () => {
         )}
 
         {activeStop && (
-            <Button className="absolute bottom-32 right-4 z-[1000] bg-white text-indigo-900 font-bold rounded-full shadow-2xl h-12 px-4 border-none flex gap-2" onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${activeStop.lat},${activeStop.lng}&travelmode=driving`, '_blank')}>
-                <Navigation className="h-4 w-4 text-brand-accent" /> GPS
-            </Button>
+            <div className="absolute bottom-32 right-4 z-[1000] flex flex-col gap-2">
+                <Button className="bg-white text-indigo-900 font-bold rounded-full shadow-2xl h-12 px-4 border-none flex gap-2" onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${activeStop.lat},${activeStop.lng}&travelmode=driving`, '_blank')}>
+                    <Navigation className="h-4 w-4 text-brand-accent" /> GPS
+                </Button>
+                <div className="flex flex-col gap-2 bg-white/90 backdrop-blur-sm p-1 rounded-3xl shadow-2xl border border-gray-100">
+                    <Button variant="ghost" size="icon" className="h-12 w-12 rounded-full text-indigo-600 hover:bg-indigo-50" onClick={() => navigate(`/chat/${activeStop.contactId}?orderId=${activeStop.orderId}`)}>
+                        <MessageCircle className="h-6 w-6" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-12 w-12 rounded-full text-indigo-600 hover:bg-indigo-50" asChild>
+                        <a href={`tel:${activeStop.phone || ""}`}><PhoneCall className="h-6 w-6" /></a>
+                    </Button>
+                </div>
+            </div>
         )}
       </div>
 
@@ -257,10 +283,10 @@ const NavigationPage = () => {
                     <div className={cn("p-4 rounded-2xl", activeStop.type === 'pickup' ? "bg-orange-100 text-orange-600" : "bg-green-100 text-green-600")}>
                         {activeStop.type === 'pickup' ? <Store className="h-6 w-6" /> : <User className="h-6 w-6" />}
                     </div>
-                    <div>
+                    <div className="flex-1 min-w-0">
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{activeStop.type === 'pickup' ? "Retirar em" : "Entregar para"}</p>
-                        <h3 className="font-bold text-gray-900 text-xl leading-tight">{activeStop.name}</h3>
-                        <p className="text-xs text-gray-500 mt-1">{activeStop.address?.street}, {activeStop.address?.number}</p>
+                        <h3 className="font-bold text-gray-900 text-xl leading-tight truncate">{activeStop.name}</h3>
+                        <p className="text-xs text-gray-500 mt-1 truncate">{activeStop.address?.street}, {activeStop.address?.number}</p>
                     </div>
                 </div>
                 {activeStop.type === 'pickup' && (

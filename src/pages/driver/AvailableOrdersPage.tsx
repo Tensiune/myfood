@@ -16,7 +16,8 @@ import {
   AlertTriangle, 
   Power, 
   User,
-  ChevronRight
+  ChevronRight,
+  PhoneCall
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -110,7 +111,6 @@ const AvailableOrdersPage = () => {
     const checkStatus = () => setIsOnline(localStorage.getItem('driver_online_status') === 'online');
     checkStatus();
     
-    // Reduzimos o polling para evitar conflitos, focando no carregamento inicial e intervalos maiores
     const interval = setInterval(() => {
         if (localStorage.getItem('driver_online_status') === 'online') sync();
     }, 8000);
@@ -195,24 +195,41 @@ const AvailableOrdersPage = () => {
                 <Card key={order.id} className="rounded-3xl border-none shadow-md bg-white overflow-hidden animate-in slide-in-from-bottom-2">
                     <CardContent className="p-0">
                         <div className="p-5 space-y-4">
+                            {/* Loja */}
                             <div className="flex justify-between items-start">
-                                <div className="flex items-center gap-2">
-                                    <div className="p-2 bg-indigo-50 rounded-xl"><Store className="h-4 w-4 text-indigo-600" /></div>
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-indigo-50 rounded-xl"><Store className="h-5 w-5 text-indigo-600" /></div>
                                     <div>
-                                        <p className="text-[10px] font-black text-gray-400 uppercase">Loja</p>
+                                        <p className="text-[10px] font-black text-gray-400 uppercase leading-none mb-1">Loja</p>
                                         <p className="font-bold text-gray-800">{order.merchant?.store_name}</p>
                                     </div>
                                 </div>
-                                <Badge className={cn("rounded-full uppercase text-[9px]", order.status === 'OUT_FOR_DELIVERY' ? "bg-yellow-500" : "bg-indigo-600")}>
-                                    {order.status === 'OUT_FOR_DELIVERY' ? "Em Rota" : "Coleta"}
-                                </Badge>
+                                <div className="flex gap-2">
+                                    <Button variant="ghost" size="icon" className="rounded-full bg-indigo-50 text-indigo-600 h-8 w-8" onClick={() => navigate(`/chat/${order.merchant_id}?orderId=${order.id}`)}>
+                                        <MessageCircle className="h-4 w-4" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" className="rounded-full bg-indigo-50 text-indigo-600 h-8 w-8" asChild>
+                                        <a href={`tel:${order.merchant?.phone || ""}`}><PhoneCall className="h-4 w-4" /></a>
+                                    </Button>
+                                </div>
                             </div>
 
-                            <div className="flex items-center gap-2">
-                                <div className="p-2 bg-green-50 rounded-xl"><User className="h-4 w-4 text-green-600" /></div>
-                                <div>
-                                    <p className="text-[10px] font-black text-gray-400 uppercase">Cliente</p>
-                                    <p className="font-bold text-gray-800">{order.customer_name}</p>
+                            {/* Cliente */}
+                            <div className="flex justify-between items-start pt-2 border-t border-gray-50">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-green-50 rounded-xl"><User className="h-5 w-5 text-green-600" /></div>
+                                    <div>
+                                        <p className="text-[10px] font-black text-gray-400 uppercase leading-none mb-1">Cliente</p>
+                                        <p className="font-bold text-gray-800">{order.customer_name}</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <Button variant="ghost" size="icon" className="rounded-full bg-green-50 text-green-600 h-8 w-8" onClick={() => navigate(`/chat/${order.customer_id}?orderId=${order.id}`)}>
+                                        <MessageCircle className="h-4 w-4" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" className="rounded-full bg-green-50 text-green-600 h-8 w-8" asChild>
+                                        <a href={`tel:${order.delivery_address?.phone || ""}`}><PhoneCall className="h-4 w-4" /></a>
+                                    </Button>
                                 </div>
                             </div>
 

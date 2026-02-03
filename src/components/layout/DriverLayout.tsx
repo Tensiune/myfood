@@ -12,6 +12,9 @@ import { useNativeNotifications } from "@/hooks/useNativeNotifications";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
+import { useNotifications } from "@/context/NotificationContext";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import NotificationList from "@/components/shared/NotificationList";
 
 const DriverLayout = () => {
   const [isOnline, setIsOnline] = useState(() => localStorage.getItem('driver_online_status') === 'online');
@@ -20,6 +23,7 @@ const DriverLayout = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { requestPermission } = useNativeNotifications();
+  const { unreadCount } = useNotifications();
   
   useEffect(() => {
     const fetchStatus = async () => {
@@ -37,7 +41,7 @@ const DriverLayout = () => {
     fetchStatus();
   }, []);
 
-  useDriverLocationTracker(isOnline);
+  useDriverLocationTracker(isOnline, null); // Ajustado para passar null se não tiver ID imediato, o hook lida
 
   const navItems = [
     { path: "/driver/orders", icon: List, label: "Pedidos" },
@@ -53,7 +57,6 @@ const DriverLayout = () => {
         return;
       }
 
-      // Solicita permissões cruciais
       await requestPermission();
       
       if (localStorage.getItem('driver_location_permission') !== 'granted') {
@@ -69,7 +72,6 @@ const DriverLayout = () => {
       localStorage.setItem('driver_online_status', 'online');
       showSuccess("Você está pronto para receber pedidos!");
 
-      // AUTO-MATCH: Ao ficar online, avisa o servidor para buscar trabalho
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
           supabase.functions.invoke('dispatch-order', {
@@ -78,17 +80,6 @@ const DriverLayout = () => {
       }
 
     } else {
-      setIsOnline(true); // Manter estado local enquanto processa
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      // Antes de deslogar, limpamos ofertas atuais se houver
-      if (user) {
-          await supabase.from('orders').update({ 
-              current_driver_offered_id: null, 
-              offer_expires_at: null 
-          }).eq('current_driver_offered_id', user.id).is('driver_id', null);
-      }
-
       setIsOnline(false);
       localStorage.setItem('driver_online_status', 'offline');
     }
@@ -99,19 +90,35 @@ const DriverLayout = () => {
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <header className="bg-white p-4 sticky top-0 z-20 border-b border-gray-100 flex items-center justify-between shadow-sm">
-        <div className="flex flex-col">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
             <div className={cn("h-3 w-3 rounded-full animate-pulse", isOnline ? "bg-green-500" : "bg-red-500")} />
-            <Label htmlFor="online-status" className="font-bold text-indigo-900">{isOnline ? "Online" : "Offline"}</Label>
+            <span className="font-bold text-indigo-900 text-sm">{isOnline ? "Online" : "Offline"}</span>
           </div>
+          <Switch 
+            id="online-status" 
+            checked={isOnline} 
+            onCheckedChange={handleToggleOnline}
+            className="data-[state=checked]:bg-green-500"
+            disabled={driverStatus !== 'APPROVED'}
+          />
         </div>
-        <Switch 
-          id="online-status" 
-          checked={isOnline} 
-          onCheckedChange={handleToggleOnline}
-          className="data-[state=checked]:bg-green-500"
-          disabled={driverStatus !== 'APPROVED'}
-        />
+
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button variant="ghost" size="icon" className="rounded-full relative bg-gray-50">
+              <Bell className="h-5 w-5 text-indigo-900" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-accent text-[10px] font-bold text-white border-2 border-white">
+                  {unreadCount}
+                </span>
+              )}
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="right" className="w-full sm:max-w-md rounded-l-3xl">
+            <NotificationList />
+          </SheetContent>
+        </Sheet>
       </header>
       
       <main className="flex-grow container mx-auto p-4 max-w-2xl pb-24">
