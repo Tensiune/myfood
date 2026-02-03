@@ -16,8 +16,10 @@ import {
   MessageCircle,
   Trash2,
   AlertCircle,
-  RefreshCw,
-  Clock
+  Clock,
+  CreditCard,
+  Truck,
+  CheckCircle2
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
@@ -61,8 +63,9 @@ const MerchantOrdersPage = () => {
   const [isVerifying, setIsVerifying] = useState(false);
   
   const [searchTerm, setSearchTerm] = useState("");
-  const [showItemDetails, setShowItemDetails] = useState(() => localStorage.getItem('merchant_show_items') === 'true');
+  const [showFullDetails, setShowFullDetails] = useState(() => localStorage.getItem('merchant_show_details') === 'true');
   const [autoAccept, setAutoAccept] = useState(() => localStorage.getItem('merchant_auto_accept') === 'true');
+  const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem('merchant_auto_print') === 'true');
   
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any>(null);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
@@ -89,17 +92,15 @@ const MerchantOrdersPage = () => {
     printReceipt(order, merchantName, order.customer_full_name || 'Cliente', printSettings);
   }, [merchantName, printSettings]);
 
-  // Função para limpar pedidos expirados
   const handleCleanupExpired = useCallback(async () => {
     try {
       await supabase.rpc('cancel_expired_pending_orders');
-      // Não damos refresh direto aqui para evitar loops, o Realtime já deve cuidar disso
     } catch (e) {
       console.error("Erro ao limpar expirados:", e);
     }
   }, []);
 
-  const handleAcceptOrder = useCallback(async (orderId: string, isSilent = false) => {
+  const handleAcceptOrder = useCallback(async (order: any, isSilent = false) => {
     const tid = isSilent ? null : showLoading("Aceitando pedido...");
     try {
       const { error: updateError } = await supabase
@@ -108,13 +109,19 @@ const MerchantOrdersPage = () => {
           status: 'PREPARING',
           merchant_acceptance_deadline: null,
         })
-        .eq('id', orderId);
+        .eq('id', order.id);
       
       if (updateError) throw updateError;
 
+      // Dispara busca de entregador
       await supabase.functions.invoke('dispatch-order', {
-        body: { orderId: orderId }
+        body: { orderId: order.id }
       });
+
+      // Lógica de Auto-Impressão
+      if (localStorage.getItem('merchant_auto_print') === 'true') {
+        handlePrint(order);
+      }
 
       if (!isSilent) {
         dismissToast(tid);
@@ -126,7 +133,7 @@ const MerchantOrdersPage = () => {
         showError("Erro ao aceitar pedido.");
       }
     }
-  }, []);
+  }, [handlePrint]);
 
   const handleConfirmPickup = async (order: any) => {
     setIsVerifying(true);
@@ -228,17 +235,14 @@ const MerchantOrdersPage = () => {
 
   useEffect(() => {
     fetchOrders();
-
-    // Limpeza inicial de expirados
     handleCleanupExpired();
 
     const channel = supabase.channel(`merchant_realtime_${Math.random()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
         if (payload.eventType === 'INSERT') {
             playAlert();
-            // Se for um novo pedido e estiver com auto-aceite, aceita imediatamente
             if (localStorage.getItem('merchant_auto_accept') === 'true') {
-                handleAcceptOrder(payload.new.id, true);
+                handleAcceptOrder(payload.new, true);
             }
         }
         fetchOrders(true);
@@ -259,13 +263,10 @@ const MerchantOrdersPage = () => {
   };
 
   const filteredOrders = useMemo(() => {
-    // Filtro adicional para não mostrar pedidos expirados em "Novos" enquanto o banco não atualiza
-    const now = new Date();
     const list = searchTerm ? orders.filter(o => 
       o.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
       (o.customer_full_name && o.customer_full_name.toLowerCase().includes(searchTerm.toLowerCase()))
     ) : orders;
-
     return list;
   }, [orders, searchTerm]);
 
@@ -307,18 +308,57 @@ const MerchantOrdersPage = () => {
                 </div>
               </div>
 
-              <div className="flex items-start gap-2 text-xs text-gray-500 bg-gray-50 p-3 rounded-2xl">
-                <MapPin className="h-3 w-3 mt-0.5 text-brand-accent shrink-0" />
-                <p className="line-clamp-1">{o.delivery_address?.street || 'Endereço não informado'}</p>
-              </div>
-
-              {showItemDetails && o.items && (
-                <div className="space-y-1 pt-2 border-t border-gray-100">
-                  {o.items.map((item: any, i: number) => (
-                    <p key={i} className="text-[11px] text-gray-600 truncate">
-                      <span className="font-bold text-indigo-600">{item.quantity}x</span> {item.name}
+              {/* CARD EXPANDIDO OU COMPACTO */}
+              {showFullDetails ? (
+                <div className="space-y-3 bg-gray-50 p-4 rounded-2xl animate-in fade-in">
+                  <div className="flex items-start gap-2 text-xs">
+                    <MapPin className="h-3.5 w-3.5 text-brand-accent mt-0.5 shrink-0" />
+                    <p className="text-gray-700 leading-tight">
+                      {o.delivery_address?.street}, {o.delivery_address?.number}<br/>
+                      <span className="font-bold text-[10px] text-gray-400 uppercase">Bairro: {o.delivery_address?.neighborhood}</span>
                     </p>
-                  ))}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <CreditCard className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                    <span className="font-bold text-indigo-900 uppercase">{o.payment_method}</span>
+                    <span className="text-gray-300 mx-1">|</span>
+                    <span className="font-black text-indigo-600">R$ {o.total.toFixed(2)}</span>
+                  </div>
+                  <div className="space-y-1 pt-2 border-t border-gray-100">
+                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Produtos:</p>
+                    {o.items.map((item: any, i: number) => (
+                      <p key={i} className="text-[11px] text-gray-600 truncate">
+                        <span className="font-bold text-indigo-600">{item.quantity}x</span> {item.name}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 text-xs text-gray-500 bg-gray-50 p-3 rounded-2xl">
+                  <MapPin className="h-3 w-3 mt-0.5 text-brand-accent shrink-0" />
+                  <p className="line-clamp-1">{o.delivery_address?.street || 'Endereço não informado'}</p>
+                </div>
+              )}
+
+              {/* STATUS DO ENTREGADOR EM COLETA OU ROTA */}
+              {(o.status === 'WAITING_FOR_DRIVER' || o.status === 'OUT_FOR_DELIVERY') && (
+                <div className="pt-2 border-t border-gray-50 space-y-2">
+                   {o.driver ? (
+                     <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 rounded-xl">
+                        <Bike className="h-3.5 w-3.5 text-indigo-600" />
+                        <span className="text-[10px] font-bold text-indigo-900 truncate">Entregador: {o.driver.full_name}</span>
+                     </div>
+                   ) : o.current_driver_offered_id ? (
+                     <div className="flex items-center gap-2 px-3 py-2 bg-yellow-50 rounded-xl animate-pulse">
+                        <Clock className="h-3.5 w-3.5 text-yellow-600" />
+                        <span className="text-[10px] font-bold text-yellow-800 uppercase">Oferta enviada...</span>
+                     </div>
+                   ) : (
+                     <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-xl">
+                        <Loader2 className="h-3.5 w-3.5 text-gray-400 animate-spin" />
+                        <span className="text-[10px] font-bold text-gray-400 uppercase">Buscando Entregador...</span>
+                     </div>
+                   )}
                 </div>
               )}
 
@@ -339,7 +379,7 @@ const MerchantOrdersPage = () => {
     <div className="space-y-6 pb-20">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
         <h1 className="text-3xl font-black text-indigo-900">Painel de Pedidos</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-center gap-2">
           <Button onClick={() => setAudioEnabled(!audioEnabled)} variant={audioEnabled ? "outline" : "default"} className={cn("rounded-xl h-11", !audioEnabled && "bg-red-500 animate-pulse")}>
             {audioEnabled ? <Volume2 className="h-4 w-4 mr-2" /> : <VolumeX className="h-4 w-4 mr-2" />}
             {audioEnabled ? 'Som Ativo' : 'Ativar Som'}
@@ -354,17 +394,48 @@ const MerchantOrdersPage = () => {
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
-          <Input placeholder="Buscar cliente ou ID..." className="rounded-xl pl-10 h-12" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          <Input placeholder="Buscar cliente ou ID..." className="rounded-xl pl-10 h-12 border-none shadow-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
-        <div className="flex gap-2">
-          <Button variant={showItemDetails ? "default" : "outline"} className="rounded-xl h-12" onClick={() => { setShowItemDetails(!showItemDetails); localStorage.setItem('merchant_show_items', (!showItemDetails).toString()); }}>Itens</Button>
-          <Button variant={autoAccept ? "default" : "outline"} className="rounded-xl h-12" onClick={() => { setAutoAccept(!autoAccept); localStorage.setItem('merchant_auto_accept', (!autoAccept).toString()); }}>Auto Aceite</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button 
+            variant={showFullDetails ? "default" : "outline"} 
+            className="rounded-xl h-12 gap-2" 
+            onClick={() => { 
+                const newState = !showFullDetails;
+                setShowFullDetails(newState); 
+                localStorage.setItem('merchant_show_details', newState.toString()); 
+            }}
+          >
+            {showFullDetails ? <Eye className="h-4 w-4" /> : <VolumeX className="h-4 w-4 opacity-0" />} Detalhes
+          </Button>
+          <Button 
+            variant={autoAccept ? "default" : "outline"} 
+            className="rounded-xl h-12" 
+            onClick={() => { 
+                const newState = !autoAccept;
+                setAutoAccept(newState); 
+                localStorage.setItem('merchant_auto_accept', newState.toString()); 
+            }}
+          >
+            Auto Aceite
+          </Button>
+          <Button 
+            variant={autoPrint ? "default" : "outline"} 
+            className="rounded-xl h-12 gap-2" 
+            onClick={() => { 
+                const newState = !autoPrint;
+                setAutoPrint(newState); 
+                localStorage.setItem('merchant_auto_print', newState.toString()); 
+            }}
+          >
+            <Printer className="h-4 w-4" /> Auto Imprimir
+          </Button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
         {renderSection("Novos", "text-blue-600", o => o.status === 'PENDING', o => (
-          <Button className="w-full bg-blue-600 rounded-xl h-11 font-bold" onClick={() => handleAcceptOrder(o.id)}>Aceitar</Button>
+          <Button className="w-full bg-blue-600 rounded-xl h-11 font-bold" onClick={() => handleAcceptOrder(o)}>Aceitar</Button>
         ))}
         {renderSection("Preparo", "text-orange-500", o => o.status === 'PREPARING', o => (
           <Button className="w-full bg-orange-500 rounded-xl h-11 font-bold" onClick={() => { supabase.from('orders').update({ status: 'WAITING_FOR_DRIVER' }).eq('id', o.id).then(() => fetchOrders(true)); }}>Pronto</Button>
@@ -379,7 +450,7 @@ const MerchantOrdersPage = () => {
                 <Button className="w-full h-14 rounded-xl" onClick={() => handleConfirmPickup(o)} disabled={verificationCode.length < 4 || isVerifying}>Liberar Pedido</Button>
               </DialogContent>
             </Dialog>
-          ) : <div className="text-[10px] text-center text-gray-400 font-bold uppercase animate-pulse">Buscando Entregador...</div>
+          ) : <Button variant="outline" className="w-full rounded-xl h-11 font-bold border-indigo-100 text-indigo-400" disabled>Buscando...</Button>
         ))}
         {renderSection("Em Rota", "text-yellow-600", o => o.status === 'OUT_FOR_DELIVERY', o => (
           <Badge className="w-full py-2.5 justify-center bg-yellow-50 text-yellow-700 border-none rounded-xl font-bold uppercase text-[10px]">A caminho</Badge>
