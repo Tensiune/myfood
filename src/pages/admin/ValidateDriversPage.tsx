@@ -20,7 +20,7 @@ import {
   ExternalLink,
   Lock
 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/lib/supabase";
 
@@ -149,6 +149,9 @@ const ValidateDriversPage = () => {
                           <DialogTitle className="text-2xl font-bold flex items-center gap-2">
                             <Bike className="h-6 w-6" /> Análise de Entregador
                           </DialogTitle>
+                          <DialogDescription>
+                            Revise os dados pessoais, do veículo e os documentos enviados pelo entregador.
+                          </DialogDescription>
                         </DialogHeader>
                         
                         <ScrollArea className="flex-1 p-8 bg-white">

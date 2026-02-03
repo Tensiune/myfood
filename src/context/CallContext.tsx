@@ -204,28 +204,36 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     audioRef.current?.pause();
 
     try {
+      // 1. Busca o sinal mais recente do DB para garantir que a Offer chegou
+      let currentCallData = activeCall;
+      if (!currentCallData.caller_signal) {
+          const { data, error } = await supabase.from('calls').select('*').eq('id', activeCall.id).single();
+          if (error || !data?.caller_signal) {
+              throw new Error("Caller signal missing from DB.");
+          }
+          currentCallData = { ...currentCallData, ...data };
+          setActiveCall(currentCallData); // Atualiza o estado com o sinal
+      }
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setLocalStream(stream);
 
-      const pc = createPeerConnection(activeCall.id, stream);
+      const pc = createPeerConnection(currentCallData.id, stream);
       
-      // 1. Atualiza status para aceito (notifica o caller)
-      await supabase.from('calls').update({ status: 'accepted' }).eq('id', activeCall.id);
+      // 2. Atualiza status para aceito (notifica o caller)
+      await supabase.from('calls').update({ status: 'accepted' }).eq('id', currentCallData.id);
       setActiveCall(prev => ({ ...prev, status: 'accepted' }));
       
-      // 2. Processa a Offer do Caller (que já deve estar no DB)
-      if (activeCall.caller_signal) {
-          await pc.setRemoteDescription(new RTCSessionDescription(activeCall.caller_signal));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          
-          // 3. Envia a Answer de volta
-          await supabase.from('calls').update({ receiver_signal: answer }).eq('id', activeCall.id);
-          console.log("[WebRTC] Receiver sent Answer.");
-          await processPendingCandidates();
-      } else {
-          console.error("[WebRTC] Caller signal missing on accept.");
-      }
+      // 3. Processa a Offer do Caller
+      await pc.setRemoteDescription(new RTCSessionDescription(currentCallData.caller_signal));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      
+      // 4. Envia a Answer de volta
+      await supabase.from('calls').update({ receiver_signal: answer }).eq('id', currentCallData.id);
+      console.log("[WebRTC] Receiver sent Answer.");
+      await processPendingCandidates();
+
     } catch (e) { 
       console.error("Accept call error:", e);
       cleanup(); 
@@ -272,37 +280,30 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return;
           }
 
-          setActiveCall(prev => ({ ...prev, ...call }));
-
-          // 1. RECEIVER detecta sinal vindo do CALLER (após aceitar ou receber)
-          if (call.caller_signal && call.receiver_id === user.id && pcRef.current) {
-            if (pcRef.current.signalingState === 'stable' || pcRef.current.remoteDescription) return;
-            
-            // Se o status for 'calling', o receiver ainda não aceitou, mas já pode processar a offer
-            if (call.status === 'calling') {
-                // Apenas armazena o sinal para ser processado no 'acceptCall'
-                setActiveCall(prev => ({ ...prev, caller_signal: call.caller_signal }));
-                return;
-            }
-            
-            // Se o status for 'accepted', processa a offer e envia a answer
-            if (call.status === 'accepted' && !call.receiver_signal) {
-                await pcRef.current.setRemoteDescription(new RTCSessionDescription(call.caller_signal));
-                const answer = await pcRef.current.createAnswer();
-                await pcRef.current.setLocalDescription(answer);
-                
-                await supabase.from('calls').update({ receiver_signal: answer }).eq('id', call.id);
-                await processPendingCandidates();
-            }
+          // Se o status mudou para 'accepted', parar o toque imediatamente
+          if (call.status === 'accepted' && activeCall?.status !== 'accepted') {
+              audioRef.current?.pause();
+              if (callTimerRef.current) {
+                  clearTimeout(callTimerRef.current);
+                  callTimerRef.current = null;
+              }
           }
 
-          // 2. CALLER detecta sinal vindo do RECEIVER (finaliza Handshake)
-          if (call.receiver_signal && call.caller_id === user.id && pcRef.current) {
-            if (pcRef.current.signalingState === 'have-local-offer') {
-              await pcRef.current.setRemoteDescription(new RTCSessionDescription(call.receiver_signal));
-              await processPendingCandidates();
-            }
-          }
+          setActiveCall(prev => {
+              // Se for o receiver e o sinal do caller chegou, atualiza o estado
+              if (call.receiver_id === user.id && call.caller_signal && !prev?.caller_signal) {
+                  return { ...prev, ...call };
+              }
+              // Se for o caller e o sinal do receiver chegou, atualiza o estado e processa
+              if (call.caller_id === user.id && call.receiver_signal && !prev?.receiver_signal && pcRef.current) {
+                  if (pcRef.current.signalingState === 'have-local-offer') {
+                      pcRef.current.setRemoteDescription(new RTCSessionDescription(call.receiver_signal)).then(() => {
+                          processPendingCandidates();
+                      });
+                  }
+              }
+              return { ...prev, ...call };
+          });
         }
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'call_ice_candidates' }, async (payload) => {
