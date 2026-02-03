@@ -1,43 +1,74 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ArrowLeft, Send, Phone, Info, MoreVertical, CheckCheck } from "lucide-react";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ArrowLeft, Send, Phone, MoreVertical, CheckCheck, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
+import { showSuccess, showError } from "@/utils/toast";
 
 interface Message {
   id: string;
-  text: string;
-  sender: "me" | "them";
-  time: string;
-  status: "sent" | "delivered" | "read";
+  message: string;
+  sender_id: string;
+  created_at: string;
 }
 
 const ChatPage = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id: receiverId } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const orderId = searchParams.get("orderId");
   const navigate = useNavigate();
+  
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [receiverInfo, setReceiverInfo] = useState<any>(null);
+  
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Mock de dados do chat baseado no ID
-  const chatInfo = {
-    name: id === "1" ? "Restaurante Sabor" : id === "2" ? "João (Entregador)" : "Pizzaria Delícia",
-    avatar: id === "1" ? "https://via.placeholder.com/100/FF6347/FFFFFF?text=S" : "https://via.placeholder.com/100/4682B4/FFFFFF?text=J",
-    status: "Online",
-    type: id === "2" ? "delivery" : "establishment"
-  };
+  useEffect(() => {
+    const initChat = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setCurrentUserId(user.id);
 
-  const [messages, setMessages] = useState<Message[]>([
-    { id: "1", text: "Olá! Gostaria de saber sobre o meu pedido.", sender: "me", time: "10:15", status: "read" },
-    { id: "2", text: "Olá! Seu pedido já está sendo preparado com muito carinho.", sender: "them", time: "10:17", status: "read" },
-    { id: "3", text: "Qual o tempo estimado para entrega?", sender: "me", time: "10:18", status: "read" },
-    { id: "4", text: "Em cerca de 15 minutos o entregador sairá daqui.", sender: "them", time: "10:20", status: "read" },
-    { id: "5", text: "Seu pedido #1234 já saiu para entrega!", sender: "them", time: "10:30", status: "read" },
-  ]);
+      // Buscar info do recebedor
+      const { data: profile } = await supabase.rpc('get_user_full_name', { user_id: receiverId });
+      setReceiverInfo({ name: profile || "Contato", id: receiverId });
+
+      // Carregar mensagens históricas
+      const { data: history } = await supabase
+        .from('order_chats')
+        .select('*')
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${receiverId}),and(sender_id.eq.${receiverId},receiver_id.eq.${user.id})`)
+        .order('created_at', { ascending: true });
+
+      if (history) setMessages(history);
+      setLoading(false);
+      
+      // Inscrever no Realtime
+      const channel = supabase
+        .channel(`chat_${user.id}_${receiverId}`)
+        .on('postgres_changes', { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'order_chats',
+          filter: `receiver_id=eq.${user.id}`
+        }, (payload) => {
+          setMessages(prev => [...prev, payload.new as Message]);
+        })
+        .subscribe();
+
+      return () => { supabase.removeChannel(channel); };
+    };
+
+    initChat();
+  }, [receiverId]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -45,125 +76,83 @@ const ChatPage = () => {
     }
   }, [messages]);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || !currentUserId) return;
 
-    const msg: Message = {
-      id: Date.now().toString(),
-      text: newMessage,
-      sender: "me",
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      status: "sent"
-    };
-
-    setMessages([...messages, msg]);
+    const msgContent = newMessage;
     setNewMessage("");
 
-    // Resposta automática mockada
-    setTimeout(() => {
-      const reply: Message = {
-        id: (Date.now() + 1).toString(),
-        text: "Entendido! Mais alguma coisa em que possamos ajudar?",
-        sender: "them",
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        status: "read"
-      };
-      setMessages(prev => [...prev, reply]);
-    }, 2000);
+    try {
+      const { data, error } = await supabase
+        .from('order_chats')
+        .insert({
+          order_id: orderId,
+          sender_id: currentUserId,
+          receiver_id: receiverId,
+          message: msgContent
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      setMessages(prev => [...prev, data]);
+    } catch (err) {
+      showError("Erro ao enviar mensagem.");
+    }
   };
+
+  if (loading) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>;
 
   return (
     <div className="fixed inset-0 bg-white z-50 flex flex-col max-w-2xl mx-auto shadow-2xl">
-      {/* Header do Chat */}
       <header className="bg-white border-b border-gray-100 p-3 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full hover:bg-indigo-50">
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full">
             <ArrowLeft className="h-6 w-6 text-indigo-800" />
           </Button>
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => {}}>
+          <div className="flex items-center gap-3">
             <Avatar className="h-10 w-10 border-2 border-indigo-50">
-              <AvatarImage src={chatInfo.avatar} />
               <AvatarFallback className="bg-indigo-100 text-indigo-700 font-bold">
-                {chatInfo.name.charAt(0)}
+                {receiverInfo?.name?.charAt(0)}
               </AvatarFallback>
             </Avatar>
-            <div className="min-w-0">
-              <h2 className="font-bold text-gray-800 leading-tight truncate">{chatInfo.name}</h2>
-              <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
-                <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">{chatInfo.status}</span>
-              </div>
+            <div>
+              <h2 className="font-bold text-gray-800 leading-tight truncate">{receiverInfo?.name}</h2>
+              <span className="text-[10px] text-green-500 font-bold uppercase">Online</span>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="rounded-full text-indigo-600 hover:bg-indigo-50">
-            <Phone className="h-5 w-5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="rounded-full text-gray-400 hover:bg-indigo-50">
-            <MoreVertical className="h-5 w-5" />
+          <Button variant="ghost" size="icon" className="rounded-full text-indigo-600" asChild>
+            <a href={`tel:${receiverInfo?.phone || ""}`}><Phone className="h-5 w-5" /></a>
           </Button>
         </div>
       </header>
 
-      {/* Área de Mensagens */}
-      <div 
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto p-4 space-y-4 bg-indigo-50/30"
-      >
-        <div className="text-center">
-          <span className="text-[10px] bg-white px-3 py-1 rounded-full text-gray-400 font-bold uppercase tracking-widest shadow-sm">
-            Hoje
-          </span>
-        </div>
-
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-indigo-50/30">
         {messages.map((msg) => (
-          <div 
-            key={msg.id} 
-            className={cn(
-              "flex w-full flex-col",
-              msg.sender === "me" ? "items-end" : "items-start"
-            )}
-          >
-            <div 
-              className={cn(
-                "max-w-[85%] px-4 py-3 rounded-2xl shadow-sm relative",
-                msg.sender === "me" 
-                  ? "bg-brand-accent text-white rounded-tr-none" 
-                  : "bg-white text-gray-800 rounded-tl-none border border-indigo-100"
-              )}
-            >
-              <p className="text-sm font-medium leading-relaxed">{msg.text}</p>
-              <div className={cn(
-                "flex items-center gap-1 mt-1 justify-end",
-                msg.sender === "me" ? "text-white/70" : "text-gray-400"
-              )}>
-                <span className="text-[9px] font-bold">{msg.time}</span>
-                {msg.sender === "me" && (
-                  <CheckCheck className={cn("h-3 w-3", msg.status === "read" ? "text-blue-200" : "text-white/50")} />
-                )}
-              </div>
+          <div key={msg.id} className={cn("flex w-full flex-col", msg.sender_id === currentUserId ? "items-end" : "items-start")}>
+            <div className={cn("max-w-[85%] px-4 py-3 rounded-2xl shadow-sm", 
+              msg.sender_id === currentUserId ? "bg-indigo-600 text-white rounded-tr-none" : "bg-white text-gray-800 rounded-tl-none")}>
+              <p className="text-sm font-medium">{msg.message}</p>
+              <span className="text-[9px] opacity-70 block mt-1 text-right">
+                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Input de Mensagem */}
-      <div className="p-4 bg-white border-t border-gray-100 safe-area-bottom">
+      <div className="p-4 bg-white border-t border-gray-100">
         <form onSubmit={handleSendMessage} className="flex items-center gap-2">
           <Input
-            placeholder="Digite uma mensagem..."
-            className="flex-1 rounded-full border-2 border-indigo-50 bg-gray-50 focus:bg-white focus:border-brand-accent py-6 text-sm transition-all"
+            placeholder="Digite sua mensagem..."
+            className="flex-1 rounded-full border-indigo-50 bg-gray-50 focus:bg-white"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
           />
-          <Button 
-            type="submit" 
-            size="icon" 
-            className="h-12 w-12 rounded-full bg-brand-accent hover:bg-brand-accent/90 shadow-lg shadow-brand-accent/20 shrink-0"
-            disabled={!newMessage.trim()}
-          >
+          <Button type="submit" size="icon" className="h-12 w-12 rounded-full bg-brand-accent shadow-lg" disabled={!newMessage.trim()}>
             <Send className="h-5 w-5 text-white" />
           </Button>
         </form>

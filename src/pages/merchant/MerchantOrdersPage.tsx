@@ -152,7 +152,7 @@ const MerchantOrdersPage = () => {
 
       const { data: fetchedOrders, error } = await supabase
         .from('orders')
-        .select(`*, driver:driver_applications!driver_id (id, full_name, phone, metadata)`)
+        .select(`*, driver:driver_applications!driver_id (id, full_name, phone, metadata), customer_phone:profiles!customer_id(phone)`)
         .eq('merchant_id', user.id)
         .order('created_at', { ascending: false })
         .limit(50);
@@ -409,7 +409,6 @@ const MerchantOrdersPage = () => {
           <ScrollArea className="flex-1 p-6 bg-white">
             {selectedOrderDetails && (
               <div className="space-y-8">
-                {/* Comanda Visual */}
                 <div className="flex justify-center bg-gray-50 p-4 rounded-3xl border border-dashed border-gray-200">
                   <OrderReceipt 
                     order={selectedOrderDetails} 
@@ -419,12 +418,9 @@ const MerchantOrdersPage = () => {
                   />
                 </div>
 
-                {/* Central de Contatos */}
                 <div className="space-y-4">
                   <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest px-2">Central de Comunicação</h4>
-                  
                   <div className="grid grid-cols-1 gap-3">
-                    {/* Cliente */}
                     <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 space-y-3">
                       <div className="flex items-center gap-2">
                         <User className="h-4 w-4 text-indigo-600" />
@@ -434,23 +430,22 @@ const MerchantOrdersPage = () => {
                         <Button 
                           variant="outline" 
                           className="flex-1 rounded-xl bg-white border-indigo-200 text-indigo-600 h-10 gap-2"
-                          onClick={() => navigate(`/chat/${selectedOrderDetails.customer_id}`)}
+                          onClick={() => navigate(`/chat/${selectedOrderDetails.customer_id}?orderId=${selectedOrderDetails.id}`)}
                         >
-                          <MessageCircle className="h-4 w-4" /> Chat
+                          <MessageSquare className="h-4 w-4" /> Chat
                         </Button>
                         <Button 
                           variant="outline" 
                           className="flex-1 rounded-xl bg-white border-indigo-200 text-indigo-600 h-10 gap-2"
                           asChild
                         >
-                          <a href={`tel:${selectedOrderDetails.metadata?.phone || ""}`}>
+                          <a href={`tel:${selectedOrderDetails.customer_phone?.phone || ""}`}>
                             <PhoneCall className="h-4 w-4" /> Ligar
                           </a>
                         </Button>
                       </div>
                     </div>
 
-                    {/* Entregador */}
                     {selectedOrderDetails.driver && (
                       <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 space-y-3">
                         <div className="flex items-center gap-2">
@@ -461,9 +456,9 @@ const MerchantOrdersPage = () => {
                           <Button 
                             variant="outline" 
                             className="flex-1 rounded-xl bg-white border-blue-200 text-blue-600 h-10 gap-2"
-                            onClick={() => navigate(`/chat/${selectedOrderDetails.driver.id}`)}
+                            onClick={() => navigate(`/chat/${selectedOrderDetails.driver.id}?orderId=${selectedOrderDetails.id}`)}
                           >
-                            <MessageCircle className="h-4 w-4" /> Chat
+                            <MessageSquare className="h-4 w-4" /> Chat
                           </Button>
                           <Button 
                             variant="outline" 
@@ -480,14 +475,9 @@ const MerchantOrdersPage = () => {
                   </div>
                 </div>
 
-                {/* Ações de Gestão */}
                 <div className="space-y-4">
                    <h4 className="text-[10px] font-black uppercase text-red-400 tracking-widest px-2">Gestão Crítica</h4>
-                   <Button 
-                    variant="ghost" 
-                    className="w-full justify-start text-red-500 hover:bg-red-50 rounded-2xl h-12 gap-3 px-4"
-                    onClick={() => handleCancelOrder(selectedOrderDetails.id)}
-                   >
+                   <Button variant="ghost" className="w-full justify-start text-red-500 hover:bg-red-50 rounded-2xl h-12 gap-3 px-4" onClick={() => handleCancelOrder(selectedOrderDetails.id)}>
                      <Trash2 className="h-5 w-5" /> Cancelar este Pedido
                    </Button>
                 </div>
