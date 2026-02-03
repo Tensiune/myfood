@@ -23,11 +23,13 @@ import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { useNativeNotifications } from "@/hooks/useNativeNotifications";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/AuthContext";
 
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
 
 const AvailableOrdersPage = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [offer, setOffer] = useState<any>(null);
   const [activeOrders, setActiveOrders] = useState<any[]>([]);
   const [timeLeft, setTimeLeft] = useState(0);
@@ -54,10 +56,9 @@ const AvailableOrdersPage = () => {
   }, []);
 
   const sync = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // 1. Sincronizar Ofertas (Nova Entrega)
+    // 1. Sincronizar Ofertas
     const { data: offers } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
@@ -71,13 +72,11 @@ const AvailableOrdersPage = () => {
       const initialTime = Math.floor((expiresAt - Date.now()) / 1000);
       
       if (initialTime > 0) {
-          // Check if this is a new offer ID since the last sync
           if (activeOffer.id !== lastOfferIdRef.current) {
               lastOfferIdRef.current = activeOffer.id;
               playAlert();
               sendNotification("Nova Oportunidade!", `Ganhos estimados: R$ ${activeOffer.total.toFixed(2)}`);
           }
-          
           setTimeLeft(initialTime);
           setOffer(activeOffer);
       } else {
@@ -89,7 +88,7 @@ const AvailableOrdersPage = () => {
       lastOfferIdRef.current = null;
     }
 
-    // 2. Sincronizar Pedidos em Andamento com Detalhes do Cliente
+    // 2. Sincronizar Pedidos em Andamento
     const { data: accepted } = await supabase
         .from('orders')
         .select('*, merchant:merchant_applications(*)')
@@ -105,15 +104,16 @@ const AvailableOrdersPage = () => {
     }
     
     setLoading(false);
-  }, [playAlert, sendNotification]);
+  }, [user, playAlert, sendNotification]);
 
   useEffect(() => {
     const checkStatus = () => setIsOnline(localStorage.getItem('driver_online_status') === 'online');
     checkStatus();
     
+    // Reduzimos o polling para evitar conflitos, focando no carregamento inicial e intervalos maiores
     const interval = setInterval(() => {
         if (localStorage.getItem('driver_online_status') === 'online') sync();
-    }, 5000);
+    }, 8000);
     
     sync();
     return () => clearInterval(interval);
@@ -126,7 +126,7 @@ const AvailableOrdersPage = () => {
             setTimeLeft(prev => {
                 if (prev <= 1) {
                     setOffer(null);
-                    lastOfferIdRef.current = null; // Ensure ref is cleared on expiration
+                    lastOfferIdRef.current = null;
                     return 0;
                 }
                 return prev - 1;
@@ -139,12 +139,9 @@ const AvailableOrdersPage = () => {
   }, [offer, timeLeft]);
 
   const handleAccept = async () => {
-    if (!offer) return;
+    if (!offer || !user) return;
     const tid = showLoading("Confirmando...");
     try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("Usuário não autenticado");
-
         const { data, error } = await supabase
             .from('orders')
             .update({ driver_id: user.id, current_driver_offered_id: null, offer_expires_at: null })
@@ -168,16 +165,15 @@ const AvailableOrdersPage = () => {
   };
 
   const handleAbandon = async (orderId: string) => {
-    if (!window.confirm("Tem certeza que deseja abandonar esta rota? Você poderá ser penalizado por cancelamentos frequentes.")) return;
-    
-    const tid = showLoading("Cancelando sua participação...");
+    if (!window.confirm("Abandonar rota?")) return;
+    const tid = showLoading("Processando...");
     try {
         const { error } = await supabase.rpc('abandon_order', { p_order_id: orderId });
         if (error) throw error;
-        showSuccess("Rota abandonada com sucesso.");
+        showSuccess("Rota abandonada.");
         sync();
     } catch (err: any) {
-        showError("Erro ao abandonar: " + err.message);
+        showError("Erro ao abandonar.");
     } finally {
         dismissToast(tid);
     }
@@ -223,34 +219,18 @@ const AvailableOrdersPage = () => {
                             <div className="bg-gray-50 p-3 rounded-2xl flex gap-3 items-start">
                                 <MapPin className="h-4 w-4 text-brand-accent mt-0.5 shrink-0" />
                                 <p className="text-xs text-gray-600 font-medium leading-tight">
-                                    {order.delivery_address?.street}, {order.delivery_address?.number}<br/>
-                                    <span className="text-[10px] text-gray-400">{order.delivery_address?.neighborhood} - {order.delivery_address?.city}</span>
+                                    {order.delivery_address?.street}, {order.delivery_address?.number}
                                 </p>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2">
-                                <Button variant="outline" className="rounded-xl border-gray-100 h-11 text-indigo-600 font-bold gap-2" onClick={() => navigate(`/chat/${order.merchant_id}`)}>
-                                    <MessageCircle className="h-4 w-4" /> Chat Loja
-                                </Button>
-                                <Button variant="outline" className="rounded-xl border-gray-100 h-11 text-indigo-600 font-bold gap-2" onClick={() => window.open(`tel:${order.merchant?.phone}`)}>
-                                    <Phone className="h-4 w-4" /> Ligar Loja
-                                </Button>
                             </div>
                         </div>
 
                         <div className="px-4 pb-4 flex gap-2">
+                            <Button variant="ghost" className="w-1/3 text-red-400 font-bold text-xs" onClick={() => handleAbandon(order.id)}>Abandonar</Button>
                             <Button 
-                                variant="ghost" 
-                                className="w-1/3 rounded-2xl text-red-400 hover:text-red-500 hover:bg-red-50 font-bold text-xs"
-                                onClick={() => handleAbandon(order.id)}
-                            >
-                                <XCircle className="h-4 w-4 mr-1" /> Abandonar
-                            </Button>
-                            <Button 
-                                className="flex-1 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase tracking-widest h-14 shadow-lg shadow-indigo-100"
+                                className="flex-1 rounded-2xl bg-indigo-600 text-white font-black text-xs uppercase h-14"
                                 onClick={() => navigate(`/driver/map?orderId=${order.id}`)}
                             >
-                                Iniciar Navegação <ChevronRight className="ml-1 h-4 w-4" />
+                                Navegação <ChevronRight className="ml-1 h-4 w-4" />
                             </Button>
                         </div>
                     </CardContent>
@@ -273,20 +253,13 @@ const AvailableOrdersPage = () => {
                   <div className="p-2 bg-indigo-50 rounded-full h-fit"><Store className="h-4 w-4 text-indigo-600" /></div>
                   <div className="flex-1">
                     <p className="text-[10px] font-black text-gray-400 uppercase">Coleta Próxima</p>
-                    <p className="font-bold text-gray-800">{offer.merchant?.store_name || "Loja Parceira"}</p>
-                  </div>
-                </div>
-                <div className="flex gap-4">
-                  <div className="p-2 bg-green-50 rounded-full h-fit"><MapPin className="h-4 w-4 text-green-600" /></div>
-                  <div className="flex-1">
-                    <p className="text-[10px] font-black text-gray-400 uppercase">Destino Final</p>
-                    <p className="text-xs text-gray-500 line-clamp-1">{offer.delivery_address?.neighborhood}, {offer.delivery_address?.city}</p>
+                    <p className="font-bold text-gray-800">{offer.merchant?.store_name}</p>
                   </div>
                 </div>
             </div>
             <div className="flex gap-3">
               <Button variant="ghost" className="flex-1 h-16 rounded-2xl text-red-500 font-bold" onClick={() => { setOffer(null); lastOfferIdRef.current = null; }}>Ignorar</Button>
-              <Button className="flex-2 h-16 rounded-2xl bg-green-600 text-white font-black text-xl shadow-lg active:scale-95 transition-all" onClick={handleAccept}>ACEITAR</Button>
+              <Button className="flex-2 h-16 rounded-2xl bg-green-600 text-white font-black text-xl" onClick={handleAccept}>ACEITAR</Button>
             </div>
           </CardContent>
         </Card>
@@ -295,7 +268,7 @@ const AvailableOrdersPage = () => {
       {isOnline && !offer && activeOrders.length < 3 && (
         <div className="py-20 text-center bg-white rounded-[2.5rem] border-2 border-dashed border-gray-100">
           <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-200 mb-3" />
-          <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">Buscando as melhores rotas para você...</p>
+          <p className="text-gray-400 font-bold uppercase text-[10px]">Buscando rotas...</p>
         </div>
       )}
 
@@ -303,7 +276,7 @@ const AvailableOrdersPage = () => {
         <Card className="rounded-[2rem] border-none bg-indigo-900 text-white p-8 text-center">
             <Power className="h-12 w-12 mx-auto mb-4 text-indigo-300" />
             <h3 className="text-xl font-bold mb-2">Você está Offline</h3>
-            <p className="text-indigo-200 text-sm mb-6">Fique online para começar a receber ofertas de entrega na sua região.</p>
+            <p className="text-indigo-200 text-sm">Fique online para começar a trabalhar.</p>
         </Card>
       )}
     </div>

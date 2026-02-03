@@ -3,27 +3,17 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { calculateDistance } from "@/utils/geo";
-import { showError } from "@/utils/toast";
 
-export function useDriverLocationTracker(isActive: boolean) {
+export function useDriverLocationTracker(isActive: boolean, driverId: string | null) {
   const [currentLocation, setCurrentLocation] = useState<[number, number]>([0, 0]);
   const [heading, setHeading] = useState<number>(0);
   const [isTracking, setIsTracking] = useState(false);
-  const [driverId, setDriverId] = useState<string | null>(null);
   
   const lastUpdateCoords = useRef<[number, number] | null>(null);
   const watchIdRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setDriverId(user?.id || null);
-    };
-    fetchUser();
-
-    // Listener para bússola/direção do dispositivo
     const handleOrientation = (e: DeviceOrientationEvent) => {
-      // webkitCompassHeading é específico para iOS (mais preciso)
       const compass = (e as any).webkitCompassHeading || e.alpha;
       if (compass !== null) setHeading(compass);
     };
@@ -37,7 +27,6 @@ export function useDriverLocationTracker(isActive: boolean) {
   const updateLocationInDb = useCallback(async (lat: number, lng: number) => {
     if (!driverId) return;
 
-    // Lógica de economia de bateria: Só envia se moveu mais de 10 metros (0.01 km)
     if (lastUpdateCoords.current) {
       const dist = calculateDistance(
         lastUpdateCoords.current[0], 
@@ -45,12 +34,12 @@ export function useDriverLocationTracker(isActive: boolean) {
         lat, 
         lng
       );
-      if (dist < 0.01) return; // Menos de 10 metros, ignora o upload
+      if (dist < 0.01) return; 
     }
     
     lastUpdateCoords.current = [lat, lng];
 
-    const { error } = await supabase
+    await supabase
       .from('driver_locations')
       .upsert({
         driver_id: driverId,
@@ -59,7 +48,6 @@ export function useDriverLocationTracker(isActive: boolean) {
         updated_at: new Date().toISOString(),
       }, { onConflict: 'driver_id' });
       
-    if (error) console.error("[GPS] Erro DB:", error);
   }, [driverId]);
 
   useEffect(() => {
@@ -76,7 +64,7 @@ export function useDriverLocationTracker(isActive: boolean) {
         setCurrentLocation([latitude, longitude]);
         updateLocationInDb(latitude, longitude);
       },
-      (err) => console.error(err),
+      (err) => console.error("[GPS] Erro:", err),
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
     );
 
