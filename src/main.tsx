@@ -5,6 +5,7 @@ import "./globals.css";
 import { NotificationProvider } from "./context/NotificationContext";
 import { AuthProvider } from "./context/AuthContext";
 import { CallProvider } from "./context/CallContext";
+import CallOverlay from "./components/shared/CallOverlay"; // Importado globalmente
 
 const rootElement = document.getElementById("root");
 
@@ -15,6 +16,7 @@ if (rootElement) {
       <AuthProvider>
         <NotificationProvider>
           <CallProvider>
+            <CallOverlay /> {/* Renderizado globalmente */}
             <App />
           </CallProvider>
         </NotificationProvider>

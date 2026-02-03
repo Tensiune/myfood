@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { showError } from "@/utils/toast";
 import { useAuth } from "@/context/AuthContext";
 import { useCall } from "@/context/CallContext";
-import CallOverlay from "@/components/shared/CallOverlay";
+// import CallOverlay from "@/components/shared/CallOverlay"; // Removido
 
 interface Message {
   id: string;
@@ -134,7 +134,7 @@ const ChatPage = () => {
 
   return (
     <div className="fixed inset-0 bg-white z-[100] flex flex-col max-w-2xl mx-auto shadow-2xl">
-      <CallOverlay />
+      {/* <CallOverlay /> REMOVIDO */}
       <header className="bg-white border-b border-gray-100 p-3 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full">
