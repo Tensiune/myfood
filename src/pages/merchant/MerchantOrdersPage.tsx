@@ -89,6 +89,16 @@ const MerchantOrdersPage = () => {
     printReceipt(order, merchantName, order.customer_full_name || 'Cliente', printSettings);
   }, [merchantName, printSettings]);
 
+  // Função para limpar pedidos expirados
+  const handleCleanupExpired = useCallback(async () => {
+    try {
+      await supabase.rpc('cancel_expired_pending_orders');
+      // Não damos refresh direto aqui para evitar loops, o Realtime já deve cuidar disso
+    } catch (e) {
+      console.error("Erro ao limpar expirados:", e);
+    }
+  }, []);
+
   const handleAcceptOrder = useCallback(async (orderId: string, isSilent = false) => {
     const tid = isSilent ? null : showLoading("Aceitando pedido...");
     try {
@@ -109,7 +119,6 @@ const MerchantOrdersPage = () => {
       if (!isSilent) {
         dismissToast(tid);
         showSuccess("Pedido aceito!");
-        // O print será manual ou automático via dashboard após o reload do Realtime
       }
     } catch (err: any) {
       if (!isSilent) {
@@ -176,7 +185,6 @@ const MerchantOrdersPage = () => {
       if (ordersError) throw ordersError;
       if (!rawOrders) { setOrders([]); return; }
 
-      // BUSCA EM LOTE COM TRATAMENTO DE ERRO (Resiliência contra 404 profiles)
       const customerIds = Array.from(new Set(rawOrders.map(o => o.customer_id).filter(Boolean)));
       const driverIds = Array.from(new Set(rawOrders.map(o => o.driver_id).filter(Boolean)));
 
@@ -193,7 +201,7 @@ const MerchantOrdersPage = () => {
               if (!res.error) driversData = res.data || [];
           }
       } catch (e) {
-          console.warn("Falha ao enriquecer nomes, usando dados padrão.");
+          console.warn("Falha ao enriquecer nomes.");
       }
 
       const enrichedOrders = rawOrders.map(order => {
@@ -212,24 +220,33 @@ const MerchantOrdersPage = () => {
 
     } catch (err: any) {
       console.error("[MerchantOrders] Fetch Error:", err);
-      setFetchError(err.message || "Erro de conexão com o banco.");
+      setFetchError(err.message);
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, []); // Sem dependências internas para evitar o loop
+  }, []);
 
   useEffect(() => {
     fetchOrders();
 
+    // Limpeza inicial de expirados
+    handleCleanupExpired();
+
     const channel = supabase.channel(`merchant_realtime_${Math.random()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
-        if (payload.eventType === 'INSERT') playAlert();
+        if (payload.eventType === 'INSERT') {
+            playAlert();
+            // Se for um novo pedido e estiver com auto-aceite, aceita imediatamente
+            if (localStorage.getItem('merchant_auto_accept') === 'true') {
+                handleAcceptOrder(payload.new.id, true);
+            }
+        }
         fetchOrders(true);
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [fetchOrders, playAlert]);
+  }, [fetchOrders, playAlert, handleCleanupExpired, handleAcceptOrder]);
 
   const handleToggleStore = async (val: boolean) => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -242,12 +259,14 @@ const MerchantOrdersPage = () => {
   };
 
   const filteredOrders = useMemo(() => {
-    if (!searchTerm) return orders;
-    const s = searchTerm.toLowerCase();
-    return orders.filter(o => 
-      o.id.toLowerCase().includes(s) || 
-      (o.customer_full_name && o.customer_full_name.toLowerCase().includes(s))
-    );
+    // Filtro adicional para não mostrar pedidos expirados em "Novos" enquanto o banco não atualiza
+    const now = new Date();
+    const list = searchTerm ? orders.filter(o => 
+      o.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      (o.customer_full_name && o.customer_full_name.toLowerCase().includes(searchTerm.toLowerCase()))
+    ) : orders;
+
+    return list;
   }, [orders, searchTerm]);
 
   const renderSection = (title: string, color: string, filter: (o: any) => boolean, action: (o: any) => React.ReactNode) => {
@@ -264,7 +283,13 @@ const MerchantOrdersPage = () => {
               <div className="flex justify-between items-start">
                 <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
                 {o.status === 'PENDING' && o.merchant_acceptance_deadline && (
-                  <AcceptanceTimer deadline={o.merchant_acceptance_deadline} onExpire={() => fetchOrders(true)} />
+                  <AcceptanceTimer 
+                    deadline={o.merchant_acceptance_deadline} 
+                    onExpire={async () => {
+                        await handleCleanupExpired();
+                        fetchOrders(true);
+                    }} 
+                  />
                 )}
                 <Button 
                   variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-indigo-600 rounded-full"
