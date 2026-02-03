@@ -67,20 +67,23 @@ const AvailableOrdersPage = () => {
     
     if (offers && offers.length > 0) {
       const activeOffer = offers[0];
-      if (activeOffer.id !== lastOfferIdRef.current) {
-          const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
-          const initialTime = Math.floor((expiresAt - Date.now()) / 1000);
-          
-          if (initialTime > 0) {
-              setTimeLeft(initialTime);
+      const expiresAt = new Date(activeOffer.offer_expires_at).getTime();
+      const initialTime = Math.floor((expiresAt - Date.now()) / 1000);
+      
+      if (initialTime > 0) {
+          // Check if this is a new offer ID since the last sync
+          if (activeOffer.id !== lastOfferIdRef.current) {
               lastOfferIdRef.current = activeOffer.id;
               playAlert();
               sendNotification("Nova Oportunidade!", `Ganhos estimados: R$ ${activeOffer.total.toFixed(2)}`);
-          } else {
-              setOffer(null);
           }
+          
+          setTimeLeft(initialTime);
+          setOffer(activeOffer);
+      } else {
+          setOffer(null);
+          lastOfferIdRef.current = null;
       }
-      setOffer(activeOffer);
     } else {
       setOffer(null);
       lastOfferIdRef.current = null;
@@ -105,23 +108,6 @@ const AvailableOrdersPage = () => {
   }, [playAlert, sendNotification]);
 
   useEffect(() => {
-    if (offer && timeLeft > 0) {
-        timerIntervalRef.current = setInterval(() => {
-            setTimeLeft(prev => {
-                if (prev <= 1) {
-                    setOffer(null);
-                    return 0;
-                }
-                return prev - 1;
-            });
-        }, 1000);
-    }
-    return () => {
-        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    };
-  }, [offer, timeLeft]);
-
-  useEffect(() => {
     const checkStatus = () => setIsOnline(localStorage.getItem('driver_online_status') === 'online');
     checkStatus();
     
@@ -132,6 +118,25 @@ const AvailableOrdersPage = () => {
     sync();
     return () => clearInterval(interval);
   }, [sync]);
+
+  useEffect(() => {
+    if (offer && timeLeft > 0) {
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = setInterval(() => {
+            setTimeLeft(prev => {
+                if (prev <= 1) {
+                    setOffer(null);
+                    lastOfferIdRef.current = null; // Ensure ref is cleared on expiration
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+    }
+    return () => {
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, [offer, timeLeft]);
 
   const handleAccept = async () => {
     if (!offer) return;

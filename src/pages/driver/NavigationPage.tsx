@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -66,7 +66,7 @@ const NavigationPage = () => {
     className: "", iconSize: [40, 40], iconAnchor: [20, 20]
   }), [heading]);
 
-  const fetchActiveOrders = async () => {
+  const fetchActiveOrders = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { navigate("/login"); return; }
@@ -120,15 +120,49 @@ const NavigationPage = () => {
     } finally { 
       setLoading(false); 
     }
-  };
+  }, [navigate]);
 
   useEffect(() => {
-    fetchActiveOrders();
-    const channel = supabase.channel('nav_sync').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchActiveOrders()).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [navigate]);
-  
-  // Timer logic for the offer
+    let assignedChannel: any;
+    let offerChannel: any;
+    
+    const setupRealtime = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Initial fetch
+      await fetchActiveOrders();
+
+      // 1. Listen for changes to orders assigned to this driver (driver_id)
+      assignedChannel = supabase.channel(`nav_assigned_${user.id}`)
+          .on('postgres_changes', { 
+              event: 'UPDATE', 
+              schema: 'public', 
+              table: 'orders', 
+              filter: `driver_id=eq.${user.id}` 
+          }, () => fetchActiveOrders())
+          .subscribe();
+
+      // 2. Listen for offers made specifically to this driver (current_driver_offered_id)
+      offerChannel = supabase.channel(`nav_offer_${user.id}`)
+          .on('postgres_changes', { 
+              event: 'UPDATE', 
+              schema: 'public', 
+              table: 'orders', 
+              filter: `current_driver_offered_id=eq.${user.id}` 
+          }, () => fetchActiveOrders())
+          .subscribe();
+    };
+    
+    setupRealtime();
+    
+    return () => {
+        if (assignedChannel) supabase.removeChannel(assignedChannel);
+        if (offerChannel) supabase.removeChannel(offerChannel);
+    };
+  }, [fetchActiveOrders]);
+
+  // Timer logic for the offer (kept separate)
   useEffect(() => {
     if (offer && timeLeft > 0) {
         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
@@ -198,6 +232,7 @@ const NavigationPage = () => {
         setOtpCode("");
 
         if (user) {
+            // Trigger auto-match for next job
             supabase.functions.invoke('dispatch-order', {
                 body: { driverId: user.id }
             }).catch(e => console.error("Auto-match fail", e));
