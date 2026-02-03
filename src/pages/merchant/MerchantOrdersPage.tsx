@@ -23,7 +23,10 @@ import {
   Printer,
   ChevronDown,
   ChevronUp,
-  Eye
+  Eye,
+  MessageCircle,
+  PhoneCall,
+  Trash2
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
@@ -41,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import OrderCardDetails from "@/components/merchant/OrderCardDetails";
 import { printReceipt } from "@/utils/print";
+import { useNavigate } from "react-router-dom";
 
 interface PrintSettings {
   paperWidth: "80mm" | "58mm";
@@ -59,6 +63,7 @@ const defaultPrintSettings: PrintSettings = {
 const NOTIFICATION_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3";
 
 const MerchantOrdersPage = () => {
+  const navigate = useNavigate();
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<any[]>([]);
@@ -207,13 +212,15 @@ const MerchantOrdersPage = () => {
   };
 
   const handleCancelOrder = async (id: string) => {
-    if (!window.confirm("Cancelar este pedido?")) return;
+    if (!window.confirm("Cancelar este pedido? Esta ação é irreversível.")) return;
     try {
-      await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', id);
+      const { error } = await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', id);
+      if (error) throw error;
       showSuccess("Pedido cancelado.");
+      setIsDetailsDialogOpen(false);
       fetchOrders(true);
     } catch (err) {
-      showError("Erro ao cancelar.");
+      showError("Erro ao cancelar pedido.");
     }
   };
 
@@ -276,14 +283,6 @@ const MerchantOrdersPage = () => {
                   >
                     <Eye className="h-4 w-4" />
                   </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-7 w-7 text-gray-300 hover:text-red-500 rounded-full" 
-                    onClick={() => handleCancelOrder(o.id)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
                 </div>
               </div>
 
@@ -300,7 +299,10 @@ const MerchantOrdersPage = () => {
 
                 <div className="flex items-start gap-2 text-xs text-gray-500 bg-gray-50 p-3 rounded-2xl">
                   <MapPin className="h-3 w-3 mt-0.5 text-brand-accent shrink-0" />
-                  <p className="line-clamp-1">{o.delivery_address?.street}, {o.delivery_address?.number}</p>
+                  <p className="leading-tight">
+                    {o.delivery_address?.street}, {o.delivery_address?.number} <br/>
+                    <span className="font-bold text-[10px] uppercase text-gray-400">{o.delivery_address?.neighborhood}</span>
+                  </p>
                 </div>
 
                 {showItemDetails && (
@@ -395,26 +397,104 @@ const MerchantOrdersPage = () => {
       </div>
 
       <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
-        <DialogContent className="rounded-3xl sm:max-w-md h-[85vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
+        <DialogContent className="rounded-3xl sm:max-w-md h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
           <div className="p-6 bg-indigo-900 text-white flex justify-between items-center shrink-0">
              <div className="flex items-center gap-3">
                <Printer className="h-5 w-5 text-indigo-300" />
-               <h3 className="font-bold">Visualização de Comanda</h3>
+               <h3 className="font-bold uppercase tracking-widest text-sm">Painel do Pedido</h3>
              </div>
              <Button variant="ghost" size="icon" className="text-white hover:bg-white/10 rounded-full" onClick={() => setIsDetailsDialogOpen(false)}><X className="h-5 w-5" /></Button>
           </div>
+          
           <ScrollArea className="flex-1 p-6 bg-white">
             {selectedOrderDetails && (
-              <div className="flex justify-center">
-                <OrderReceipt 
-                  order={selectedOrderDetails} 
-                  merchantName={merchantName} 
-                  customerName={selectedOrderDetails.customer_full_name} 
-                  printSettings={printSettings} 
-                />
+              <div className="space-y-8">
+                {/* Comanda Visual */}
+                <div className="flex justify-center bg-gray-50 p-4 rounded-3xl border border-dashed border-gray-200">
+                  <OrderReceipt 
+                    order={selectedOrderDetails} 
+                    merchantName={merchantName} 
+                    customerName={selectedOrderDetails.customer_full_name} 
+                    printSettings={printSettings} 
+                  />
+                </div>
+
+                {/* Central de Contatos */}
+                <div className="space-y-4">
+                  <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest px-2">Central de Comunicação</h4>
+                  
+                  <div className="grid grid-cols-1 gap-3">
+                    {/* Cliente */}
+                    <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <User className="h-4 w-4 text-indigo-600" />
+                        <span className="font-bold text-indigo-900 text-sm">Cliente: {selectedOrderDetails.customer_full_name}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          className="flex-1 rounded-xl bg-white border-indigo-200 text-indigo-600 h-10 gap-2"
+                          onClick={() => navigate(`/chat/${selectedOrderDetails.customer_id}`)}
+                        >
+                          <MessageCircle className="h-4 w-4" /> Chat
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          className="flex-1 rounded-xl bg-white border-indigo-200 text-indigo-600 h-10 gap-2"
+                          asChild
+                        >
+                          <a href={`tel:${selectedOrderDetails.metadata?.phone || ""}`}>
+                            <PhoneCall className="h-4 w-4" /> Ligar
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Entregador */}
+                    {selectedOrderDetails.driver && (
+                      <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Bike className="h-4 w-4 text-blue-600" />
+                          <span className="font-bold text-blue-900 text-sm">Entregador: {selectedOrderDetails.driver.full_name}</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="outline" 
+                            className="flex-1 rounded-xl bg-white border-blue-200 text-blue-600 h-10 gap-2"
+                            onClick={() => navigate(`/chat/${selectedOrderDetails.driver.id}`)}
+                          >
+                            <MessageCircle className="h-4 w-4" /> Chat
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            className="flex-1 rounded-xl bg-white border-blue-200 text-blue-600 h-10 gap-2"
+                            asChild
+                          >
+                            <a href={`tel:${selectedOrderDetails.driver.phone}`}>
+                              <PhoneCall className="h-4 w-4" /> Ligar
+                            </a>
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Ações de Gestão */}
+                <div className="space-y-4">
+                   <h4 className="text-[10px] font-black uppercase text-red-400 tracking-widest px-2">Gestão Crítica</h4>
+                   <Button 
+                    variant="ghost" 
+                    className="w-full justify-start text-red-500 hover:bg-red-50 rounded-2xl h-12 gap-3 px-4"
+                    onClick={() => handleCancelOrder(selectedOrderDetails.id)}
+                   >
+                     <Trash2 className="h-5 w-5" /> Cancelar este Pedido
+                   </Button>
+                </div>
               </div>
             )}
           </ScrollArea>
+          
           <div className="p-6 border-t bg-gray-50 flex gap-3 shrink-0">
             <Button variant="outline" className="flex-1 rounded-xl h-12 font-bold" onClick={() => setIsDetailsDialogOpen(false)}>Fechar</Button>
             <Button className="flex-1 rounded-xl bg-indigo-600 h-12 font-bold gap-2" onClick={() => handlePrint(selectedOrderDetails)}>

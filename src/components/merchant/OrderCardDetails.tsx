@@ -13,29 +13,21 @@ const OrderCardDetails: React.FC<OrderCardDetailsProps> = ({ order }) => {
 
   return (
     <div className="space-y-3 p-3 bg-gray-50 rounded-xl border border-gray-100 animate-in fade-in">
-      {/* Cliente e Telefone (se disponível) */}
       <div className="flex items-center justify-between text-xs border-b border-gray-100 pb-2">
         <div className="flex items-center gap-1 text-gray-700 font-bold">
           <User className="h-3 w-3 text-indigo-500" />
           <span>{customerName}</span>
         </div>
-        {order.driver?.phone && (
-          <div className="flex items-center gap-1 text-gray-500">
-            <Phone className="h-3 w-3" />
-            <span>{order.driver.phone}</span>
-          </div>
-        )}
       </div>
 
-      {/* Endereço */}
       <div className="flex items-start gap-2 text-xs text-gray-600">
         <MapPin className="h-3 w-3 mt-0.5 text-brand-accent shrink-0" />
         <p className="flex-1 leading-tight">
-          {deliveryAddress.street}, {deliveryAddress.number} - {deliveryAddress.neighborhood}
+          {deliveryAddress.street}, {deliveryAddress.number} <br/>
+          <span className="font-bold text-gray-800">Bairro: {deliveryAddress.neighborhood}</span>
         </p>
       </div>
 
-      {/* Itens */}
       <div className="space-y-1 pt-2 border-t border-gray-100">
         <p className="text-[10px] font-black text-gray-400 uppercase">Itens:</p>
         {order.items.map((item: any, i: number) => (
@@ -45,7 +37,6 @@ const OrderCardDetails: React.FC<OrderCardDetailsProps> = ({ order }) => {
         ))}
       </div>
 
-      {/* Pagamento e Total */}
       <div className="flex justify-between items-center pt-2 border-t border-gray-200">
         <div className="flex items-center gap-1 text-xs text-gray-500">
           <CreditCard className="h-3 w-3" />
