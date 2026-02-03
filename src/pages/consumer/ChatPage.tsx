@@ -5,7 +5,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ArrowLeft, Send, Phone, Loader2 } from "lucide-react";
+import { ArrowLeft, Send, Phone, Loader2, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { showError } from "@/utils/toast";
@@ -46,33 +46,45 @@ const ChatPage = () => {
     const initChat = async () => {
       if (!currentUser || !receiverId) return;
 
-      const { data: profile } = await supabase.rpc('get_user_full_name', { user_id: receiverId });
-      setReceiverInfo({ name: profile || "Contato", id: receiverId });
+      try {
+        // Busca info do destinatário de forma segura
+        const { data: profile } = await supabase.rpc('get_user_full_name', { user_id: receiverId });
+        setReceiverInfo({ name: profile || "Contato", id: receiverId });
 
-      const { data: history, error } = await supabase
-        .from('order_chats')
-        .select('*')
-        .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${receiverId}),and(sender_id.eq.${receiverId},receiver_id.eq.${currentUser.id})`)
-        .order('created_at', { ascending: true });
+        // Busca histórico de mensagens (simplificado para evitar erros de sintaxe no .or)
+        const { data: history, error } = await supabase
+          .from('order_chats')
+          .select('*')
+          .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`)
+          .order('created_at', { ascending: true });
 
-      if (error) {
-        showError("Erro ao carregar mensagens.");
-      } else {
-        setMessages(history || []);
+        if (error) throw error;
+        
+        // Filtra as mensagens localmente para garantir precisão e evitar erros de RLS
+        const filteredHistory = (history || []).filter(m => 
+            (m.sender_id === currentUser.id && m.receiver_id === receiverId) ||
+            (m.sender_id === receiverId && m.receiver_id === currentUser.id)
+        );
+
+        setMessages(filteredHistory);
+      } catch (err) {
+        console.error("Chat init error:", err);
+        showError("Erro ao carregar chat.");
+      } finally {
+        setLoading(false);
+        setTimeout(scrollToBottom, 100);
       }
-      
-      setLoading(false);
-      setTimeout(scrollToBottom, 100);
 
+      // Inscrição em tempo real
       const channel = supabase
-        .channel(`active_chat_${currentUser.id}_${receiverId}`)
+        .channel(`chat_${currentUser.id}_${receiverId}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_chats' }, (payload) => {
             const msg = payload.new as Message;
-            const isFromCurrentConversation = 
+            const isRelevant = 
                 (msg.sender_id === currentUser.id && msg.receiver_id === receiverId) ||
                 (msg.sender_id === receiverId && msg.receiver_id === currentUser.id);
 
-            if (isFromCurrentConversation) {
+            if (isRelevant) {
               setMessages(prev => {
                 if (prev.find(m => m.id === msg.id)) return prev;
                 return [...prev, msg];
@@ -113,7 +125,12 @@ const ChatPage = () => {
     }
   };
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-white"><Loader2 className="animate-spin text-indigo-600 h-10 w-10" /></div>;
+  if (loading) return (
+    <div className="h-screen flex flex-col items-center justify-center bg-white">
+        <Loader2 className="animate-spin text-indigo-600 h-10 w-10 mb-2" />
+        <p className="text-gray-400 font-bold">Abrindo conversa...</p>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 bg-white z-[100] flex flex-col max-w-2xl mx-auto shadow-2xl">
@@ -127,7 +144,7 @@ const ChatPage = () => {
             <h2 className="font-black text-gray-900 leading-tight truncate">{receiverInfo?.name}</h2>
             <div className="flex items-center gap-1.5">
                 <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
-                <span className="text-[10px] text-gray-400 font-bold uppercase">Online agora</span>
+                <span className="text-[10px] text-gray-400 font-bold uppercase">Disponível</span>
             </div>
           </div>
         </div>
@@ -154,7 +171,7 @@ const ChatPage = () => {
         {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full opacity-30 text-center px-10">
                 <MessageSquare className="h-12 w-12 mb-2" />
-                <p className="font-bold">Diga "Olá" para iniciar a conversa!</p>
+                <p className="font-bold">Sua conversa com {receiverInfo?.name} começa aqui!</p>
             </div>
         )}
       </div>

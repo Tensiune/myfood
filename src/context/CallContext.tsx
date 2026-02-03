@@ -69,15 +69,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return pc;
   };
 
-  // Listener principal para orquestrar a conexão
+  // Listener principal de chamadas
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase.channel('calls_realtime')
+    const channel = supabase.channel('calls_v2')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, async (payload) => {
         const call = payload.new as any;
         
-        // Chamada recebida
+        // NOVA CHAMADA (INCOMING)
         if (payload.eventType === 'INSERT' && call.receiver_id === user.id) {
           const { data: name } = await supabase.rpc('get_user_full_name', { user_id: call.caller_id });
           setActiveCall({ ...call, caller_name: name });
@@ -85,39 +85,41 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           audioRef.current?.play().catch(() => {});
         }
 
-        // Mudanças de status ou sinais
+        // ATUALIZAÇÕES (HANDSHAKE)
         if (payload.eventType === 'UPDATE' && (call.caller_id === user.id || call.receiver_id === user.id)) {
           setActiveCall(prev => ({ ...prev, ...call }));
 
           if (['rejected', 'ended'].includes(call.status)) {
             cleanup();
+            return;
           }
 
-          // 1. O Chamador detecta o aceite e inicia o handshake
+          // FLUXO DO CHAMADOR (CALLER)
           if (call.status === 'accepted' && call.caller_id === user.id && !pcRef.current) {
-            initiateWebRTCAsCaller(call);
+            handleStartHandshakeAsCaller(call);
           }
 
-          // 2. O Recebedor detecta o sinal do chamador e responde
-          if (call.caller_signal && call.receiver_id === user.id && pcRef.current && pcRef.current.signalingState === 'stable') {
-              // Já processado
-          } else if (call.caller_signal && call.receiver_id === user.id && pcRef.current) {
+          // FLUXO DO RECEBEDOR (RECEIVER) - Recebendo sinal do caller
+          if (call.caller_signal && call.receiver_id === user.id && pcRef.current) {
+              if (pcRef.current.signalingState === 'stable') return;
               await pcRef.current.setRemoteDescription(new RTCSessionDescription(call.caller_signal));
               const answer = await pcRef.current.createAnswer();
               await pcRef.current.setLocalDescription(answer);
               await supabase.from('calls').update({ receiver_signal: answer }).eq('id', call.id);
           }
 
-          // 3. O Chamador finaliza com a resposta do recebedor
-          if (call.receiver_signal && call.caller_id === user.id && pcRef.current && pcRef.current.signalingState === 'have-local-offer') {
-              await pcRef.current.setRemoteDescription(new RTCSessionDescription(call.receiver_signal));
+          // FINALIZAÇÃO DO CHAMADOR (CALLER) - Recebendo resposta do receiver
+          if (call.receiver_signal && call.caller_id === user.id && pcRef.current) {
+              if (pcRef.current.signalingState === 'have-local-offer') {
+                await pcRef.current.setRemoteDescription(new RTCSessionDescription(call.receiver_signal));
+              }
           }
         }
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'call_ice_candidates' }, (payload) => {
         const ice = payload.new as any;
         if (ice.sender_id !== user.id && pcRef.current) {
-          pcRef.current.addIceCandidate(new RTCIceCandidate(ice.candidate)).catch(e => {});
+          pcRef.current.addIceCandidate(new RTCIceCandidate(ice.candidate)).catch(() => {});
         }
       })
       .subscribe();
@@ -125,7 +127,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => { supabase.removeChannel(channel); };
   }, [user]);
 
-  const initiateWebRTCAsCaller = async (call: any) => {
+  const handleStartHandshakeAsCaller = async (call: any) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setLocalStream(stream);
@@ -139,7 +141,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const startCall = async (receiverId: string) => {
     if (!user) return;
-    const { data } = await supabase.from('calls').insert({ caller_id: user.id, receiver_id: receiverId }).select().single();
+    const { data } = await supabase.from('calls').insert({ caller_id: user.id, receiver_id: receiverId, status: 'calling' }).select().single();
     if (data) {
       const { data: name } = await supabase.rpc('get_user_full_name', { user_id: receiverId });
       setActiveCall({ ...data, receiver_name: name });
@@ -149,19 +151,25 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const acceptCall = async () => {
     if (!activeCall) return;
     audioRef.current?.pause();
-    
-    // Atualiza UI local imediatamente
-    setActiveCall(prev => ({ ...prev, status: 'accepted' }));
 
     try {
+      // 1. Pede microfone antes de tudo
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setLocalStream(stream);
+
+      // 2. Prepara conexão WebRTC
       const pc = createPeerConnection(activeCall.id);
       stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-      // Notifica o DB do aceite
+      // 3. Notifica o DB do aceite - Isso dispara o 'accepted' no caller
       await supabase.from('calls').update({ status: 'accepted' }).eq('id', activeCall.id);
-    } catch (e) { cleanup(); }
+      
+      // Atualiza estado local
+      setActiveCall(prev => ({ ...prev, status: 'accepted' }));
+    } catch (e) { 
+      console.error("Microphone error:", e);
+      cleanup(); 
+    }
   };
 
   const endCall = async () => {
