@@ -125,6 +125,7 @@ const NavigationPage = () => {
   useEffect(() => {
     let assignedChannel: any;
     let offerChannel: any;
+    let pollingInterval: NodeJS.Timeout | null = null;
     
     const setupRealtime = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -132,6 +133,11 @@ const NavigationPage = () => {
 
       // Initial fetch
       await fetchActiveOrders();
+      
+      // Fallback Polling (5 seconds)
+      pollingInterval = setInterval(() => {
+          fetchActiveOrders();
+      }, 5000);
 
       // 1. Listen for changes to orders assigned to this driver (driver_id)
       assignedChannel = supabase.channel(`nav_assigned_${user.id}`)
@@ -159,6 +165,7 @@ const NavigationPage = () => {
     return () => {
         if (assignedChannel) supabase.removeChannel(assignedChannel);
         if (offerChannel) supabase.removeChannel(offerChannel);
+        if (pollingInterval) clearInterval(pollingInterval);
     };
   }, [fetchActiveOrders]);
 
@@ -267,7 +274,7 @@ const NavigationPage = () => {
         if (error) throw error;
         if (data && data.length > 0) {
             showSuccess("Pedido aceito!");
-            await fetchActiveOrders(); 
+            await fetchActiveOrders(); // Force update after acceptance
             setOffer(null);
         } else {
             showError("Oferta expirada.");
@@ -284,6 +291,7 @@ const NavigationPage = () => {
   const handleRejectOffer = () => {
     setOffer(null);
     showSuccess("Oferta ignorada.");
+    fetchActiveOrders(); // Force update after rejection
   };
 
   if (loading) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin h-10 w-10 text-indigo-600" /></div>;
