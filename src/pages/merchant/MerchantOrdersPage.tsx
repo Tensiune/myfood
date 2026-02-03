@@ -27,7 +27,7 @@ import {
   MessageCircle,
   PhoneCall,
   Trash2
-} from "lucide-react";
+} from "lucide-center";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -136,6 +136,7 @@ const MerchantOrdersPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // 1. Buscar dados da loja
       const { data: merchantData } = await supabase
         .from('merchant_applications')
         .select('is_open, store_name, metadata')
@@ -150,9 +151,10 @@ const MerchantOrdersPage = () => {
         }
       }
 
+      // 2. Buscar pedidos (Consulta simplificada para evitar erros de join)
       const { data: fetchedOrders, error } = await supabase
         .from('orders')
-        .select(`*, driver:driver_applications!driver_id (id, full_name, phone, metadata), customer_phone:profiles!customer_id(phone)`)
+        .select(`*, driver:driver_applications!driver_id (id, full_name, phone, metadata)`)
         .eq('merchant_id', user.id)
         .order('created_at', { ascending: false })
         .limit(50);
@@ -161,24 +163,45 @@ const MerchantOrdersPage = () => {
       
       const ordersToSet = fetchedOrders || [];
       
-      const ordersWithNames = await Promise.all(ordersToSet.map(async (order) => {
+      // 3. Enriquecer pedidos com nome do cliente via RPC
+      const ordersWithDetails = await Promise.all(ordersToSet.map(async (order) => {
+        let customerName = 'Cliente';
+        let customerPhone = '';
+
         if (order.customer_id) {
+          // Buscamos o nome
           const { data: name } = await supabase.rpc('get_user_full_name', { user_id: order.customer_id });
-          return { ...order, customer_full_name: name || 'Cliente' };
+          customerName = name || 'Cliente';
+          
+          // Buscamos o telefone na tabela profiles (id é o mesmo que customer_id)
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('phone')
+            .eq('id', order.customer_id)
+            .single();
+          
+          customerPhone = profile?.phone || '';
         }
-        return { ...order, customer_full_name: 'Cliente' };
+
+        return { 
+          ...order, 
+          customer_full_name: customerName,
+          customer_phone_number: customerPhone
+        };
       }));
 
+      // 4. Lógica de auto-aceite
       if (autoAccept) {
-          for (const o of ordersWithNames.filter(ord => ord.status === 'PENDING')) {
+          for (const o of ordersWithDetails.filter(ord => ord.status === 'PENDING')) {
               await handleAcceptOrder(o, true);
               if (autoPrint) handlePrint(o);
           }
       }
 
-      setOrders(ordersWithNames);
+      setOrders(ordersWithDetails);
     } catch (err) {
       console.error("[MerchantOrders] Fetch error:", err);
+      showError("Erro ao carregar pedidos.");
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -439,7 +462,7 @@ const MerchantOrdersPage = () => {
                           className="flex-1 rounded-xl bg-white border-indigo-200 text-indigo-600 h-10 gap-2"
                           asChild
                         >
-                          <a href={`tel:${selectedOrderDetails.customer_phone?.phone || ""}`}>
+                          <a href={`tel:${selectedOrderDetails.customer_phone_number || ""}`}>
                             <PhoneCall className="h-4 w-4" /> Ligar
                           </a>
                         </Button>
