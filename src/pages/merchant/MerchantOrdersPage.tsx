@@ -27,7 +27,7 @@ import {
   MessageCircle,
   PhoneCall,
   Trash2
-} from "lucide-center";
+} from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
