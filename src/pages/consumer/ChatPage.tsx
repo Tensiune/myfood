@@ -51,7 +51,7 @@ const ChatPage = () => {
       if (history) setMessages(history);
       setLoading(false);
       
-      // Inscrever no Realtime
+      // Inscrever no Realtime para mensagens novas ONDE eu sou o destinatário
       const channel = supabase
         .channel(`chat_${user.id}_${receiverId}`)
         .on('postgres_changes', { 
@@ -60,7 +60,15 @@ const ChatPage = () => {
           table: 'order_chats',
           filter: `receiver_id=eq.${user.id}`
         }, (payload) => {
-          setMessages(prev => [...prev, payload.new as Message]);
+          const msg = payload.new as Message;
+          // Só adiciona se for do remetente que estou conversando agora
+          if (msg.sender_id === receiverId) {
+            setMessages(prev => {
+              // Evita duplicatas caso o canal receba algo já inserido localmente
+              if (prev.find(m => m.id === msg.id)) return prev;
+              return [...prev, msg];
+            });
+          }
         })
         .subscribe();
 
@@ -96,6 +104,7 @@ const ChatPage = () => {
         .single();
 
       if (error) throw error;
+      // Adiciona localmente para feedback instantâneo
       setMessages(prev => [...prev, data]);
     } catch (err) {
       showError("Erro ao enviar mensagem.");

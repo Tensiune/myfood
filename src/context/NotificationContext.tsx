@@ -44,6 +44,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           table: 'order_chats',
           filter: `receiver_id=eq.${user.id}`
         }, async (payload) => {
+          // Busca o nome de quem enviou
           const { data: senderName } = await supabase.rpc('get_user_full_name', { user_id: payload.new.sender_id });
           
           const title = `Mensagem de ${senderName || 'Contato'}`;
@@ -79,9 +80,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     setNotifications(prev => [newNotif, ...prev]);
 
+    // Exibe o Toast no topo da tela
     toast(newNotif.title, {
       description: newNotif.message,
       icon: newNotif.type === 'chat' ? <MessageSquare className="h-4 w-4 text-indigo-600" /> : <Bell className="h-4 w-4 text-indigo-600" />,
+      action: newNotif.link ? {
+        label: "Ver",
+        onClick: () => window.location.href = newNotif.link!
+      } : undefined
     });
   };
 

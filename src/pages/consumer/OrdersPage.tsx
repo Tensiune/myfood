@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, Clock, Loader2, Key, XCircle, History, CheckCircle2 } from "lucide-react";
+import { Package, Clock, Loader2, Key, XCircle, History, MessageCircle, Bike, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -92,13 +92,28 @@ const OrdersPage = () => {
           {getStatusBadge(order.status)}
         </div>
 
-        {order.status === 'CANCELLED' && (
-          <div className="bg-red-50 p-4 rounded-2xl flex items-start gap-3 border border-red-100">
-            <XCircle className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
-            <p className="text-sm text-red-800 font-medium">
-              Infelizmente a loja não pode atender este pedido no momento. Você pode tentar pedir em outro estabelecimento!
-            </p>
-          </div>
+        {/* Botões de Chat para pedidos ativos */}
+        {!['DELIVERED', 'CANCELLED'].includes(order.status) && (
+            <div className="grid grid-cols-2 gap-2">
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="rounded-xl border-indigo-100 text-indigo-600 h-9 text-xs gap-2"
+                    onClick={() => navigate(`/chat/${order.merchant_id}?orderId=${order.id}`)}
+                >
+                    <Store className="h-3.5 w-3.5" /> Falar com Loja
+                </Button>
+                {order.driver_id && (
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="rounded-xl border-blue-100 text-blue-600 h-9 text-xs gap-2"
+                        onClick={() => navigate(`/chat/${order.driver_id}?orderId=${order.id}`)}
+                    >
+                        <Bike className="h-3.5 w-3.5" /> Falar com Entregador
+                    </Button>
+                )}
+            </div>
         )}
 
         {order.status === "OUT_FOR_DELIVERY" && (
@@ -114,19 +129,6 @@ const OrdersPage = () => {
           </div>
         )}
         
-        {order.status === "DELIVERED" && (
-          <div className="bg-green-50 p-4 rounded-2xl flex items-center justify-between border border-green-100">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-white rounded-xl shadow-sm"><CheckCircle2 className="h-5 w-5 text-green-600" /></div>
-              <div>
-                <p className="text-[10px] font-bold text-green-400 uppercase">Entregue</p>
-                <p className="text-sm font-black text-green-900">Avalie sua experiência!</p>
-              </div>
-            </div>
-            <Button size="sm" variant="outline" className="rounded-xl border-green-200 h-10 font-bold text-green-600">Avaliar</Button>
-          </div>
-        )}
-
         <div className="space-y-1">
            {order.items.map((item: any, i: number) => (
              <p key={i} className="text-sm text-gray-600"><span className="font-bold text-indigo-600">{item.quantity}x</span> {item.name}</p>
@@ -145,7 +147,6 @@ const OrdersPage = () => {
     <div className="space-y-6 pb-20">
       <h1 className="text-4xl font-bold text-indigo-800 text-center tracking-tight">Meus Pedidos</h1>
 
-      {/* Active Orders Section */}
       <section className="space-y-4">
         <h2 className="text-xl font-bold text-indigo-700 flex items-center gap-2">
           <Package className="h-5 w-5" /> Pedidos Ativos ({activeOrders.length})
@@ -160,7 +161,6 @@ const OrdersPage = () => {
         )}
       </section>
       
-      {/* History Orders Section */}
       <section className="space-y-4 pt-4">
         <h2 className="text-xl font-bold text-indigo-700 flex items-center gap-2">
           <History className="h-5 w-5" /> Histórico ({historyOrders.length})
