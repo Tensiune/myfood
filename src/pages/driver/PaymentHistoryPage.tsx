@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { showError } from "@/utils/toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button"; // Importação adicionada
 
 interface Payment {
   id: string;
