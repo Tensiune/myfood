@@ -232,7 +232,7 @@ const CartPage = () => {
         <div className="space-y-2">
             <p className="text-xs font-bold text-indigo-900 px-1">Pelo Aplicativo (Mais Rápido)</p>
             <button 
-              onClick={() => setSelectedPaymentType("pix")}
+              onClick={() => { setSelectedPaymentType("pix"); setSelectedCardId(null); }}
               className={cn("flex items-center justify-between w-full p-5 rounded-2xl border-none bg-white shadow-sm transition-all", selectedPaymentType === "pix" && "ring-2 ring-brand-accent bg-brand-accent/5")}
             >
               <div className="flex items-center gap-4"><div className="p-2 bg-indigo-50 rounded-xl"><QrCode className="h-5 w-5 text-indigo-600" /></div><span className="font-bold">PIX</span></div>
@@ -296,7 +296,7 @@ const CartPage = () => {
           <div className="p-4 bg-yellow-50 rounded-2xl border border-yellow-100 flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
             <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" />
             <p className="text-xs text-yellow-800 font-medium leading-relaxed">
-              <strong>Atenção:</strong> Ao escolher pagar na entrega, seu pedido pode demorar um pouco a mais, pois o entregador precisará processar o pagamento no local.
+              <strong>Atenção:</strong> Ao escolher pagar na entrega, seu pedido pode demorar um pouco a mais, pois não são todos os entregadores que estão habilitados a receber no local.
             </p>
           </div>
         )}
