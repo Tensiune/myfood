@@ -12,8 +12,9 @@ import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
-const DELIVERY_FEE = 5.0; // Constante da taxa de entrega
+const DELIVERY_FEE = 5.0;
 
 const CheckoutPage = () => {
   const navigate = useNavigate();
@@ -22,7 +23,7 @@ const CheckoutPage = () => {
   const { selectedAddress } = useAddresses();
   const [isProcessing, setIsProcessing] = useState(false);
   const [step, setStep] = useState<"review" | "pix_payment" | "success">("review");
-  const [deliveryType, setDeliveryType] = useState<"delivery" | "pickup">("delivery"); // Novo: delivery ou pickup
+  const [deliveryType, setDeliveryType] = useState<"delivery" | "pickup">("delivery");
   const [scheduledTime, setScheduledTime] = useState<string>("");
 
   const subtotal = getTotal();
@@ -33,12 +34,6 @@ const CheckoutPage = () => {
     if (deliveryType === "delivery" && !selectedAddress) {
       showError("Selecione um endereço de entrega.");
       return;
-    }
-
-    if (deliveryType === "delivery" && scheduledTime && scheduledTime.length > 0) {
-      // Agendamento só faz sentido para entrega
-    } else if (deliveryType === "pickup" && scheduledTime) {
-      // Se for retirada, o agendamento é opcional, mas se selecionado, deve ser válido
     }
 
     if (selectedPaymentType === "pix" && step !== "pix_payment") {
@@ -53,10 +48,11 @@ const CheckoutPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
 
-      const code = (user.user_metadata?.phone || "0000").replace(/\D/g, "").slice(-4);
+      // Gera um código simples baseado no telefone ou fixo
+      const phone = user.user_metadata?.phone || "0000";
+      const code = phone.replace(/\D/g, "").slice(-4) || "1234";
       
-      // Define deadline de 8 minutos para o lojista (apenas se for 'now' e 'delivery')
-      const acceptanceDeadline = deliveryType === "delivery" && !scheduledTime
+      const acceptanceDeadline = (deliveryType === "delivery" && !scheduledTime)
         ? new Date(Date.now() + 8 * 60000).toISOString() 
         : null;
 
@@ -66,14 +62,14 @@ const CheckoutPage = () => {
           customer_id: user.id,
           merchant_id: restaurantId,
           items: items,
-          total: total,
+          total: Number(total.toFixed(2)),
           payment_method: selectedPaymentType,
-          delivery_address: selectedAddress, // Pode ser null se for pickup
+          delivery_address: deliveryType === "delivery" ? selectedAddress : { street: "Retirada no Local", number: "S/N" },
           status: 'PENDING',
           confirmation_code: code,
           scheduled_at: scheduledTime || null,
           merchant_acceptance_deadline: acceptanceDeadline,
-          delivery_type: deliveryType // Novo campo
+          delivery_type: deliveryType
         });
 
       if (error) throw error;
@@ -82,17 +78,17 @@ const CheckoutPage = () => {
       setStep("success");
       clearCart();
     } catch (err: any) {
+      console.error("Checkout Error:", err);
       dismissToast(tid);
       setIsProcessing(false);
-      showError("Erro: " + err.message);
+      showError("Erro ao processar pedido: " + (err.message || "Tente novamente"));
     }
   };
 
-  // Gerar opções de horários (próximas 24h, intervalos de 30min)
   const getScheduleOptions = () => {
     const options = [];
     const now = new Date();
-    now.setMinutes(now.getMinutes() + 60); // Mínimo 1h de antecedência
+    now.setMinutes(now.getMinutes() + 60);
     
     for (let i = 0; i < 20; i++) {
       const time = new Date(now.getTime() + i * 30 * 60000);
@@ -115,7 +111,7 @@ const CheckoutPage = () => {
           <p className="text-gray-500">
             {deliveryType === "pickup" 
               ? "Seu pedido será preparado para retirada no local."
-              : deliveryType === "delivery" && scheduledTime
+              : scheduledTime
               ? "Seu pedido foi agendado para entrega."
               : "O restaurante tem 8 minutos para aceitar seu pedido."}
           </p>
@@ -132,7 +128,6 @@ const CheckoutPage = () => {
         <h1 className="text-2xl font-black text-indigo-900">Finalizar Pedido</h1>
       </div>
 
-      {/* Tipo de Serviço */}
       <div className="space-y-3">
         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Como você quer receber?</p>
         <div className="grid grid-cols-2 gap-3">
@@ -159,7 +154,6 @@ const CheckoutPage = () => {
         </div>
       </div>
 
-      {/* Agendamento (Apenas para Delivery) */}
       {deliveryType === "delivery" && (
         <div className="space-y-3 animate-in fade-in">
           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Quando entregar?</p>
@@ -234,6 +228,25 @@ const CheckoutPage = () => {
            </Card>
         </div>
       </div>
+
+      {step === "pix_payment" && (
+        <Dialog open={true} onOpenChange={() => setStep("review")}>
+          <DialogContent className="rounded-3xl p-8 space-y-6 text-center">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-black text-indigo-900">Pague com PIX</DialogTitle>
+              <DialogDescription>Escaneie o código ou copie a chave para finalizar seu pedido.</DialogDescription>
+            </DialogHeader>
+            <div className="bg-gray-50 p-6 rounded-3xl flex flex-col items-center gap-4 border border-indigo-50">
+              <QrCode className="h-40 w-40 text-indigo-600" />
+              <div className="bg-white p-3 rounded-xl border border-gray-100 w-full flex items-center justify-between">
+                <span className="text-[10px] font-bold text-gray-400 truncate max-w-[200px]">00020126360014BR.GOV.BCB.PIX0114+5511999999999</span>
+                <Button variant="ghost" size="sm" className="text-indigo-600 font-bold" onClick={() => { navigator.clipboard.writeText("PIX_KEY"); showSuccess("Copiado!"); }}>Copiar</Button>
+              </div>
+            </div>
+            <Button className="w-full h-14 rounded-xl bg-indigo-600 font-bold" onClick={handleFinishOrder}>Já paguei</Button>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <div className="fixed bottom-0 left-0 right-0 p-6 bg-white border-t z-20 safe-area-bottom shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
         <div className="flex justify-between items-center mb-6 px-1">

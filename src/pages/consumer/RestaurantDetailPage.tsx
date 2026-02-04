@@ -25,7 +25,6 @@ const RestaurantDetailPage = () => {
       if (!id) return;
       setLoading(true);
       try {
-        // 1. Buscar dados do lojista
         const { data: merchant, error: mError } = await supabase
           .from('merchant_applications')
           .select('*')
@@ -41,14 +40,13 @@ const RestaurantDetailPage = () => {
           id: merchant.id,
           name: merchant.store_name || storeDetails.name || "Loja",
           cuisine: meta.category || "Restaurante",
-          imageUrl: storeDetails.imageUrl || "https://via.placeholder.com/800x300/indigo/FFFFFF?text=" + encodeURIComponent(merchant.store_name || "Loja"),
+          imageUrl: storeDetails.imageUrl || `https://placehold.co/800x300/6366f1/ffffff?text=${encodeURIComponent(merchant.store_name || "Loja")}`,
           rating: 5.0,
           deliveryTime: "30-45 min",
           deliveryFee: "R$ 5,00",
           description: storeDetails.description || "Descrição não disponível."
         });
 
-        // 2. Buscar produtos reais
         const { data: pData, error: pError } = await supabase
           .from('products')
           .select('*')
@@ -100,7 +98,6 @@ const RestaurantDetailPage = () => {
     }
   };
 
-  // Organizar produtos por categoria
   const categories = Array.from(new Set(products.map(p => p.category || "Outros")));
 
   if (loading) {
@@ -126,7 +123,6 @@ const RestaurantDetailPage = () => {
 
   return (
     <div className="space-y-6 pb-24">
-      {/* Header do Restaurante */}
       <Card className="rounded-xl shadow-lg overflow-hidden border-none">
         <img src={restaurant.imageUrl} alt={restaurant.name} className="w-full h-48 object-cover" />
         <CardContent className="p-4">
@@ -151,7 +147,6 @@ const RestaurantDetailPage = () => {
         </CardContent>
       </Card>
 
-      {/* Menu do Restaurante */}
       <div className="space-y-6">
         {products.length === 0 ? (
           <div className="text-center py-12 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-100">
@@ -171,7 +166,7 @@ const RestaurantDetailPage = () => {
                       <CardContent className="p-3">
                         <div className="flex space-x-3">
                           <img
-                            src={item.imageurl || "https://via.placeholder.com/200?text=Produto"}
+                            src={item.imageurl || "https://placehold.co/200x200/f3f4f6/9ca3af?text=Produto"}
                             alt={item.name}
                             className="w-20 h-20 object-cover rounded-lg"
                           />
@@ -221,7 +216,6 @@ const RestaurantDetailPage = () => {
         )}
       </div>
 
-      {/* Carrinho Flutuante */}
       {totalItems > 0 && (
         <div className="fixed bottom-20 left-0 right-0 p-4 bg-white shadow-lg border-t border-gray-200 z-20">
           <Button
