@@ -155,7 +155,9 @@ const OrdersPage = () => {
 
         <div className="flex items-center justify-between pt-2 border-t border-gray-50">
           <span className="font-black text-indigo-900">Total: R$ {order.total.toFixed(2)}</span>
-          <span className="text-xs text-gray-400 font-bold uppercase">{new Date(order.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+          <span className="text-xs text-gray-400 font-bold uppercase">
+            {new Date(order.created_at).toLocaleDateString([], {day:'2-digit', month:'2-digit'})} {new Date(order.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+          </span>
         </div>
       </CardContent>
     </Card>
