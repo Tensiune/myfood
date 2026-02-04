@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -18,27 +18,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const fetchSession = async () => {
-    try {
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-      setSession(currentSession);
-      setUser(currentSession?.user ?? null);
-    } catch (error) {
-      console.error("Auth session fetch error:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const initialized = useRef(false);
 
   useEffect(() => {
-    fetchSession();
+    if (initialized.current) return;
+    initialized.current = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+    // Use onAuthStateChange as the primary source of truth.
+    // The INITIAL_SESSION event will trigger automatically on modern Supabase versions.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      console.log(`[Auth] Event: ${event}`);
+      
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
+      
+      // If we're still in the initial loading state, mark it as finished
       setLoading(false);
     });
+
+    // Fallback: If for some reason the listener doesn't fire INITIAL_SESSION immediately,
+    // we fetch it once to ensure we don't hang in loading state.
+    const checkInitialSession = async () => {
+      try {
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        if (initialSession) {
+          setSession(initialSession);
+          setUser(initialSession.user);
+        }
+      } catch (error) {
+        console.error("Initial session check error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkInitialSession();
 
     return () => {
       subscription.unsubscribe();
@@ -48,6 +62,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     await supabase.auth.signOut();
     localStorage.removeItem('active_role');
+    setSession(null);
+    setUser(null);
   };
 
   const refreshUser = async () => {
