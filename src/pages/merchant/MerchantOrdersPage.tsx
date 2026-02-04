@@ -562,7 +562,91 @@ const MerchantOrdersPage = () => {
           )}
         </div>
       </div>
+    );
+  };
 
+  return (
+    <div className="space-y-8 max-w-5xl mx-auto pb-20">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-black text-indigo-900 tracking-tight">Painel de Pedidos</h1>
+          <p className="text-gray-500">Gerencie pedidos em tempo real (últimas 24h).</p>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className={cn("h-3 w-3 rounded-full animate-pulse", isStoreOpen ? "bg-green-500" : "bg-red-500")} />
+            <span className="font-bold text-indigo-900 text-sm">{isStoreOpen ? "Loja Aberta" : "Loja Fechada"}</span>
+          </div>
+          <Switch 
+            id="store-status" 
+            checked={isStoreOpen} 
+            onCheckedChange={handleToggleStore}
+            className="data-[state=checked]:bg-green-500"
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-3xl shadow-sm border border-gray-100">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Printer className="h-5 w-5 text-indigo-600" />
+            <span className="text-sm font-bold text-gray-700">Auto-Imprimir</span>
+          </div>
+          <Switch 
+            checked={autoPrint} 
+            onCheckedChange={(v) => { setAutoPrint(v); localStorage.setItem('merchant_auto_print', v.toString()); }}
+          />
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-indigo-600" />
+            <span className="text-sm font-bold text-gray-700">Auto-Aceitar</span>
+          </div>
+          <Switch 
+            checked={autoAccept} 
+            onCheckedChange={(v) => { setAutoAccept(v); localStorage.setItem('merchant_auto_accept', v.toString()); }}
+          />
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Eye className="h-5 w-5 text-indigo-600" />
+            <span className="text-sm font-bold text-gray-700">Detalhes Expandidos</span>
+          </div>
+          <Switch 
+            checked={showFullDetails} 
+            onCheckedChange={(v) => { setShowFullDetails(v); localStorage.setItem('merchant_show_details', v.toString()); }}
+          />
+        </div>
+      </div>
+
+      <div className="relative">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-300" />
+        <Input 
+          placeholder="Buscar por nome do cliente ou ID do pedido..." 
+          className="rounded-2xl pl-12 h-14 bg-white border-none shadow-sm focus:ring-2 focus:ring-indigo-100 text-base"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20">
+          <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
+          <p className="text-gray-500 font-bold">Carregando pedidos...</p>
+        </div>
+      ) : fetchError ? (
+        <div className="p-8 bg-red-50 border border-red-200 rounded-3xl text-center">
+          <p className="text-red-600 font-bold">Erro ao carregar pedidos: {fetchError}</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+          {renderColumn("Aguardando Aceite", "text-blue-600", ["PENDING"])}
+          {renderColumn("Em Preparo", "text-orange-600", ["PREPARING"])}
+          {renderColumn("Aguardando Coleta", "text-indigo-600", ["WAITING_FOR_DRIVER", "READY_FOR_PICKUP"])}
+          {renderColumn("Em Rota", "text-yellow-600", ["OUT_FOR_DELIVERY"])}
+        </div>
+      )}
+      
       <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
         <DialogContent className="rounded-3xl sm:max-w-md h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
           <div className="p-6 bg-indigo-900 text-white flex justify-between items-center shrink-0">
