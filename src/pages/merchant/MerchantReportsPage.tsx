@@ -57,15 +57,10 @@ const MerchantReportsPage = () => {
     }
   }, [dateFilter, customDateRange]);
 
-  const { loading, stats, salesChartData, annualComparisonData } = useMerchantReports(calculatedDateRange);
+  const { loading, stats, salesChartData, annualComparisonData, topProducts } = useMerchantReports(calculatedDateRange);
 
-  // Dados Mockados para Top Products (mantidos por enquanto, pois a lógica de Top Products é complexa)
-  const topProducts = [
-    { name: "Burger Gourmet", value: 400, color: "#6366f1" },
-    { name: "Pizza Calabresa", value: 300, color: "#8b5cf6" },
-    { name: "Batata Rústica", value: 200, color: "#a855f7" },
-    { name: "Suco Natural", value: 100, color: "#d946ef" },
-  ];
+  const currentYear = new Date().getFullYear();
+  const lastYear = currentYear - 1;
 
   const statCards = [
     { label: "Faturamento Total", value: `R$ ${stats.totalRevenue || '0.00'}`, trend: "+12.5%", isUp: true, icon: DollarSign },
@@ -109,7 +104,7 @@ const MerchantReportsPage = () => {
               <SelectItem value="30d">Últimos 30 dias</SelectItem>
               <SelectItem value="90d">Últimos 90 dias</SelectItem>
               <SelectItem value="other">Outro Período...</SelectItem>
-            </SelectContent>
+            </SelectItemContent>
           </Select>
           
           {dateFilter === 'other' && (
@@ -189,10 +184,10 @@ const MerchantReportsPage = () => {
           </div>
         </Card>
 
-        {/* Top Products Chart (Mocked) */}
+        {/* Top Products Chart (Real Data) */}
         <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-6">
           <CardHeader className="px-0 pt-0">
-            <CardTitle className="text-xl font-bold text-indigo-900">Produtos + Vendidos</CardTitle>
+            <CardTitle className="text-xl font-bold text-indigo-900">Top 10 Produtos Vendidos</CardTitle>
           </CardHeader>
           <div className="h-[250px] w-full relative">
             <ResponsiveContainer width="100%" height="100%">
@@ -205,40 +200,43 @@ const MerchantReportsPage = () => {
                   outerRadius={80}
                   paddingAngle={5}
                   dataKey="value"
+                  nameKey="name"
                 >
                   {topProducts.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip 
+                    formatter={(value, name, props) => [`${value} un.`, props.payload.name]}
+                />
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center">
                 <p className="text-xs font-bold text-gray-400 uppercase">Total</p>
-                <p className="text-xl font-black text-indigo-900">1.0k</p>
+                <p className="text-xl font-black text-indigo-900">{topProducts.reduce((sum, p) => sum + p.value, 0)}</p>
               </div>
             </div>
           </div>
-          <div className="mt-6 space-y-3">
+          <div className="mt-6 space-y-3 max-h-40 overflow-y-auto pr-2">
             {topProducts.map((item, i) => (
               <div key={i} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="text-sm font-medium text-gray-600">{item.name}</span>
+                  <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                  <span className="text-sm font-medium text-gray-600 truncate">{item.name}</span>
                 </div>
-                <span className="text-sm font-bold text-indigo-900">{item.value} un.</span>
+                <span className="text-sm font-bold text-indigo-900 shrink-0">{item.value} un.</span>
               </div>
             ))}
           </div>
         </Card>
       </div>
       
-      {/* New Annual Comparison Chart */}
+      {/* Annual Comparison Chart */}
       <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-6">
           <CardHeader className="px-0 pt-0">
             <CardTitle className="text-xl font-bold text-indigo-900">Comparação Anual de Vendas</CardTitle>
-            <p className="text-gray-500 text-sm">Vendas Mês a Mês ({new Date().getFullYear()} vs {new Date().getFullYear() - 1})</p>
+            <p className="text-gray-500 text-sm">Vendas Mês a Mês ({currentYear} vs {lastYear})</p>
           </CardHeader>
           <div className="h-[350px] w-full mt-4">
             <ResponsiveContainer width="100%" height="100%">
@@ -265,22 +263,22 @@ const MerchantReportsPage = () => {
                     boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
                     padding: '12px'
                   }}
-                  formatter={(value, name) => [`R$ ${parseFloat(value.toString()).toFixed(2)}`, name === 'currentYear' ? 'Ano Atual' : 'Ano Passado']}
+                  formatter={(value, name) => [`R$ ${parseFloat(value.toString()).toFixed(2)}`, name === 'currentYear' ? `Vendas ${currentYear}` : `Vendas ${lastYear}`]}
                 />
                 <Legend 
                     wrapperStyle={{ paddingTop: '20px' }}
-                    formatter={(value) => value === 'currentYear' ? 'Ano Atual' : 'Ano Passado'}
+                    formatter={(value) => value === 'currentYear' ? `Vendas ${currentYear}` : `Vendas ${lastYear}`}
                 />
                 <Bar 
                   dataKey="currentYear" 
-                  name="Ano Atual"
+                  name={`Vendas ${currentYear}`}
                   fill="#10b981" // Verde
                   radius={[8, 8, 0, 0]} 
                   barSize={20}
                 />
                 <Bar 
                   dataKey="lastYear" 
-                  name="Ano Passado"
+                  name={`Vendas ${lastYear}`}
                   fill="#3b82f6" // Azul
                   radius={[8, 8, 0, 0]} 
                   barSize={20}

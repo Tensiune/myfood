@@ -2,13 +2,15 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { DateRange } from "react-day-picker";
-import { format, startOfMonth, subMonths, getMonth, getYear, startOfYear, subYears, endOfYear } from "date-fns";
+import { format, getDay, getMonth, getYear, startOfWeek, endOfWeek, subDays } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 interface Order {
   id: string;
   total: number;
   created_at: string;
   status: string;
+  items: any[];
 }
 
 interface SalesData {
@@ -28,7 +30,14 @@ interface AnnualComparison {
   lastYear: number;
 }
 
+interface TopProduct {
+  name: string;
+  value: number; // Quantidade vendida
+  color: string;
+}
+
 const MONTH_NAMES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+const COLORS = ["#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#f43f5e", "#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16"];
 
 export function useMerchantReports(dateRange?: DateRange) {
   const { user } = useAuth();
@@ -37,6 +46,7 @@ export function useMerchantReports(dateRange?: DateRange) {
   const [stats, setStats] = useState<any>({});
   const [salesChartData, setSalesChartData] = useState<SalesData[]>([]);
   const [annualComparisonData, setAnnualComparisonData] = useState<AnnualComparison[]>([]);
+  const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
 
   const fetchOrders = useCallback(async () => {
     if (!user?.id) return;
@@ -45,9 +55,9 @@ export function useMerchantReports(dateRange?: DateRange) {
     try {
       let query = supabase
         .from('orders')
-        .select('id, total, created_at, status')
+        .select('id, total, created_at, status, items') // Incluindo 'items' para o relatório de produtos
         .eq('merchant_id', user.id)
-        .in('status', ['DELIVERED', 'OUT_FOR_DELIVERY', 'PREPARING', 'WAITING_FOR_DRIVER']); // Inclui todos os pedidos relevantes
+        .in('status', ['DELIVERED', 'OUT_FOR_DELIVERY', 'PREPARING', 'WAITING_FOR_DRIVER']);
 
       // Filtro de data
       if (dateRange?.from) {
@@ -79,6 +89,7 @@ export function useMerchantReports(dateRange?: DateRange) {
       setStats({});
       setSalesChartData([]);
       setAnnualComparisonData([]);
+      setTopProducts([]);
       return;
     }
 
@@ -98,23 +109,23 @@ export function useMerchantReports(dateRange?: DateRange) {
       newCustomers: newCustomers,
     });
 
-    // --- Sales Chart Data (Daily/Weekly based on range) ---
-    // Simplificando para mostrar apenas o total de pedidos por dia (últimos 7 dias)
+    // --- Sales Chart Data (Weekly: Monday to Sunday) ---
     const today = new Date();
-    const lastSevenDays: SalesData[] = [];
-    for (let i = 6; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(today.getDate() - i);
-        const dayName = format(date, 'EEE', { locale: { localize: { day: (i) => ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'][i] } } });
+    const startOfCurrentWeek = startOfWeek(today, { weekStartsOn: 1 }); // 1 = Monday
+    const weeklySales: SalesData[] = [];
+    
+    for (let i = 0; i < 7; i++) {
+        const date = subDays(startOfCurrentWeek, -i);
+        const dayName = format(date, 'EEE', { locale: ptBR });
         
         const dailyOrders = deliveredOrders.filter(o => 
             format(new Date(o.created_at), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
         );
         const dailyRevenue = dailyOrders.reduce((sum, o) => sum + o.total, 0);
         
-        lastSevenDays.push({ name: dayName, vendas: dailyRevenue });
+        weeklySales.push({ name: dayName, vendas: dailyRevenue });
     }
-    setSalesChartData(lastSevenDays);
+    setSalesChartData(weeklySales);
 
 
     // --- Annual Comparison Data (Monthly) ---
@@ -144,8 +155,29 @@ export function useMerchantReports(dateRange?: DateRange) {
     });
     
     setAnnualComparisonData(comparisonData);
+    
+    // --- Top Products Data (Top 10) ---
+    const productCounts = new Map<string, number>();
+    deliveredOrders.forEach(order => {
+        order.items.forEach(item => {
+            const name = item.name;
+            const quantity = item.quantity;
+            productCounts.set(name, (productCounts.get(name) || 0) + quantity);
+        });
+    });
+    
+    const sortedProducts = Array.from(productCounts.entries())
+        .sort(([, countA], [, countB]) => countB - countA)
+        .slice(0, 10)
+        .map(([name, value], index) => ({
+            name,
+            value,
+            color: COLORS[index % COLORS.length]
+        }));
+        
+    setTopProducts(sortedProducts);
 
   }, [orders]);
 
-  return { loading, stats, salesChartData, annualComparisonData };
+  return { loading, stats, salesChartData, annualComparisonData, topProducts };
 }
