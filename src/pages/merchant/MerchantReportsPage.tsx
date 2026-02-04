@@ -31,7 +31,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useMerchantReports } from "@/hooks/useMerchantReports";
 import { DateRangePicker } from "@/components/shared/DateRangePicker";
 import { DateRange } from "react-day-picker";
-import { subDays, subMonths, startOfDay } from "date-fns";
+import { subDays, subMonths, startOfDay, format } from "date-fns";
+import { exportToExcel } from "@/utils/export";
+import { showSuccess } from "@/utils/toast";
 
 const MerchantReportsPage = () => {
   const [dateFilter, setDateFilter] = useState("7d");
@@ -73,6 +75,43 @@ const MerchantReportsPage = () => {
       setCustomDateRange(undefined);
     }
   };
+  
+  const handleExport = () => {
+    const exportData = [
+      // Estatísticas Principais
+      { Relatório: "Estatísticas Principais" },
+      { Métrica: "Faturamento Total", Valor: parseFloat(stats.totalRevenue || 0) },
+      { Métrica: "Total de Pedidos", Valor: stats.totalOrders || 0 },
+      { Métrica: "Ticket Médio", Valor: parseFloat(stats.averageTicket || 0) },
+      { Métrica: "Novos Clientes", Valor: stats.newCustomers || 0 },
+      {}, // Linha em branco
+      
+      // Vendas Semanais
+      { Relatório: "Vendas Semanais (R$)" },
+      ...salesChartData.map(d => ({ Dia: d.name, Vendas: d.vendas })),
+      {}, // Linha em branco
+      
+      // Comparação Anual
+      { Relatório: "Comparação Anual (R$)" },
+      ...annualComparisonData.map(d => ({ 
+        Mês: d.name, 
+        [`Vendas ${currentYear}`]: d.currentYear, 
+        [`Vendas ${lastYear}`]: d.lastYear 
+      })),
+      {}, // Linha em branco
+      
+      // Top Produtos
+      { Relatório: "Top Produtos Vendidos (Unidades)" },
+      ...topProducts.map(p => ({ Produto: p.name, Unidades: p.value })),
+    ];
+    
+    const dateLabel = calculatedDateRange?.from 
+        ? `De ${format(calculatedDateRange.from, 'dd-MM-yyyy')} a ${format(calculatedDateRange.to || new Date(), 'dd-MM-yyyy')}`
+        : 'Geral';
+        
+    exportToExcel(exportData, `Relatorio_Vendas_${dateLabel}`);
+    showSuccess("Relatório exportado com sucesso!");
+  };
 
   if (loading) {
     return (
@@ -109,8 +148,12 @@ const MerchantReportsPage = () => {
             <DateRangePicker date={customDateRange} setDate={setCustomDateRange} className="w-full md:w-auto" />
           )}
 
-          <Button variant="outline" className="rounded-xl bg-white border-none shadow-sm gap-2">
-            <Download className="h-4 w-4" /> Exportar
+          <Button 
+            variant="outline" 
+            className="rounded-xl bg-white border-none shadow-sm gap-2 bg-green-500 hover:bg-green-600 text-white font-bold"
+            onClick={handleExport}
+          >
+            <Download className="h-4 w-4" /> Exportar Excel
           </Button>
         </div>
       </div>
@@ -142,7 +185,7 @@ const MerchantReportsPage = () => {
         {/* Main Sales Chart (Daily/Weekly) */}
         <Card className="lg:col-span-2 rounded-[2.5rem] border-none shadow-sm bg-white p-6">
           <CardHeader className="px-0 pt-0">
-            <CardTitle className="text-xl font-bold text-indigo-900">Evolução de Vendas (Últimos 7 dias)</CardTitle>
+            <CardTitle className="text-xl font-bold text-indigo-900">Evolução de Vendas (Período Selecionado)</CardTitle>
           </CardHeader>
           <div className="h-[350px] w-full mt-4">
             <ResponsiveContainer width="100%" height="100%">
