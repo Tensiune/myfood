@@ -12,6 +12,7 @@ import { useNotifications } from "@/context/NotificationContext";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import AddressManager from "@/components/consumer/AddressManager";
 import NotificationList from "@/components/shared/NotificationList";
+import { useNativeNotifications } from "@/hooks/useNativeNotifications"; // Importado
 
 const ConsumerLayout = () => {
   const [user, setUser] = useState<any>(null);
@@ -22,7 +23,12 @@ const ConsumerLayout = () => {
   const { getItemCount } = useCart();
   const { selectedAddress } = useAddresses();
   const { unreadCount, addNotification } = useNotifications();
+  const { requestPermission, sendNotification: sendNative } = useNativeNotifications(); // Usando hook nativo
   const cartItemCount = getItemCount();
+
+  useEffect(() => {
+    requestPermission(); // Solicita permissão ao carregar
+  }, [requestPermission]);
 
   useEffect(() => {
     const fetchUserAndSetupRealtime = async () => {
@@ -37,14 +43,33 @@ const ConsumerLayout = () => {
             'postgres_changes', 
             { event: 'UPDATE', schema: 'public', table: 'orders', filter: `customer_id=eq.${user.id}` }, 
             (payload) => {
-              // Se o status mudou para CANCELLED (Recusado pela loja)
-              if (payload.new.status === 'CANCELLED' && payload.old.status !== 'CANCELLED') {
+              const newOrder = payload.new;
+              const oldOrder = payload.old;
+              
+              // 1. Pedido Recusado
+              if (newOrder.status === 'CANCELLED' && oldOrder.status !== 'CANCELLED') {
                 addNotification({
                   title: "Pedido Recusado",
                   message: "Lamentamos, mas a loja não consegue atender seu pedido agora. Que tal tentar outra loja ou pedir novamente mais tarde?",
                   type: "info",
                   link: "/orders"
                 });
+              }
+              
+              // 2. Pedido Pronto para Retirada (Notificação Crítica)
+              if (newOrder.status === 'READY_FOR_PICKUP' && oldOrder.status !== 'READY_FOR_PICKUP') {
+                  const title = "Seu Pedido Está Pronto!";
+                  const message = `O pedido #${newOrder.id.slice(0, 6)} está pronto para retirada na loja. Código: ${newOrder.confirmation_code}`;
+                  
+                  addNotification({
+                      title,
+                      message,
+                      type: "success",
+                      link: "/orders"
+                  });
+                  
+                  // Notificação Push Nativa (aparece no topo do celular/desktop)
+                  sendNative(title, message);
               }
             }
           )
@@ -54,7 +79,7 @@ const ConsumerLayout = () => {
       }
     };
     fetchUserAndSetupRealtime();
-  }, [addNotification]);
+  }, [addNotification, sendNative]);
 
   const navItems = [
     { path: "/", icon: Home, label: "Início" },

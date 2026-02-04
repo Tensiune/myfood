@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,7 +15,8 @@ import {
   ShieldCheck,
   Store,
   Loader2,
-  X
+  X,
+  CheckCircle2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -57,6 +58,12 @@ const OrderTrackingPage = () => {
 
       if (orderError) throw orderError;
       setOrder(orderData);
+      
+      // Redireciona se for retirada ou já entregue
+      if (orderData.delivery_type === 'pickup' || orderData.status === 'DELIVERED') {
+          navigate('/orders');
+          return;
+      }
 
       if (orderData.merchant_id) {
         const { data: merchantApp, error: merchantError } = await supabase
@@ -86,6 +93,10 @@ const OrderTrackingPage = () => {
       .channel(`order_${id}_status`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${id}` }, (payload) => {
         setOrder(payload.new);
+        if (payload.new.delivery_type === 'pickup' || payload.new.status === 'DELIVERED') {
+            navigate('/orders');
+            return;
+        }
         if (payload.new.status === 'OUT_FOR_DELIVERY' && payload.new.driver_id) {
           fetchDriverLocation(payload.new.driver_id);
         }
@@ -95,7 +106,7 @@ const OrderTrackingPage = () => {
     return () => {
       supabase.removeChannel(orderChannel);
     };
-  }, [id]);
+  }, [id, navigate]);
 
   const deliveryAddress = order?.delivery_address;
   const storeAddress = merchantDetails?.metadata?.store_details?.address || merchantDetails?.metadata?.address;
@@ -133,7 +144,7 @@ const OrderTrackingPage = () => {
                    order?.status === 'WAITING_FOR_DRIVER' ? 50 : 
                    order?.status === 'PREPARING' ? 25 : 0;
 
-  if (loading || !order) {
+  if (loading || !order || order.delivery_type === 'pickup') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center">
         <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
@@ -220,7 +231,7 @@ const OrderTrackingPage = () => {
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button size="icon" variant="outline" className="rounded-full border-indigo-100 text-indigo-600" onClick={() => navigate('/chat/2')}>
+                <Button size="icon" variant="outline" className="rounded-full border-indigo-100 text-indigo-600" onClick={() => navigate(`/chat/${order.driver_id}?orderId=${order.id}`)}>
                   <MessageCircle className="h-5 w-5" />
                 </Button>
                 <Button size="icon" variant="outline" className="rounded-full border-indigo-100 text-indigo-600">

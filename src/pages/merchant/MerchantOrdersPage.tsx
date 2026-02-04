@@ -20,7 +20,8 @@ import {
   CreditCard,
   Truck,
   CheckCircle2,
-  History
+  History,
+  Store
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
@@ -105,20 +106,30 @@ const MerchantOrdersPage = () => {
   const handleAcceptOrder = useCallback(async (order: any, isSilent = false) => {
     const tid = isSilent ? null : showLoading("Aceitando pedido...");
     try {
+      let newStatus = 'PREPARING';
+      let driverDispatchNeeded = order.delivery_type === 'delivery';
+
+      if (order.delivery_type === 'pickup') {
+        // Pedidos de retirada não precisam de entregador, vão direto para preparo
+        driverDispatchNeeded = false;
+      }
+      
       const { error: updateError } = await supabase
         .from('orders')
         .update({ 
-          status: 'PREPARING',
+          status: newStatus,
           merchant_acceptance_deadline: null,
         })
         .eq('id', order.id);
       
       if (updateError) throw updateError;
 
-      // Dispara busca de entregador
-      await supabase.functions.invoke('dispatch-order', {
-        body: { orderId: order.id }
-      });
+      // Dispara busca de entregador APENAS se for entrega
+      if (driverDispatchNeeded) {
+        await supabase.functions.invoke('dispatch-order', {
+          body: { orderId: order.id }
+        });
+      }
 
       // Lógica de Auto-Impressão
       if (localStorage.getItem('merchant_auto_print') === 'true') {
@@ -137,7 +148,50 @@ const MerchantOrdersPage = () => {
     }
   }, [handlePrint]);
 
+  const handleReadyForPickup = async (order: any) => {
+    const tid = showLoading("Notificando cliente...");
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'READY_FOR_PICKUP' })
+        .eq('id', order.id);
+
+      if (error) throw error;
+      showSuccess("Cliente notificado! Aguardando retirada.");
+    } catch (err: any) {
+      showError("Erro ao notificar cliente.");
+    } finally {
+      dismissToast(tid);
+    }
+  };
+
   const handleConfirmPickup = async (order: any) => {
+    setIsVerifying(true);
+    const tid = showLoading("Validando retirada...");
+    try {
+      // Para retirada, o código é o do cliente
+      if (verificationCode !== order.confirmation_code) {
+        showError("Código de retirada incorreto.");
+        return;
+      }
+      
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'DELIVERED' })
+        .eq('id', order.id);
+
+      if (error) throw error;
+      showSuccess("Pedido retirado e concluído!");
+      setVerificationCode("");
+    } catch (err: any) {
+      showError("Erro ao validar: " + err.message);
+    } finally {
+      dismissToast(tid);
+      setIsVerifying(false);
+    }
+  };
+
+  const handleConfirmDeliveryPickup = async (order: any) => {
     setIsVerifying(true);
     const tid = showLoading("Validando coleta...");
     try {
@@ -147,7 +201,7 @@ const MerchantOrdersPage = () => {
         .eq('id', order.id);
 
       if (error) throw error;
-      showSuccess("Pedido liberado!");
+      showSuccess("Pedido liberado para entrega!");
       setVerificationCode("");
     } catch (err: any) {
       showError("Erro ao validar: " + err.message);
@@ -224,7 +278,8 @@ const MerchantOrdersPage = () => {
           customer_full_name: profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : 'Cliente',
           driver: driver || null,
           items: Array.isArray(order.items) ? order.items : [],
-          delivery_address: order.delivery_address || {}
+          delivery_address: order.delivery_address || {},
+          delivery_type: order.delivery_type || 'delivery' // Garante o tipo
         };
       });
 
@@ -236,7 +291,7 @@ const MerchantOrdersPage = () => {
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, []);
+  }, [handleCleanupExpired]);
 
   useEffect(() => {
     fetchOrders();
@@ -255,7 +310,7 @@ const MerchantOrdersPage = () => {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [fetchOrders, playAlert, handleCleanupExpired, handleAcceptOrder]);
+  }, [fetchOrders, playAlert, handleAcceptOrder]);
 
   const handleToggleStore = async (val: boolean) => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -310,6 +365,9 @@ const MerchantOrdersPage = () => {
                 <div className="flex items-center gap-2 text-[10px] text-gray-400 uppercase mt-1">
                     <Clock className="h-3 w-3" />
                     <span>{new Date(o.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                    <span className={cn("font-black ml-2 px-2 py-0.5 rounded-full", o.delivery_type === 'pickup' ? 'bg-green-100 text-green-700' : 'bg-indigo-100 text-indigo-700')}>
+                        {o.delivery_type === 'pickup' ? 'RETIRADA' : 'ENTREGA'}
+                    </span>
                 </div>
               </div>
 
@@ -319,8 +377,8 @@ const MerchantOrdersPage = () => {
                   <div className="flex items-start gap-2 text-xs">
                     <MapPin className="h-3.5 w-3.5 text-brand-accent mt-0.5 shrink-0" />
                     <p className="text-gray-700 leading-tight">
-                      {o.delivery_address?.street}, {o.delivery_address?.number}<br/>
-                      <span className="font-bold text-[10px] text-gray-400 uppercase">Bairro: {o.delivery_address?.neighborhood}</span>
+                      {o.delivery_type === 'pickup' ? 'Retirada no Local' : `${o.delivery_address?.street}, ${o.delivery_address?.number}`}<br/>
+                      <span className="font-bold text-[10px] text-gray-400 uppercase">Bairro: {o.delivery_address?.neighborhood || 'N/A'}</span>
                     </p>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
@@ -341,12 +399,12 @@ const MerchantOrdersPage = () => {
               ) : (
                 <div className="flex items-start gap-2 text-xs text-gray-500 bg-gray-50 p-3 rounded-2xl">
                   <MapPin className="h-3 w-3 mt-0.5 text-brand-accent shrink-0" />
-                  <p className="line-clamp-1">{o.delivery_address?.street || 'Endereço não informado'}</p>
+                  <p className="line-clamp-1">{o.delivery_type === 'pickup' ? 'Retirada no Local' : o.delivery_address?.street || 'Endereço não informado'}</p>
                 </div>
               )}
 
               {/* STATUS DO ENTREGADOR EM COLETA OU ROTA */}
-              {(o.status === 'WAITING_FOR_DRIVER' || o.status === 'OUT_FOR_DELIVERY') && (
+              {(o.status === 'WAITING_FOR_DRIVER' || o.status === 'OUT_FOR_DELIVERY') && o.delivery_type === 'delivery' && (
                 <div className="pt-2 border-t border-gray-50 space-y-2">
                    {o.driver ? (
                      <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 rounded-xl">
@@ -418,7 +476,7 @@ const MerchantOrdersPage = () => {
                 localStorage.setItem('merchant_show_details', newState.toString()); 
             }}
           >
-            {showFullDetails ? <Eye className="h-4 w-4" /> : <VolumeX className="h-4 w-4 opacity-0" />} Detalhes
+            {showFullDetails ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />} Detalhes
           </Button>
           <Button 
             variant={autoAccept ? "default" : "outline"} 
@@ -450,7 +508,28 @@ const MerchantOrdersPage = () => {
           <Button className="w-full bg-blue-600 rounded-xl h-11 font-bold" onClick={() => handleAcceptOrder(o)}>Aceitar</Button>
         ))}
         {renderSection("Preparo", "text-orange-500", o => o.status === 'PREPARING', o => (
-          <Button className="w-full bg-orange-500 rounded-xl h-11 font-bold" onClick={() => { supabase.from('orders').update({ status: 'WAITING_FOR_DRIVER' }).eq('id', o.id).then(() => fetchOrders(true)); }}>Pronto</Button>
+          <Button 
+            className="w-full bg-orange-500 rounded-xl h-11 font-bold" 
+            onClick={() => { 
+                if (o.delivery_type === 'pickup') {
+                    handleReadyForPickup(o);
+                } else {
+                    supabase.from('orders').update({ status: 'WAITING_FOR_DRIVER' }).eq('id', o.id).then(() => fetchOrders(true));
+                }
+            }}
+          >
+            {o.delivery_type === 'pickup' ? 'Pronto para Retirada' : 'Pronto para Coleta'}
+          </Button>
+        ))}
+        {renderSection("Retirada", "text-green-600", o => o.status === 'READY_FOR_PICKUP', o => (
+          <Dialog>
+            <DialogTrigger asChild><Button className="w-full bg-green-600 rounded-xl h-11 font-bold">Validar Retirada</Button></DialogTrigger>
+            <DialogContent className="rounded-3xl p-6 space-y-4 text-center">
+              <h3 className="font-bold">Código do Cliente</h3>
+              <OtpInput length={4} value={verificationCode} onChange={setVerificationCode} />
+              <Button className="w-full h-14 rounded-xl" onClick={() => handleConfirmPickup(o)} disabled={verificationCode.length < 4 || isVerifying}>Concluir Retirada</Button>
+            </DialogContent>
+          </Dialog>
         ))}
         {renderSection("Coleta", "text-indigo-600", o => o.status === 'WAITING_FOR_DRIVER', o => (
           o.driver ? (
@@ -459,7 +538,7 @@ const MerchantOrdersPage = () => {
               <DialogContent className="rounded-3xl p-6 space-y-4 text-center">
                 <h3 className="font-bold">Código do Entregador</h3>
                 <OtpInput length={4} value={verificationCode} onChange={setVerificationCode} />
-                <Button className="w-full h-14 rounded-xl" onClick={() => handleConfirmPickup(o)} disabled={verificationCode.length < 4 || isVerifying}>Liberar Pedido</Button>
+                <Button className="w-full h-14 rounded-xl" onClick={() => handleConfirmDeliveryPickup(o)} disabled={verificationCode.length < 4 || isVerifying}>Liberar Pedido</Button>
               </DialogContent>
             </Dialog>
           ) : <Button variant="outline" className="w-full rounded-xl h-11 font-bold border-indigo-100 text-indigo-400" disabled>Buscando...</Button>
@@ -467,7 +546,7 @@ const MerchantOrdersPage = () => {
         {renderSection("Em Rota", "text-yellow-600", o => o.status === 'OUT_FOR_DELIVERY', o => (
           <Badge className="w-full py-2.5 justify-center bg-yellow-50 text-yellow-700 border-none rounded-xl font-bold uppercase text-[10px]">A caminho</Badge>
         ))}
-        {renderSection("Histórico", "text-green-600", o => ['DELIVERED', 'CANCELLED'].includes(o.status), o => (
+        {renderSection("Histórico", "text-gray-400", o => ['DELIVERED', 'CANCELLED'].includes(o.status), o => (
           <Badge className={cn("w-full py-2.5 justify-center border-none rounded-xl font-bold text-[10px] uppercase", o.status === 'DELIVERED' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")}>{o.status === 'DELIVERED' ? 'Concluído' : 'Cancelado'}</Badge>
         ))}
       </div>

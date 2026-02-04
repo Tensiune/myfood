@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, CreditCard, CheckCircle2, QrCode, Wallet, Truck, Loader2, Calendar, Clock } from "lucide-react";
+import { ArrowLeft, CreditCard, CheckCircle2, QrCode, Wallet, Truck, Loader2, Calendar, Clock, Store } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { usePayment } from "@/context/PaymentContext";
 import { useAddresses } from "@/context/AddressContext";
@@ -13,6 +13,8 @@ import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+const DELIVERY_FEE = 5.0; // Constante da taxa de entrega
+
 const CheckoutPage = () => {
   const navigate = useNavigate();
   const { items, getTotal, clearCart, restaurantId } = useCart();
@@ -20,20 +22,23 @@ const CheckoutPage = () => {
   const { selectedAddress } = useAddresses();
   const [isProcessing, setIsProcessing] = useState(false);
   const [step, setStep] = useState<"review" | "pix_payment" | "success">("review");
-  const [deliveryType, setDeliveryType] = useState<"now" | "scheduled">("now");
+  const [deliveryType, setDeliveryType] = useState<"delivery" | "pickup">("delivery"); // Novo: delivery ou pickup
   const [scheduledTime, setScheduledTime] = useState<string>("");
 
-  const total = getTotal() + 5.0;
+  const subtotal = getTotal();
+  const deliveryFee = deliveryType === "delivery" ? DELIVERY_FEE : 0;
+  const total = subtotal + deliveryFee;
 
   const handleFinishOrder = async () => {
-    if (!selectedAddress) {
+    if (deliveryType === "delivery" && !selectedAddress) {
       showError("Selecione um endereço de entrega.");
       return;
     }
 
-    if (deliveryType === "scheduled" && !scheduledTime) {
-      showError("Selecione um horário para o agendamento.");
-      return;
+    if (deliveryType === "delivery" && scheduledTime && scheduledTime.length > 0) {
+      // Agendamento só faz sentido para entrega
+    } else if (deliveryType === "pickup" && scheduledTime) {
+      // Se for retirada, o agendamento é opcional, mas se selecionado, deve ser válido
     }
 
     if (selectedPaymentType === "pix" && step !== "pix_payment") {
@@ -50,8 +55,8 @@ const CheckoutPage = () => {
 
       const code = (user.user_metadata?.phone || "0000").replace(/\D/g, "").slice(-4);
       
-      // Define deadline de 8 minutos para o lojista (apenas se for 'now')
-      const acceptanceDeadline = deliveryType === "now" 
+      // Define deadline de 8 minutos para o lojista (apenas se for 'now' e 'delivery')
+      const acceptanceDeadline = deliveryType === "delivery" && !scheduledTime
         ? new Date(Date.now() + 8 * 60000).toISOString() 
         : null;
 
@@ -63,11 +68,12 @@ const CheckoutPage = () => {
           items: items,
           total: total,
           payment_method: selectedPaymentType,
-          delivery_address: selectedAddress,
+          delivery_address: selectedAddress, // Pode ser null se for pickup
           status: 'PENDING',
           confirmation_code: code,
-          scheduled_at: deliveryType === "scheduled" ? scheduledTime : null,
-          merchant_acceptance_deadline: acceptanceDeadline
+          scheduled_at: scheduledTime || null,
+          merchant_acceptance_deadline: acceptanceDeadline,
+          delivery_type: deliveryType // Novo campo
         });
 
       if (error) throw error;
@@ -107,8 +113,10 @@ const CheckoutPage = () => {
         <div className="space-y-2">
           <h1 className="text-3xl font-extrabold text-gray-900">Pedido Realizado!</h1>
           <p className="text-gray-500">
-            {deliveryType === "scheduled" 
-              ? "Seu pedido foi agendado com sucesso." 
+            {deliveryType === "pickup" 
+              ? "Seu pedido será preparado para retirada no local."
+              : deliveryType === "delivery" && scheduledTime
+              ? "Seu pedido foi agendado para entrega."
               : "O restaurante tem 8 minutos para aceitar seu pedido."}
           </p>
         </div>
@@ -124,59 +132,98 @@ const CheckoutPage = () => {
         <h1 className="text-2xl font-black text-indigo-900">Finalizar Pedido</h1>
       </div>
 
-      {/* Tipo de Entrega */}
+      {/* Tipo de Serviço */}
       <div className="space-y-3">
-        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Quando entregar?</p>
+        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Como você quer receber?</p>
         <div className="grid grid-cols-2 gap-3">
           <button 
-            onClick={() => setDeliveryType("now")}
+            onClick={() => setDeliveryType("delivery")}
             className={cn(
               "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2",
-              deliveryType === "now" ? "border-brand-accent bg-brand-accent/5 text-brand-accent" : "border-gray-100 text-gray-400"
+              deliveryType === "delivery" ? "border-brand-accent bg-brand-accent/5 text-brand-accent" : "border-gray-100 text-gray-400"
             )}
           >
-            <Clock className="h-6 w-6" />
-            <span className="font-bold text-sm">Pra já</span>
+            <Truck className="h-6 w-6" />
+            <span className="font-bold text-sm">Entrega</span>
           </button>
           <button 
-            onClick={() => setDeliveryType("scheduled")}
+            onClick={() => setDeliveryType("pickup")}
             className={cn(
               "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2",
-              deliveryType === "scheduled" ? "border-brand-accent bg-brand-accent/5 text-brand-accent" : "border-gray-100 text-gray-400"
+              deliveryType === "pickup" ? "border-brand-accent bg-brand-accent/5 text-brand-accent" : "border-gray-100 text-gray-400"
             )}
           >
-            <Calendar className="h-6 w-6" />
-            <span className="font-bold text-sm">Agendar</span>
+            <Store className="h-6 w-6" />
+            <span className="font-bold text-sm">Retirar no Local</span>
           </button>
         </div>
-
-        {deliveryType === "scheduled" && (
-          <div className="animate-in slide-in-from-top-2">
-            <Select value={scheduledTime} onValueChange={setScheduledTime}>
-              <SelectTrigger className="h-14 rounded-2xl border-gray-200">
-                <SelectValue placeholder="Escolha um horário" />
-              </SelectTrigger>
-              <SelectContent className="rounded-2xl">
-                {getScheduleOptions().map(opt => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
       </div>
+
+      {/* Agendamento (Apenas para Delivery) */}
+      {deliveryType === "delivery" && (
+        <div className="space-y-3 animate-in fade-in">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Quando entregar?</p>
+          <div className="grid grid-cols-2 gap-3">
+            <button 
+              onClick={() => setScheduledTime("")}
+              className={cn(
+                "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2",
+                !scheduledTime ? "border-indigo-600 bg-indigo-50 text-indigo-600" : "border-gray-100 text-gray-400"
+              )}
+            >
+              <Clock className="h-6 w-6" />
+              <span className="font-bold text-sm">Pra já</span>
+            </button>
+            <button 
+              onClick={() => setScheduledTime(getScheduleOptions()[0]?.value || "")}
+              className={cn(
+                "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2",
+                scheduledTime ? "border-indigo-600 bg-indigo-50 text-indigo-600" : "border-gray-100 text-gray-400"
+              )}
+            >
+              <Calendar className="h-6 w-6" />
+              <span className="font-bold text-sm">Agendar</span>
+            </button>
+          </div>
+
+          {scheduledTime && (
+            <div className="animate-in slide-in-from-top-2">
+              <Select value={scheduledTime} onValueChange={setScheduledTime}>
+                <SelectTrigger className="h-14 rounded-2xl border-gray-200">
+                  <SelectValue placeholder="Escolha um horário" />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl">
+                  {getScheduleOptions().map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-5">
         <div>
            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2">Resumo</p>
            <Card className="rounded-3xl p-5 border-none shadow-sm bg-white space-y-4">
-             <div className="flex items-center gap-4">
-               <div className="p-3 bg-indigo-50 rounded-2xl"><Truck className="text-indigo-600 h-5 w-5" /></div>
-               <div>
-                  <p className="font-bold text-gray-800">{selectedAddress?.street}, {selectedAddress?.number}</p>
-                  <p className="text-xs text-gray-500">Entrega padrão</p>
+             {deliveryType === "delivery" && selectedAddress ? (
+               <div className="flex items-center gap-4 animate-in fade-in">
+                 <div className="p-3 bg-indigo-50 rounded-2xl"><Truck className="text-indigo-600 h-5 w-5" /></div>
+                 <div>
+                    <p className="font-bold text-gray-800">{selectedAddress.street}, {selectedAddress.number}</p>
+                    <p className="text-xs text-gray-500">Entrega padrão</p>
+                 </div>
                </div>
-             </div>
+             ) : (
+               <div className="flex items-center gap-4 animate-in fade-in">
+                 <div className="p-3 bg-indigo-50 rounded-2xl"><Store className="text-indigo-600 h-5 w-5" /></div>
+                 <div>
+                    <p className="font-bold text-gray-800">Retirada no Local</p>
+                    <p className="text-xs text-gray-500">Sem taxa de entrega</p>
+                 </div>
+               </div>
+             )}
              <div className="flex items-center gap-4">
                <div className="p-3 bg-green-50 rounded-2xl"><CreditCard className="text-green-600 h-5 w-5" /></div>
                <div>

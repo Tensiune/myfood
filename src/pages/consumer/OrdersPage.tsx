@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, Clock, Loader2, Key, XCircle, History, MessageCircle, Bike, Store } from "lucide-react";
+import { Package, Clock, Loader2, Key, XCircle, History, MessageCircle, Bike, Store, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -45,6 +45,9 @@ const OrdersPage = () => {
         if (payload.new.status === 'OUT_FOR_DELIVERY') {
            showSuccess("Seu pedido saiu para entrega!");
         }
+        if (payload.new.status === 'READY_FOR_PICKUP') {
+           showSuccess("Seu pedido está pronto para retirada!");
+        }
         fetchOrders();
       })
       .subscribe();
@@ -58,6 +61,7 @@ const OrdersPage = () => {
       case "PREPARING": return <Badge className="bg-orange-100 text-orange-700 border-none rounded-full">Em Preparo</Badge>;
       case "WAITING_FOR_DRIVER": return <Badge className="bg-indigo-100 text-indigo-700 border-none rounded-full">Aguardando Entregador</Badge>;
       case "OUT_FOR_DELIVERY": return <Badge className="bg-yellow-500 text-white rounded-full">Em Rota de Entrega</Badge>;
+      case "READY_FOR_PICKUP": return <Badge className="bg-green-500 text-white rounded-full">Pronto para Retirada</Badge>;
       case "DELIVERED": return <Badge className="bg-green-500 text-white rounded-full">Entregue</Badge>;
       case "CANCELLED": return <Badge className="bg-red-100 text-red-600 border-none rounded-full">Pedido Recusado</Badge>;
       default: return <Badge variant="secondary" className="rounded-full">{status}</Badge>;
@@ -73,7 +77,7 @@ const OrdersPage = () => {
     );
   }
 
-  const activeOrders = orders.filter(o => ['PENDING', 'PREPARING', 'WAITING_FOR_DRIVER', 'OUT_FOR_DELIVERY'].includes(o.status));
+  const activeOrders = orders.filter(o => ['PENDING', 'PREPARING', 'WAITING_FOR_DRIVER', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP'].includes(o.status));
   const historyOrders = orders.filter(o => ['DELIVERED', 'CANCELLED'].includes(o.status));
 
   const renderOrderCard = (order: any) => (
@@ -116,6 +120,20 @@ const OrdersPage = () => {
             </div>
         )}
 
+        {/* Informações de Retirada/Entrega */}
+        {order.status === "READY_FOR_PICKUP" && (
+          <div className="bg-green-50 p-4 rounded-2xl flex items-center justify-between border border-green-100">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-white rounded-xl shadow-sm"><Key className="h-5 w-5 text-green-600" /></div>
+              <div>
+                <p className="text-[10px] font-bold text-green-400 uppercase">Código de Retirada</p>
+                <p className="text-xl font-black text-green-900">{order.confirmation_code}</p>
+              </div>
+            </div>
+            <Button size="sm" className="rounded-xl bg-green-600 h-10 font-bold" onClick={() => navigate(`/restaurant/${order.merchant_id}`)}>Ver Local</Button>
+          </div>
+        )}
+        
         {order.status === "OUT_FOR_DELIVERY" && (
           <div className="bg-indigo-50 p-4 rounded-2xl flex items-center justify-between border border-indigo-100">
             <div className="flex items-center gap-3">
