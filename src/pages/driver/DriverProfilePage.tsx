@@ -83,7 +83,7 @@ const DriverProfilePage = () => {
               </div>
               <div className="flex-1">
                 <p className="font-black text-indigo-900 text-sm">Trabalho Exclusivo</p>
-                <p className="text-[10px] text-gray-500 font-bold uppercase leading-tight">Sou frotista fixo de um restaurante</p>
+                <p className="text-[10px] text-gray-500 font-bold uppercase leading-tight">Sou frotista fixo de um ou mais Lojistas</p>
               </div>
             </div>
             <Switch 
