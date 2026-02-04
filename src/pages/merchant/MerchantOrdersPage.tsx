@@ -238,7 +238,7 @@ const MerchantOrdersPage = () => {
         isInitialMount.current = false;
       }
       
-      // --- FILTRO: APENAS PEDIDOS DAS ÚLTIMAS 24 HORAS ---
+      // --- FILTRO: APENAS PEDIDOS DAS ÚLTIMAS 24 HORAS E QUE NÃO ESTEJAM FINALIZADOS ---
       const twentyFourHoursAgo = subHours(new Date(), 24).toISOString();
 
       const { data: rawOrders, error: ordersError } = await supabase
@@ -331,7 +331,14 @@ const MerchantOrdersPage = () => {
   }, [orders, searchTerm]);
 
   const renderSection = (title: string, color: string, filter: (o: any) => boolean, action: (o: any) => React.ReactNode) => {
-    const data = filteredOrders.filter(filter);
+    // Filtra os pedidos que não estão em status final (DELIVERED, CANCELLED)
+    const activeStatusFilter = (o: any) => !['DELIVERED', 'CANCELLED'].includes(o.status) && filter(o);
+    
+    // Para a seção "Histórico", filtramos apenas os finalizados
+    const data = title === "Histórico" 
+        ? filteredOrders.filter(o => ['DELIVERED', 'CANCELLED'].includes(o.status))
+        : filteredOrders.filter(activeStatusFilter);
+
     return (
       <div className="space-y-4">
         <h2 className={cn("font-black text-[10px] uppercase tracking-widest flex items-center gap-2 px-2", color)}>
