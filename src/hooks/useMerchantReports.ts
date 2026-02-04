@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { DateRange } from "react-day-picker";
-import { format, getDay, getMonth, getYear, startOfWeek, endOfWeek, subDays } from "date-fns";
+import { format, getMonth, getYear, startOfWeek, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 interface Order {
@@ -111,11 +111,14 @@ export function useMerchantReports(dateRange?: DateRange) {
 
     // --- Sales Chart Data (Weekly: Monday to Sunday) ---
     const today = new Date();
-    const startOfCurrentWeek = startOfWeek(today, { weekStartsOn: 1 }); // 1 = Monday
+    // Encontra o início da semana (Segunda-feira)
+    const startOfCurrentWeek = startOfWeek(today, { weekStartsOn: 1 }); 
     const weeklySales: SalesData[] = [];
     
+    // Itera 7 dias a partir da Segunda-feira
     for (let i = 0; i < 7; i++) {
         const date = subDays(startOfCurrentWeek, -i);
+        // Formata o nome do dia (ex: Seg, Ter, etc.)
         const dayName = format(date, 'EEE', { locale: ptBR });
         
         const dailyOrders = deliveredOrders.filter(o => 
@@ -159,11 +162,14 @@ export function useMerchantReports(dateRange?: DateRange) {
     // --- Top Products Data (Top 10) ---
     const productCounts = new Map<string, number>();
     deliveredOrders.forEach(order => {
-        order.items.forEach(item => {
-            const name = item.name;
-            const quantity = item.quantity;
-            productCounts.set(name, (productCounts.get(name) || 0) + quantity);
-        });
+        // Garantir que 'items' é um array e iterar sobre ele
+        if (Array.isArray(order.items)) {
+            order.items.forEach(item => {
+                const name = item.name;
+                const quantity = item.quantity;
+                productCounts.set(name, (productCounts.get(name) || 0) + quantity);
+            });
+        }
     });
     
     const sortedProducts = Array.from(productCounts.entries())

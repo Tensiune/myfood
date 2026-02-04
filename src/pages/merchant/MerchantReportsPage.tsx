@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   BarChart, 
@@ -10,8 +10,6 @@ import {
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer, 
-  LineChart, 
-  Line,
   Cell,
   PieChart,
   Pie,
@@ -33,7 +31,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useMerchantReports } from "@/hooks/useMerchantReports";
 import { DateRangePicker } from "@/components/shared/DateRangePicker";
 import { DateRange } from "react-day-picker";
-import { subDays, subMonths, subYears, startOfDay, endOfDay } from "date-fns";
+import { subDays, subMonths, startOfDay } from "date-fns";
 
 const MerchantReportsPage = () => {
   const [dateFilter, setDateFilter] = useState("7d");
@@ -104,7 +102,7 @@ const MerchantReportsPage = () => {
               <SelectItem value="30d">Últimos 30 dias</SelectItem>
               <SelectItem value="90d">Últimos 90 dias</SelectItem>
               <SelectItem value="other">Outro Período...</SelectItem>
-            </SelectItemContent>
+            </SelectContent>
           </Select>
           
           {dateFilter === 'other' && (
@@ -144,7 +142,7 @@ const MerchantReportsPage = () => {
         {/* Main Sales Chart (Daily/Weekly) */}
         <Card className="lg:col-span-2 rounded-[2.5rem] border-none shadow-sm bg-white p-6">
           <CardHeader className="px-0 pt-0">
-            <CardTitle className="text-xl font-bold text-indigo-900">Evolução de Vendas (Período Selecionado)</CardTitle>
+            <CardTitle className="text-xl font-bold text-indigo-900">Evolução de Vendas (Últimos 7 dias)</CardTitle>
           </CardHeader>
           <div className="h-[350px] w-full mt-4">
             <ResponsiveContainer width="100%" height="100%">
@@ -187,7 +185,7 @@ const MerchantReportsPage = () => {
         {/* Top Products Chart (Real Data) */}
         <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-6">
           <CardHeader className="px-0 pt-0">
-            <CardTitle className="text-xl font-bold text-indigo-900">Top 10 Produtos Vendidos</CardTitle>
+            <CardTitle className="text-xl font-bold text-indigo-900">Top {topProducts.length} Produtos Vendidos</CardTitle>
           </CardHeader>
           <div className="h-[250px] w-full relative">
             <ResponsiveContainer width="100%" height="100%">
