@@ -45,6 +45,7 @@ import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import DeliveryFeesPage from "./pages/admin/DeliveryFeesPage";
 import DeliveryHistoryPage from "./pages/driver/DeliveryHistoryPage";
 import PaymentHistoryPage from "./pages/driver/PaymentHistoryPage";
+import MerchantOrderHistoryPage from "./pages/merchant/MerchantOrderHistoryPage";
 
 const queryClient = new QueryClient();
 
@@ -98,6 +99,7 @@ const App = () => (
                     <Route path="/merchant/reports" element={<MerchantReportsPage />} />
                     <Route path="/merchant/settings" element={<MerchantSettingsPage />} />
                     <Route path="/merchant/setup" element={<MerchantSetupPage />} />
+                    <Route path="/merchant/history" element={<MerchantOrderHistoryPage />} />
                     
                     {/* Admin Routes */}
                     <Route path="/admin/dashboard" element={<AdminDashboard />} />

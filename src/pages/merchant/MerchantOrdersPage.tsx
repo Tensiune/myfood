@@ -19,7 +19,8 @@ import {
   Clock,
   CreditCard,
   Truck,
-  CheckCircle2
+  CheckCircle2,
+  History
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ import OrderReceipt from "@/components/merchant/OrderReceipt";
 import { Input } from "@/components/ui/input";
 import { printReceipt } from "@/utils/print";
 import { useNavigate } from "react-router-dom";
+import { subHours } from "date-fns";
 
 interface PrintSettings {
   paperWidth: "80mm" | "58mm";
@@ -181,13 +183,16 @@ const MerchantOrdersPage = () => {
         }
         isInitialMount.current = false;
       }
+      
+      // --- FILTRO: APENAS PEDIDOS DAS ÚLTIMAS 24 HORAS ---
+      const twentyFourHoursAgo = subHours(new Date(), 24).toISOString();
 
       const { data: rawOrders, error: ordersError } = await supabase
         .from('orders')
         .select('*')
         .eq('merchant_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(40);
+        .gte('created_at', twentyFourHoursAgo) // Filtra pedidos criados nas últimas 24h
+        .order('created_at', { ascending: false });
 
       if (ordersError) throw ordersError;
       if (!rawOrders) { setOrders([]); return; }
@@ -378,8 +383,15 @@ const MerchantOrdersPage = () => {
   return (
     <div className="space-y-6 pb-20">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-        <h1 className="text-3xl font-black text-indigo-900">Painel de Pedidos</h1>
+        <h1 className="text-3xl font-black text-indigo-900">Painel de Pedidos (Últimas 24h)</h1>
         <div className="flex flex-wrap justify-center gap-2">
+          <Button 
+            variant="outline" 
+            className="rounded-xl h-11 text-indigo-600 font-bold border-indigo-100 hover:bg-indigo-50"
+            onClick={() => navigate("/merchant/history")}
+          >
+            <History className="h-4 w-4 mr-2" /> Histórico Completo
+          </Button>
           <Button onClick={() => setAudioEnabled(!audioEnabled)} variant={audioEnabled ? "outline" : "default"} className={cn("rounded-xl h-11", !audioEnabled && "bg-red-500 animate-pulse")}>
             {audioEnabled ? <Volume2 className="h-4 w-4 mr-2" /> : <VolumeX className="h-4 w-4 mr-2" />}
             {audioEnabled ? 'Som Ativo' : 'Ativar Som'}

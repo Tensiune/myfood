@@ -16,7 +16,8 @@ import {
   BarChart3,
   Bike,
   DollarSign,
-  Loader2
+  Loader2,
+  History
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,7 @@ const DashboardLayout = () => {
 
   const merchantLinks = [
     { label: "Dashboard", path: "/merchant/dashboard", icon: LayoutDashboard },
+    { label: "Histórico de Pedidos", path: "/merchant/history", icon: History },
     { label: "Meu Cardápio", path: "/merchant/menu", icon: Package },
     { label: "Relatórios", path: "/merchant/reports", icon: BarChart3 },
     { label: "Configurações", path: "/merchant/settings", icon: Settings },
