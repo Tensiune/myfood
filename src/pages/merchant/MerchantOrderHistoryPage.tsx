@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import { DateRangePicker } from "@/components/shared/DateRangePicker";
 import { DateRange } from "react-day-picker";
-import { format } from "date-fns";
+import { format, subDays, startOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { 
   Loader2, 
@@ -25,9 +25,11 @@ import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { exportToExcel } from "@/utils/export";
+import DateRangeSelector from "@/components/merchant/DateRangeSelector";
 
 // Constantes de taxas (assumidas do CartPage e para fins de demonstração)
 const DELIVERY_FEE_CUSTOMER = 5.00;
+const DRIVER_FEE_PAID = 5.00; // Valor fixo pago ao entregador (exemplo)
 const MERCHANT_COMMISSION_RATE = 0.10; // 10% de comissão sobre o subtotal
 
 interface OrderItem {
@@ -45,13 +47,30 @@ interface Order {
   customer_id: string;
   items: OrderItem[];
   is_new_customer?: boolean;
+  subtotal: number;
+  discount: number;
+  hasCoupon: boolean;
+  coupon_code?: string; // Adicionado para o cupom
+  item_count: number;
+  delivery_fee_customer: number;
+  merchant_commission: number;
+  driver_fee_paid: number; // Adicionado
 }
 
 const MerchantOrderHistoryPage = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState("");
+  
+  // Estado para o seletor de datas
+  const today = startOfDay(new Date());
+  const [dateFilter, setDateFilter] = useState("7d");
+  const [customDateRange, setCustomDateRange] = useState<DateRange | undefined>({ from: subDays(today, 7), to: today });
+
+  const calculatedDateRange = useMemo(() => {
+    if (dateFilter === 'custom') return customDateRange;
+    return customDateRange; // O seletor já atualiza customDateRange para as pre-defined
+  }, [dateFilter, customDateRange]);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -65,11 +84,11 @@ const MerchantOrderHistoryPage = () => {
         .eq('merchant_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (dateRange?.from) {
-        query = query.gte('created_at', format(dateRange.from, 'yyyy-MM-dd'));
+      if (calculatedDateRange?.from) {
+        query = query.gte('created_at', format(calculatedDateRange.from, 'yyyy-MM-dd'));
       }
-      if (dateRange?.to) {
-        const endOfDay = new Date(dateRange.to);
+      if (calculatedDateRange?.to) {
+        const endOfDay = new Date(calculatedDateRange.to);
         endOfDay.setDate(endOfDay.getDate() + 1);
         query = query.lt('created_at', format(endOfDay, 'yyyy-MM-dd'));
       }
@@ -78,7 +97,6 @@ const MerchantOrderHistoryPage = () => {
 
       if (error) throw error;
       
-      // Enriquecer dados (calcular subtotal, desconto, e verificar novo cliente)
       const enrichedOrders = await Promise.all((rawOrders || []).map(async (order: any) => {
         const subtotal = (order.items || []).reduce((sum: number, item: OrderItem) => sum + (item.price * item.quantity), 0);
         
@@ -93,15 +111,20 @@ const MerchantOrderHistoryPage = () => {
             p_current_order_created_at: order.created_at 
         });
 
+        // Simulação de código de cupom (apenas para exibição, não temos o código real no DB)
+        const couponCode = hasCoupon ? "CUPOM_X" : undefined;
+
         return {
           ...order,
           subtotal,
           discount,
           hasCoupon,
+          coupon_code: couponCode,
           is_new_customer: isNew,
           item_count: (order.items || []).reduce((sum: number, item: OrderItem) => sum + item.quantity, 0),
           delivery_fee_customer: DELIVERY_FEE_CUSTOMER,
           merchant_commission: subtotal * MERCHANT_COMMISSION_RATE,
+          driver_fee_paid: order.driver_id ? DRIVER_FEE_PAID : 0, // Paga taxa ao entregador se houver um
         };
       }));
 
@@ -112,7 +135,7 @@ const MerchantOrderHistoryPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [dateRange]);
+  }, [calculatedDateRange]);
 
   useEffect(() => {
     fetchOrders();
@@ -148,17 +171,19 @@ const MerchantOrderHistoryPage = () => {
       "Data/Hora": format(new Date(order.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR }),
       "Status": order.status,
       "Total (R$)": order.total,
-      "Subtotal (R$)": (order as any).subtotal,
-      "Taxa Cliente (R$)": (order as any).delivery_fee_customer,
-      "Comissão Loja (R$)": (order as any).merchant_commission,
-      "Desconto Cupom (R$)": (order as any).discount,
-      "Itens (Qtd)": (order as any).item_count,
+      "Subtotal (R$)": order.subtotal,
+      "Comissão App (R$)": order.merchant_commission,
+      "Taxa Entregador (R$)": order.driver_fee_paid,
+      "Taxa Cliente (R$)": order.delivery_fee_customer,
+      "Desconto Cupom (R$)": order.discount,
+      "Cupom Aplicado": order.coupon_code || 'N/A',
+      "Itens (Qtd)": order.item_count,
       "Forma de Pagamento": order.payment_method,
-      "Novo Cliente": (order as any).is_new_customer ? "Sim" : "Não",
+      "Novo Cliente": order.is_new_customer ? "Sim" : "Não",
     }));
     
-    const dateLabel = dateRange?.from 
-        ? `De ${format(dateRange.from, 'dd-MM-yyyy')} a ${format(dateRange.to || new Date(), 'dd-MM-yyyy')}`
+    const dateLabel = calculatedDateRange?.from 
+        ? `De ${format(calculatedDateRange.from, 'dd-MM-yyyy')} a ${format(calculatedDateRange.to || new Date(), 'dd-MM-yyyy')}`
         : 'Geral';
         
     exportToExcel(exportData, `Historico_Pedidos_${dateLabel}`);
@@ -183,7 +208,13 @@ const MerchantOrderHistoryPage = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-1">
-          <DateRangePicker date={dateRange} setDate={setDateRange} />
+          <DateRangeSelector 
+            dateFilter={dateFilter}
+            setDateFilter={setDateFilter}
+            customDateRange={customDateRange}
+            setCustomDateRange={setCustomDateRange}
+            calculatedDateRange={calculatedDateRange}
+          />
         </div>
         <div className="md:col-span-2 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
@@ -240,13 +271,14 @@ const MerchantOrderHistoryPage = () => {
                     <div className="text-sm font-medium text-gray-700">{order.item_count} itens</div>
                     {order.hasCoupon && (
                         <div className="flex items-center gap-1 text-xs text-green-600 font-bold">
-                            <Tag className="h-3 w-3" /> Cupom Aplicado
+                            <Tag className="h-3 w-3" /> Cupom: {order.coupon_code}
                         </div>
                     )}
                   </TableCell>
                   <TableCell>
                     <div className="text-sm font-medium text-gray-700 uppercase">{order.payment_method}</div>
-                    <div className="text-xs text-gray-500">Comissão: R$ {order.merchant_commission.toFixed(2)}</div>
+                    <div className="text-xs text-gray-500">Comissão App (10%): R$ {order.merchant_commission.toFixed(2)}</div>
+                    <div className="text-xs text-gray-500">Taxa Entregador: R$ {order.driver_fee_paid.toFixed(2)}</div>
                     <div className="text-xs text-gray-500">Taxa Cliente: R$ {order.delivery_fee_customer.toFixed(2)}</div>
                   </TableCell>
                   <TableCell className="text-right">
