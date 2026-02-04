@@ -19,7 +19,9 @@ import {
   Tag, 
   Package, 
   Truck,
-  User
+  User,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
@@ -61,6 +63,7 @@ const MerchantOrderHistoryPage = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [showItemDetails, setShowItemDetails] = useState(false); // Novo estado para detalhes dos itens
   
   // Estado para o seletor de datas
   const today = startOfDay(new Date());
@@ -228,6 +231,16 @@ const MerchantOrderHistoryPage = () => {
       </div>
 
       <Card className="rounded-[2.5rem] border-none shadow-sm overflow-hidden bg-white">
+        <div className="p-4 border-b border-gray-100 flex justify-end">
+            <Button 
+                variant={showItemDetails ? "default" : "outline"} 
+                className="rounded-xl h-10 gap-2 text-sm font-bold" 
+                onClick={() => setShowItemDetails(!showItemDetails)}
+            >
+                {showItemDetails ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />} 
+                {showItemDetails ? "Ocultar Detalhes" : "Mostrar Detalhes"}
+            </Button>
+        </div>
         <Table>
           <TableHeader className="bg-gray-50">
             <TableRow>
@@ -254,37 +267,56 @@ const MerchantOrderHistoryPage = () => {
               </TableRow>
             ) : (
               filteredOrders.map((order: any) => (
-                <TableRow key={order.id} className="hover:bg-indigo-50/30 transition-colors">
-                  <TableCell>
-                    <div className="font-bold text-gray-800">#{order.id.slice(0, 6)}</div>
-                    <div className="text-xs text-gray-500">{format(new Date(order.created_at), 'dd/MM HH:mm')}</div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="mb-1">{getStatusBadge(order.status)}</div>
-                    {order.is_new_customer && (
-                        <Badge variant="outline" className="text-[10px] font-bold text-brand-accent border-brand-accent/50 bg-brand-accent/10 gap-1">
-                            <User className="h-3 w-3" /> Novo Cliente
-                        </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="text-sm font-medium text-gray-700">{order.item_count} itens</div>
-                    {order.hasCoupon && (
-                        <div className="flex items-center gap-1 text-xs text-green-600 font-bold">
-                            <Tag className="h-3 w-3" /> Cupom: {order.coupon_code}
+                <React.Fragment key={order.id}>
+                  <TableRow className="hover:bg-indigo-50/30 transition-colors">
+                    <TableCell>
+                      <div className="font-bold text-gray-800">#{order.id.slice(0, 6)}</div>
+                      <div className="text-xs text-gray-500">{format(new Date(order.created_at), 'dd/MM HH:mm')}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="mb-1">{getStatusBadge(order.status)}</div>
+                      {order.is_new_customer && (
+                          <Badge variant="outline" className="text-[10px] font-bold text-brand-accent border-brand-accent/50 bg-brand-accent/10 gap-1">
+                              <User className="h-3 w-3" /> Novo Cliente
+                          </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm font-medium text-gray-700">{order.item_count} itens</div>
+                      {order.hasCoupon && (
+                          <div className="flex items-center gap-1 text-xs text-green-600 font-bold">
+                              <Tag className="h-3 w-3" /> Cupom: {order.coupon_code}
+                          </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm font-medium text-gray-700 uppercase">{order.payment_method}</div>
+                      <div className="text-xs text-gray-500">Comissão App (10%): R$ {order.merchant_commission.toFixed(2)}</div>
+                      <div className="text-xs text-gray-500">Taxa Entregador: R$ {order.driver_fee_paid.toFixed(2)}</div>
+                      <div className="text-xs text-gray-500">Taxa Cliente: R$ {order.delivery_fee_customer.toFixed(2)}</div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className="font-black text-lg text-indigo-900">R$ {order.total.toFixed(2)}</span>
+                    </TableCell>
+                  </TableRow>
+                  
+                  {showItemDetails && (
+                    <TableRow className="bg-gray-50/50 animate-in fade-in slide-in-from-top-1">
+                      <TableCell colSpan={5} className="py-3 px-6">
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Detalhes dos Itens:</p>
+                          <ul className="list-disc list-inside space-y-1">
+                            {order.items.map((item: OrderItem, i: number) => (
+                              <li key={i} className="text-sm text-gray-700">
+                                <span className="font-bold text-indigo-600">{item.quantity}x</span> {item.name} (R$ {(item.price * item.quantity).toFixed(2)})
+                              </li>
+                            ))}
+                          </ul>
                         </div>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="text-sm font-medium text-gray-700 uppercase">{order.payment_method}</div>
-                    <div className="text-xs text-gray-500">Comissão App (10%): R$ {order.merchant_commission.toFixed(2)}</div>
-                    <div className="text-xs text-gray-500">Taxa Entregador: R$ {order.driver_fee_paid.toFixed(2)}</div>
-                    <div className="text-xs text-gray-500">Taxa Cliente: R$ {order.delivery_fee_customer.toFixed(2)}</div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <span className="font-black text-lg text-indigo-900">R$ {order.total.toFixed(2)}</span>
-                  </TableCell>
-                </TableRow>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </React.Fragment>
               ))
             )}
           </TableBody>
