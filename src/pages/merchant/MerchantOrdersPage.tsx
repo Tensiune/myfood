@@ -13,6 +13,7 @@ import {
   Search, 
   Printer,
   Eye,
+  EyeOff, // Importação corrigida
   MessageCircle,
   Trash2,
   AlertCircle,
@@ -110,7 +111,6 @@ const MerchantOrdersPage = () => {
       let driverDispatchNeeded = order.delivery_type === 'delivery';
 
       if (order.delivery_type === 'pickup') {
-        // Pedidos de retirada não precisam de entregador, vão direto para preparo
         driverDispatchNeeded = false;
       }
       
@@ -124,14 +124,12 @@ const MerchantOrdersPage = () => {
       
       if (updateError) throw updateError;
 
-      // Dispara busca de entregador APENAS se for entrega
       if (driverDispatchNeeded) {
         await supabase.functions.invoke('dispatch-order', {
           body: { orderId: order.id }
         });
       }
 
-      // Lógica de Auto-Impressão
       if (localStorage.getItem('merchant_auto_print') === 'true') {
         handlePrint(order);
       }
@@ -169,7 +167,6 @@ const MerchantOrdersPage = () => {
     setIsVerifying(true);
     const tid = showLoading("Validando retirada...");
     try {
-      // Para retirada, o código é o do cliente
       if (verificationCode !== order.confirmation_code) {
         showError("Código de retirada incorreto.");
         return;
@@ -238,14 +235,13 @@ const MerchantOrdersPage = () => {
         isInitialMount.current = false;
       }
       
-      // --- FILTRO: APENAS PEDIDOS DAS ÚLTIMAS 24 HORAS E QUE NÃO ESTEJAM FINALIZADOS ---
       const twentyFourHoursAgo = subHours(new Date(), 24).toISOString();
 
       const { data: rawOrders, error: ordersError } = await supabase
         .from('orders')
         .select('*')
         .eq('merchant_id', user.id)
-        .gte('created_at', twentyFourHoursAgo) // Filtra pedidos criados nas últimas 24h
+        .gte('created_at', twentyFourHoursAgo)
         .order('created_at', { ascending: false });
 
       if (ordersError) throw ordersError;
@@ -279,7 +275,7 @@ const MerchantOrdersPage = () => {
           driver: driver || null,
           items: Array.isArray(order.items) ? order.items : [],
           delivery_address: order.delivery_address || {},
-          delivery_type: order.delivery_type || 'delivery' // Garante o tipo
+          delivery_type: order.delivery_type || 'delivery'
         };
       });
 
@@ -331,13 +327,10 @@ const MerchantOrdersPage = () => {
   }, [orders, searchTerm]);
 
   const renderSection = (title: string, color: string, filter: (o: any) => boolean, action: (o: any) => React.ReactNode) => {
-    // Filtra os pedidos que não estão em status final (DELIVERED, CANCELLED)
-    const activeStatusFilter = (o: any) => !['DELIVERED', 'CANCELLED'].includes(o.status) && filter(o);
-    
-    // Para a seção "Histórico", filtramos apenas os finalizados
+    // Filtro estrito: Se não for a coluna Histórico, ignore pedidos finalizados
     const data = title === "Histórico" 
         ? filteredOrders.filter(o => ['DELIVERED', 'CANCELLED'].includes(o.status))
-        : filteredOrders.filter(activeStatusFilter);
+        : filteredOrders.filter(o => !['DELIVERED', 'CANCELLED'].includes(o.status) && filter(o));
 
     return (
       <div className="space-y-4">
@@ -378,7 +371,6 @@ const MerchantOrdersPage = () => {
                 </div>
               </div>
 
-              {/* CARD EXPANDIDO OU COMPACTO */}
               {showFullDetails ? (
                 <div className="space-y-3 bg-gray-50 p-4 rounded-2xl animate-in fade-in">
                   <div className="flex items-start gap-2 text-xs">
@@ -410,7 +402,6 @@ const MerchantOrdersPage = () => {
                 </div>
               )}
 
-              {/* STATUS DO ENTREGADOR EM COLETA OU ROTA */}
               {(o.status === 'WAITING_FOR_DRIVER' || o.status === 'OUT_FOR_DELIVERY') && o.delivery_type === 'delivery' && (
                 <div className="pt-2 border-t border-gray-50 space-y-2">
                    {o.driver ? (
