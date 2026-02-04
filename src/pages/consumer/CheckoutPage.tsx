@@ -18,12 +18,11 @@ const DELIVERY_FEE = 5.0;
 
 const CheckoutPage = () => {
   const navigate = useNavigate();
-  const { items, getTotal, clearCart, restaurantId } = useCart();
+  const { items, getTotal, clearCart, restaurantId, deliveryType } = useCart();
   const { selectedPaymentType } = usePayment();
   const { selectedAddress } = useAddresses();
   const [isProcessing, setIsProcessing] = useState(false);
   const [step, setStep] = useState<"review" | "pix_payment" | "success">("review");
-  const [deliveryType, setDeliveryType] = useState<"delivery" | "pickup">("delivery");
   const [scheduledTime, setScheduledTime] = useState<string>("");
 
   const subtotal = getTotal();
@@ -48,7 +47,6 @@ const CheckoutPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
 
-      // Gera um código simples baseado no telefone ou fixo
       const phone = user.user_metadata?.phone || "0000";
       const code = phone.replace(/\D/g, "").slice(-4) || "1234";
       
@@ -122,46 +120,27 @@ const CheckoutPage = () => {
   }
 
   return (
-    <div className="space-y-6 pb-32 p-4 max-w-lg mx-auto">
+    <div className="space-y-8 pb-32 p-4 max-w-lg mx-auto text-gray-800">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full hover:bg-gray-100"><ArrowLeft /></Button>
-        <h1 className="text-2xl font-black text-indigo-900">Finalizar Pedido</h1>
+        <h1 className="text-2xl font-black text-indigo-900 tracking-tight">Finalizar Pedido</h1>
       </div>
 
-      <div className="space-y-3">
-        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Como você quer receber?</p>
-        <div className="grid grid-cols-2 gap-3">
-          <button 
-            onClick={() => setDeliveryType("delivery")}
-            className={cn(
-              "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2",
-              deliveryType === "delivery" ? "border-brand-accent bg-brand-accent/5 text-brand-accent" : "border-gray-100 text-gray-400"
-            )}
-          >
-            <Truck className="h-6 w-6" />
-            <span className="font-bold text-sm">Entrega</span>
-          </button>
-          <button 
-            onClick={() => setDeliveryType("pickup")}
-            className={cn(
-              "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2",
-              deliveryType === "pickup" ? "border-brand-accent bg-brand-accent/5 text-brand-accent" : "border-gray-100 text-gray-400"
-            )}
-          >
-            <Store className="h-6 w-6" />
-            <span className="font-bold text-sm">Retirar no Local</span>
-          </button>
-        </div>
+      <div className="bg-indigo-50/50 p-6 rounded-[2.5rem] flex items-center justify-center gap-3 border border-indigo-100">
+          {deliveryType === "delivery" ? <Truck className="h-6 w-6 text-indigo-600" /> : <Store className="h-6 w-6 text-indigo-600" />}
+          <span className="font-black text-indigo-900 uppercase tracking-widest text-sm">
+            Modo: {deliveryType === "delivery" ? "Entrega em Domicílio" : "Retirada no Local"}
+          </span>
       </div>
 
       {deliveryType === "delivery" && (
         <div className="space-y-3 animate-in fade-in">
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Quando entregar?</p>
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Quando você quer receber?</p>
           <div className="grid grid-cols-2 gap-3">
             <button 
               onClick={() => setScheduledTime("")}
               className={cn(
-                "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2",
+                "p-5 rounded-3xl border-2 transition-all flex flex-col items-center gap-2",
                 !scheduledTime ? "border-indigo-600 bg-indigo-50 text-indigo-600" : "border-gray-100 text-gray-400"
               )}
             >
@@ -171,7 +150,7 @@ const CheckoutPage = () => {
             <button 
               onClick={() => setScheduledTime(getScheduleOptions()[0]?.value || "")}
               className={cn(
-                "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2",
+                "p-5 rounded-3xl border-2 transition-all flex flex-col items-center gap-2",
                 scheduledTime ? "border-indigo-600 bg-indigo-50 text-indigo-600" : "border-gray-100 text-gray-400"
               )}
             >
@@ -181,14 +160,14 @@ const CheckoutPage = () => {
           </div>
 
           {scheduledTime && (
-            <div className="animate-in slide-in-from-top-2">
+            <div className="animate-in slide-in-from-top-2 pt-2">
               <Select value={scheduledTime} onValueChange={setScheduledTime}>
-                <SelectTrigger className="h-14 rounded-2xl border-gray-200">
+                <SelectTrigger className="h-14 rounded-2xl border-gray-100 shadow-sm bg-white font-bold">
                   <SelectValue placeholder="Escolha um horário" />
                 </SelectTrigger>
                 <SelectContent className="rounded-2xl">
                   {getScheduleOptions().map(opt => (
-                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    <SelectItem key={opt.value} value={opt.value} className="font-medium">{opt.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -197,32 +176,32 @@ const CheckoutPage = () => {
         </div>
       )}
 
-      <div className="space-y-5">
+      <div className="space-y-6">
         <div>
-           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2">Resumo</p>
-           <Card className="rounded-3xl p-5 border-none shadow-sm bg-white space-y-4">
+           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2">Revisão do Destino e Pagamento</p>
+           <Card className="rounded-[2rem] p-6 border-none shadow-sm bg-white space-y-6">
              {deliveryType === "delivery" && selectedAddress ? (
                <div className="flex items-center gap-4 animate-in fade-in">
-                 <div className="p-3 bg-indigo-50 rounded-2xl"><Truck className="text-indigo-600 h-5 w-5" /></div>
+                 <div className="p-3 bg-indigo-50 rounded-2xl"><Truck className="text-indigo-600 h-6 w-6" /></div>
                  <div>
-                    <p className="font-bold text-gray-800">{selectedAddress.street}, {selectedAddress.number}</p>
-                    <p className="text-xs text-gray-500">Entrega padrão</p>
+                    <p className="font-black text-gray-800 text-sm">{selectedAddress.street}, {selectedAddress.number}</p>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase">Endereço de Entrega</p>
                  </div>
                </div>
              ) : (
                <div className="flex items-center gap-4 animate-in fade-in">
-                 <div className="p-3 bg-indigo-50 rounded-2xl"><Store className="text-indigo-600 h-5 w-5" /></div>
+                 <div className="p-3 bg-indigo-50 rounded-2xl"><Store className="text-indigo-600 h-6 w-6" /></div>
                  <div>
-                    <p className="font-bold text-gray-800">Retirada no Local</p>
-                    <p className="text-xs text-gray-500">Sem taxa de entrega</p>
+                    <p className="font-black text-gray-800 text-sm">Retirada no Local</p>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase">Consulte o endereço da loja</p>
                  </div>
                </div>
              )}
-             <div className="flex items-center gap-4">
-               <div className="p-3 bg-green-50 rounded-2xl"><CreditCard className="text-green-600 h-5 w-5" /></div>
+             <div className="flex items-center gap-4 pt-4 border-t border-gray-50">
+               <div className="p-3 bg-green-50 rounded-2xl"><CreditCard className="text-green-600 h-6 w-6" /></div>
                <div>
-                  <p className="font-bold text-gray-800 uppercase">{selectedPaymentType}</p>
-                  <p className="text-xs text-gray-500">Pagamento pelo app</p>
+                  <p className="font-black text-gray-800 text-sm uppercase">{selectedPaymentType}</p>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase">Método de Pagamento</p>
                </div>
              </div>
            </Card>
@@ -231,34 +210,36 @@ const CheckoutPage = () => {
 
       {step === "pix_payment" && (
         <Dialog open={true} onOpenChange={() => setStep("review")}>
-          <DialogContent className="rounded-3xl p-8 space-y-6 text-center">
+          <DialogContent className="rounded-[2.5rem] p-8 space-y-6 text-center border-none shadow-2xl">
             <DialogHeader>
-              <DialogTitle className="text-2xl font-black text-indigo-900">Pague com PIX</DialogTitle>
-              <DialogDescription>Escaneie o código ou copie a chave para finalizar seu pedido.</DialogDescription>
+              <DialogTitle className="text-3xl font-black text-indigo-900">Pague com PIX</DialogTitle>
+              <DialogDescription className="font-medium text-gray-500">Escaneie o código ou copie a chave para finalizar seu pedido com segurança.</DialogDescription>
             </DialogHeader>
-            <div className="bg-gray-50 p-6 rounded-3xl flex flex-col items-center gap-4 border border-indigo-50">
-              <QrCode className="h-40 w-40 text-indigo-600" />
-              <div className="bg-white p-3 rounded-xl border border-gray-100 w-full flex items-center justify-between">
-                <span className="text-[10px] font-bold text-gray-400 truncate max-w-[200px]">00020126360014BR.GOV.BCB.PIX0114+5511999999999</span>
-                <Button variant="ghost" size="sm" className="text-indigo-600 font-bold" onClick={() => { navigator.clipboard.writeText("PIX_KEY"); showSuccess("Copiado!"); }}>Copiar</Button>
+            <div className="bg-gray-50 p-8 rounded-[2rem] flex flex-col items-center gap-6 border border-indigo-50">
+              <div className="bg-white p-4 rounded-3xl shadow-inner">
+                <QrCode className="h-40 w-40 text-indigo-600" />
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-gray-100 w-full flex items-center justify-between">
+                <span className="text-[10px] font-black text-gray-400 truncate max-w-[180px]">00020126360014BR.GOV.BCB.PIX0114+5511999999999</span>
+                <Button variant="ghost" size="sm" className="text-indigo-600 font-black uppercase text-[10px]" onClick={() => { navigator.clipboard.writeText("PIX_KEY"); showSuccess("Copiado!"); }}>Copiar</Button>
               </div>
             </div>
-            <Button className="w-full h-14 rounded-xl bg-indigo-600 font-bold" onClick={handleFinishOrder}>Já paguei</Button>
+            <Button className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-lg shadow-xl" onClick={handleFinishOrder}>Já realizei o pagamento</Button>
           </DialogContent>
         </Dialog>
       )}
 
       <div className="fixed bottom-0 left-0 right-0 p-6 bg-white border-t z-20 safe-area-bottom shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
         <div className="flex justify-between items-center mb-6 px-1">
-          <span className="text-gray-400 font-bold text-sm uppercase">Total</span>
+          <span className="text-gray-400 font-black text-xs uppercase tracking-widest">Total do Pedido</span>
           <span className="text-3xl font-black text-indigo-900">R$ {total.toFixed(2)}</span>
         </div>
         <Button 
-          className="w-full py-8 rounded-[2rem] bg-brand-accent hover:bg-brand-accent/90 text-white font-black text-xl shadow-2xl"
+          className="w-full py-8 rounded-[2rem] bg-brand-accent hover:bg-brand-accent/90 text-white font-black text-xl shadow-2xl shadow-brand-accent/30 transition-all active:scale-[0.98]"
           onClick={handleFinishOrder}
           disabled={isProcessing}
         >
-          {isProcessing ? <Loader2 className="animate-spin h-6 w-6 mr-2" /> : "Confirmar Pedido"}
+          {isProcessing ? <Loader2 className="animate-spin h-6 w-6 mr-2" /> : "Concluir Pedido"}
         </Button>
       </div>
     </div>

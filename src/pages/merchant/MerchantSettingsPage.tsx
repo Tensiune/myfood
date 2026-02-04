@@ -18,7 +18,8 @@ import {
   Loader2,
   ImagePlus,
   ShieldCheck,
-  Printer
+  Printer,
+  Truck
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
@@ -38,12 +39,11 @@ const BRAZILIAN_BANKS = [
   { code: "077", name: "077 - Banco Inter" },
 ].sort((a, b) => a.name.localeCompare(b.name));
 
-// Tipagem para as novas configurações de impressão
 interface PrintSettings {
   paperWidth: "80mm" | "58mm";
   fontSize: "small" | "medium" | "large";
   includeLogo: boolean;
-  margin: number; // em mm
+  margin: number;
 }
 
 const defaultPrintSettings: PrintSettings = {
@@ -58,7 +58,6 @@ const MerchantSettingsPage = () => {
   const [saving, setSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
-  // States
   const [storeInfo, setStoreInfo] = useState({
     name: "",
     description: "",
@@ -89,7 +88,8 @@ const MerchantSettingsPage = () => {
 
   const [deliveryArea, setDeliveryArea] = useState({
     radius: 5,
-    exclusionZones: [] as [number, number][][]
+    exclusionZones: [] as [number, number][][],
+    allows_pickup: true // Novo campo
   });
 
   const [bankInfo, setBankInfo] = useState({
@@ -112,7 +112,10 @@ const MerchantSettingsPage = () => {
           const meta = user.user_metadata;
           if (meta.store_details) setStoreInfo(meta.store_details);
           if (meta.business_hours) setHours(meta.business_hours);
-          if (meta.delivery_area) setDeliveryArea(meta.delivery_area);
+          if (meta.delivery_area) setDeliveryArea({ 
+              ...deliveryArea, 
+              ...meta.delivery_area 
+          });
           if (meta.bank_info) setBankInfo(meta.bank_info);
           if (meta.print_settings) setPrintSettings(meta.print_settings);
         }
@@ -157,7 +160,7 @@ const MerchantSettingsPage = () => {
           business_hours: hours,
           delivery_area: deliveryArea,
           bank_info: bankInfo,
-          print_settings: printSettings, // Salva as novas configurações
+          print_settings: printSettings,
           store_name: storeInfo.name 
       };
 
@@ -167,7 +170,6 @@ const MerchantSettingsPage = () => {
 
       if (error) throw error;
 
-      // Também sincronizamos com a tabela pública de aplicações se necessário
       await supabase
         .from('merchant_applications')
         .update({ 
@@ -257,7 +259,6 @@ const MerchantSettingsPage = () => {
                     </div>
                   )}
                 </div>
-                <p className="text-[10px] text-gray-400 font-medium italic text-center">Recomendado: 800x400px (JPG/PNG)</p>
               </div>
 
               <div className="md:col-span-2 space-y-6">
@@ -305,15 +306,32 @@ const MerchantSettingsPage = () => {
 
         <TabsContent value="logistics" className="space-y-6">
           <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-8">
-            <div className="mb-6">
-              <h3 className="text-xl font-black text-indigo-900">Área de Atendimento</h3>
-              <p className="text-gray-500 text-sm">Defina até onde seus entregadores podem ir e marque áreas bloqueadas.</p>
+            <div className="flex flex-col md:flex-row justify-between gap-6 mb-8">
+              <div>
+                <h3 className="text-xl font-black text-indigo-900">Configurações de Entrega</h3>
+                <p className="text-gray-500 text-sm">Gerencie sua área de atendimento e opções de retirada.</p>
+              </div>
+              
+              <div className="bg-indigo-50 p-4 rounded-2xl flex items-center justify-between gap-6 border border-indigo-100 min-w-[280px]">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-white rounded-xl shadow-sm"><Truck className="h-5 w-5 text-indigo-600" /></div>
+                  <div>
+                    <p className="font-bold text-indigo-900 text-sm">Retirada no Local</p>
+                    <p className="text-[10px] text-gray-500 uppercase font-black">Permitir escolha</p>
+                  </div>
+                </div>
+                <Switch 
+                    checked={deliveryArea.allows_pickup} 
+                    onCheckedChange={(val) => setDeliveryArea({ ...deliveryArea, allows_pickup: val })} 
+                />
+              </div>
             </div>
+
             <DeliveryAreaManager 
               center={[storeInfo.address.lat || -23.5505, storeInfo.address.lng || -46.6333]}
               radius={deliveryArea.radius}
               exclusionZones={deliveryArea.exclusionZones}
-              onChange={(radius, zones) => setDeliveryArea({ radius, exclusionZones: zones })}
+              onChange={(radius, zones) => setDeliveryArea({ ...deliveryArea, radius, exclusionZones: zones })}
             />
           </Card>
         </TabsContent>
@@ -451,7 +469,7 @@ const MerchantSettingsPage = () => {
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
                 <div className="flex flex-col">
                   <Label className="text-indigo-900 font-bold cursor-pointer" htmlFor="include-logo-switch">Incluir Logo</Label>
-                  <span className="text-[10px] text-gray-500 uppercase font-bold">Pode ser lento em algumas impressoras</span>
+                  <span className="text-[10px] text-gray-500 uppercase font-black">Pode ser lento em algumas impressoras</span>
                 </div>
                 <Switch 
                   id="include-logo-switch"

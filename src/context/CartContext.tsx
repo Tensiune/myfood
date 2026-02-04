@@ -32,6 +32,8 @@ interface CartContextType {
   applyCoupon: (code: string) => void;
   removeCoupon: () => void;
   appliedCoupon: Coupon | null;
+  deliveryType: "delivery" | "pickup";
+  setDeliveryType: (type: "delivery" | "pickup") => void;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -46,6 +48,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [items, setItems] = useState<CartItem[]>([]);
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
+  const [deliveryType, setDeliveryType] = useState<"delivery" | "pickup">("delivery");
   const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -60,6 +63,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setItems(parsed.items || []);
             setRestaurantId(parsed.restaurantId || null);
             setAppliedCoupon(parsed.appliedCoupon || null);
+            setDeliveryType(parsed.deliveryType || "delivery");
           } catch (error) {
             console.error("Erro ao carregar carrinho", error);
           }
@@ -72,12 +76,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (userId) {
       if (items.length > 0 || restaurantId) {
-        localStorage.setItem(`cart_${userId}`, JSON.stringify({ items, restaurantId, appliedCoupon }));
+        localStorage.setItem(`cart_${userId}`, JSON.stringify({ items, restaurantId, appliedCoupon, deliveryType }));
       } else {
         localStorage.removeItem(`cart_${userId}`);
       }
     }
-  }, [items, restaurantId, appliedCoupon, userId]);
+  }, [items, restaurantId, appliedCoupon, deliveryType, userId]);
 
   const addItem = (item: Omit<CartItem, 'quantity'>, quantity: number) => {
     if (restaurantId && restaurantId !== item.restaurantId) {
@@ -106,6 +110,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (newItems.length === 0) {
         setRestaurantId(null);
         setAppliedCoupon(null);
+        setDeliveryType("delivery");
       }
       return newItems;
     });
@@ -123,6 +128,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setItems([]);
     setRestaurantId(null);
     setAppliedCoupon(null);
+    setDeliveryType("delivery");
   };
 
   const getSubtotal = () => items.reduce((total, item) => total + (item.price * item.quantity), 0);
@@ -143,7 +149,22 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const removeCoupon = () => setAppliedCoupon(null);
 
   return (
-    <CartContext.Provider value={{ items, addItem, removeItem, updateQuantity, clearCart, getTotal, getDiscountAmount, getItemCount, restaurantId, applyCoupon, removeCoupon, appliedCoupon }}>
+    <CartContext.Provider value={{ 
+      items, 
+      addItem, 
+      removeItem, 
+      updateQuantity, 
+      clearCart, 
+      getTotal, 
+      getDiscountAmount, 
+      getItemCount, 
+      restaurantId, 
+      applyCoupon, 
+      removeCoupon, 
+      appliedCoupon,
+      deliveryType,
+      setDeliveryType
+    }}>
       {children}
     </CartContext.Provider>
   );
