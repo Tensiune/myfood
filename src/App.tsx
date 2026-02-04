@@ -43,6 +43,8 @@ import DriverSetupPage from "./pages/driver/DriverSetupPage";
 import DriverProfilePage from "./pages/driver/DriverProfilePage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import DeliveryFeesPage from "./pages/admin/DeliveryFeesPage";
+import DeliveryHistoryPage from "./pages/driver/DeliveryHistoryPage";
+import PaymentHistoryPage from "./pages/driver/PaymentHistoryPage";
 
 const queryClient = new QueryClient();
 
@@ -111,6 +113,8 @@ const App = () => (
                     <Route path="/driver/map" element={<NavigationPage />} />
                     <Route path="/driver/profile" element={<DriverProfilePage />} />
                     <Route path="/driver/setup" element={<DriverSetupPage />} />
+                    <Route path="/driver/history" element={<DeliveryHistoryPage />} />
+                    <Route path="/driver/payments" element={<PaymentHistoryPage />} />
                   </Route>
 
                   {/* Shared/Utility Routes */}

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { Bike, List, User, Bell, Map, ChevronRight, MapPin, Clock, AlertCircle } from "lucide-react";
+import { Bike, List, User, Bell, Map, ChevronRight, MapPin, Clock, AlertCircle, History, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
@@ -46,6 +46,8 @@ const DriverLayout = () => {
   const navItems = [
     { path: "/driver/orders", icon: List, label: "Pedidos" },
     { path: "/driver/map", icon: Map, label: "Mapa" },
+    { path: "/driver/history", icon: History, label: "Histórico" },
+    { path: "/driver/payments", icon: DollarSign, label: "Pagamentos" },
     { path: "/driver/profile", icon: User, label: "Perfil" },
   ];
   
