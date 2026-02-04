@@ -12,6 +12,7 @@ import RoleSwitcher from "@/components/shared/RoleSwitcher";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
+import PersonalDetailsManager from "@/components/driver/PersonalDetailsManager";
 
 const DriverProfilePage = () => {
   const navigate = useNavigate();
@@ -101,6 +102,9 @@ const DriverProfilePage = () => {
       
       {/* Role Switcher Section */}
       <RoleSwitcher variant="button" className="w-full" />
+
+      {/* Novo: Gerenciamento de Dados Pessoais */}
+      <PersonalDetailsManager />
 
       <section className="space-y-4">
         <Card className="rounded-xl shadow-sm border border-gray-200 bg-white">
