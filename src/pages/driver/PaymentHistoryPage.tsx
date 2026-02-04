@@ -14,7 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { showError } from "@/utils/toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button"; // Importação adicionada
+import { Button } from "@/components/ui/button";
 
 interface Payment {
   id: string;
@@ -96,11 +96,12 @@ const PaymentHistoryPage = () => {
       {/* Dashboard Stats */}
       <Card className={cn(
         "rounded-3xl border-none shadow-lg",
-        outstandingBalance > 0 ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"
+        // Cor de fundo verde se o saldo pendente for 0, caso contrário, vermelho/amarelo
+        outstandingBalance === 0 ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
       )}>
         <CardContent className="p-5 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className={cn("p-3 rounded-xl", outstandingBalance > 0 ? "bg-red-100" : "bg-green-100")}>
+            <div className={cn("p-3 rounded-xl", outstandingBalance === 0 ? "bg-green-100" : "bg-red-100")}>
               {outstandingBalance > 0 ? <AlertTriangle className="h-6 w-6 text-red-600" /> : <CheckCircle2 className="h-6 w-6 text-green-600" />}
             </div>
             <div>
@@ -110,19 +111,19 @@ const PaymentHistoryPage = () => {
           </div>
           <div className="text-right">
             <p className="text-xs text-gray-500">Total Ganho: R$ {totalEarnings.toFixed(2)}</p>
-            <p className="text-xs text-gray-500">Total Pago: R$ {totalPaid.toFixed(2)}</p>
+            <p className="text-xs text-gray-500">Total Recebido: R$ {totalPaid.toFixed(2)}</p>
           </div>
         </CardContent>
       </Card>
 
       <h2 className="text-xl font-bold text-indigo-700 flex items-center gap-2 pt-4">
-        <CreditCard className="h-5 w-5" /> Histórico de Pagamentos
+        <CreditCard className="h-5 w-5" /> Histórico de Recebimentos
       </h2>
 
       {payments.length === 0 ? (
         <div className="text-center py-12 bg-gray-100 rounded-3xl border-2 border-dashed border-gray-200">
           <CreditCard className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 font-medium">Nenhum pagamento registrado ainda.</p>
+          <p className="text-gray-500 font-medium">Nenhum recebimento registrado ainda.</p>
         </div>
       ) : (
         <div className="space-y-4">

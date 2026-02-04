@@ -18,7 +18,7 @@ import { DateRangePicker } from "@/components/shared/DateRangePicker";
 import { DateRange } from "react-day-picker";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button"; // Importação adicionada
+import { Button } from "@/components/ui/button";
 
 interface DeliveredOrder {
   id: string;
@@ -167,7 +167,7 @@ const DeliveryHistoryPage = () => {
                     <Clock className="h-3 w-3" />
                     <span>{format(new Date(order.created_at), 'dd/MM/yyyy HH:mm')}</span>
                   </div>
-                  <Button variant="ghost" size="sm" className="text-indigo-600 text-xs">Ver Detalhes</Button>
+                  {/* Botão de detalhes removido */}
                 </div>
               </CardContent>
             </Card>
