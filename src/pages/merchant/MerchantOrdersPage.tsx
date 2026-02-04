@@ -32,7 +32,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import AcceptanceTimer from "@/components/merchant/AcceptanceTimer";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { OtpInput } from "@/components/shared/OtpInput";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import OrderReceipt from "@/components/merchant/OrderReceipt";
@@ -156,7 +156,7 @@ const MerchantOrdersPage = () => {
         .update({ 
           status: 'PREPARING',
           merchant_acceptance_deadline: null,
-          logistics_mode: mode
+          logistics_mode: mode // SALVANDO O MODO DE LOGÍSTICA AQUI
         })
         .eq('id', order.id);
       
@@ -534,8 +534,12 @@ const MerchantOrdersPage = () => {
                                 </Button>
                             </DialogTrigger>
                             <DialogContent className="rounded-3xl p-6 space-y-4 text-center">
-                                <h3 className="font-bold">Código de {o.status === 'READY_FOR_PICKUP' ? 'Retirada' : 'Coleta'}</h3>
-                                <p className="text-xs text-gray-500">{o.status === 'READY_FOR_PICKUP' ? 'Código do Cliente' : 'Código do Entregador'}</p>
+                                <DialogHeader>
+                                    <DialogTitle className="font-bold text-xl text-indigo-900">Confirmação de {o.status === 'READY_FOR_PICKUP' ? 'Retirada' : 'Coleta'}</DialogTitle>
+                                    <DialogDescription className="text-xs text-gray-500">
+                                        {o.status === 'READY_FOR_PICKUP' ? 'Peça o código de 4 dígitos ao cliente.' : 'Peça o código de 4 dígitos ao entregador.'}
+                                    </DialogDescription>
+                                </DialogHeader>
                                 <OtpInput length={4} value={verificationCode} onChange={setVerificationCode} />
                                 <Button className="w-full h-14 rounded-xl" onClick={() => handleConfirmAction(o)} disabled={verificationCode.length < 4 || isVerifying}>
                                     Confirmar
@@ -557,67 +561,6 @@ const MerchantOrdersPage = () => {
             ))
           )}
         </div>
-      </div>
-    );
-  };
-
-  if (loading) return <div className="min-h-[60vh] flex flex-col items-center justify-center"><Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" /><p className="text-gray-500 font-bold">Carregando painel...</p></div>;
-
-  return (
-    <div className="space-y-6 pb-20">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-        <h1 className="text-3xl font-black text-indigo-900">Painel de Pedidos</h1>
-        <div className="flex flex-wrap justify-center gap-2">
-          <Button 
-            variant="outline" 
-            className="rounded-xl h-11 text-indigo-600 font-bold border-indigo-100 hover:bg-indigo-50"
-            onClick={() => navigate("/merchant/history")}
-          >
-            <History className="h-4 w-4 mr-2" /> Histórico Completo
-          </Button>
-          <Button onClick={() => setAudioEnabled(!audioEnabled)} variant={audioEnabled ? "outline" : "default"} className={cn("rounded-xl h-11", !audioEnabled && "bg-red-500 animate-pulse")}>
-            {audioEnabled ? <Volume2 className="h-4 w-4 mr-2" /> : <VolumeX className="h-4 w-4 mr-2" />}
-            {audioEnabled ? 'Som Ativo' : 'Ativar Som'}
-          </Button>
-          <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm">
-            <span className="text-[10px] font-black uppercase">{isStoreOpen ? 'Online' : 'Offline'}</span>
-            <Switch checked={isStoreOpen} onCheckedChange={handleToggleStore} />
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
-          <Input placeholder="Buscar cliente ou ID..." className="rounded-xl pl-10 h-12 border-none shadow-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button 
-            variant={showFullDetails ? "default" : "outline"} 
-            className="rounded-xl h-12 gap-2" 
-            onClick={() => { 
-                const newState = !showFullDetails;
-                setShowFullDetails(newState); 
-                localStorage.setItem('merchant_show_details', newState.toString()); 
-            }}
-          >
-            {showFullDetails ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />} Detalhes
-          </Button>
-          <Button variant={autoAccept ? "default" : "outline"} className="rounded-xl h-12" onClick={() => { setAutoAccept(!autoAccept); localStorage.setItem('merchant_auto_accept', (!autoAccept).toString()); }}>
-            Auto Aceite
-          </Button>
-          <Button variant={autoPrint ? "default" : "outline"} className="rounded-xl h-12 gap-2" onClick={() => { setAutoPrint(!autoPrint); localStorage.setItem('merchant_auto_print', (!autoPrint).toString()); }}>
-            <Printer className="h-4 w-4" /> Auto Imprimir
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 items-start">
-        {renderColumn("Novos", "text-blue-600", ["PENDING"])}
-        {renderColumn("Preparo", "text-orange-500", ["PREPARING"])}
-        {renderColumn("Coleta / Retirada", "text-indigo-600", ["READY_FOR_PICKUP", "WAITING_FOR_DRIVER"])}
-        {renderColumn("Em Rota", "text-yellow-600", ["OUT_FOR_DELIVERY"])}
-        {renderColumn("Histórico", "text-gray-400", ["DELIVERED", "CANCELLED"])}
       </div>
 
       <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
