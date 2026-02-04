@@ -45,6 +45,12 @@ async function matchOrderToDriver(supabase, orderId) {
         return new Response(JSON.stringify({ success: false, reason: 'order_not_found' }), { headers: corsHeaders });
     }
 
+    // Se o pedido explicitamente estiver em modo OWN, não deve rodar despacho automático
+    if (order.logistics_mode === 'OWN' && !order.driver_id) {
+        console.log(`[dispatch-order] Pedido ${orderId} está em modo FROTA PRÓPRIA. Ignorando despacho automático.`);
+        return new Response(JSON.stringify({ success: true, reason: 'own_fleet_mode' }), { headers: corsHeaders });
+    }
+
     if (['CANCELLED', 'DELIVERED', 'OUT_FOR_DELIVERY'].includes(order.status)) {
         console.log(`[dispatch-order] Pedido ${orderId} está em status não elegível: ${order.status}`);
         return new Response(JSON.stringify({ success: false, reason: 'status_ineligible' }), { headers: corsHeaders });
@@ -56,7 +62,7 @@ async function matchOrderToDriver(supabase, orderId) {
         return new Response(JSON.stringify({ success: false, error: 'store_address_missing' }), { headers: corsHeaders });
     }
 
-    const { data: drivers } = await supabase.from('driver_applications').select('id').eq('status', 'APPROVED');
+    const { data: drivers } = await supabase.from('driver_applications').select('*').eq('status', 'APPROVED');
     const { data: locations } = await supabase.from('driver_locations').select('*');
     const { data: activeOrders } = await supabase.from('orders').select('*').not('status', 'in', '(DELIVERED,CANCELLED)');
 
@@ -66,6 +72,11 @@ async function matchOrderToDriver(supabase, orderId) {
       const loc = locations?.find(l => l.driver_id === driver.id);
       if (!loc) return null;
       
+      // EXCLUSIVIDADE: Se o entregador estiver em modo exclusivo, ele é ignorado para o radar público
+      if (driver.metadata?.is_exclusive === true) {
+          return null;
+      }
+
       if ((order.refused_drivers_ids || []).includes(driver.id)) {
           console.log(`[dispatch-order] Entregador ${driver.id} ignorado (já recusou este pedido)`);
           return null;
@@ -140,10 +151,17 @@ async function matchOrderToDriver(supabase, orderId) {
 async function matchDriverToOrders(supabase, driverId) {
     console.log(`[dispatch-order] Buscando trabalho para o entregador: ${driverId}`);
     
+    // Verifica se o entregador é exclusivo. Se for, ele não busca pedidos da rede pública.
+    const { data: driverProfile } = await supabase.from('driver_applications').select('metadata').eq('id', driverId).single();
+    if (driverProfile?.metadata?.is_exclusive === true) {
+        return new Response(JSON.stringify({ success: true, reason: 'driver_exclusive_mode' }), { headers: corsHeaders });
+    }
+
     const { data: eligibleOrders } = await supabase
         .from('orders')
         .select('*')
         .in('status', ['PENDING', 'PREPARING', 'WAITING_FOR_DRIVER'])
+        .eq('logistics_mode', 'APP') // Só busca pedidos em modo APP
         .is('driver_id', null)
         .is('current_driver_offered_id', null)
         .order('created_at', { ascending: true });

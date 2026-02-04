@@ -10,7 +10,8 @@ import {
   Calendar, 
   MapPin, 
   Clock,
-  History
+  History,
+  ShieldCheck
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showError } from "@/utils/toast";
@@ -18,7 +19,6 @@ import { DateRangePicker } from "@/components/shared/DateRangePicker";
 import { DateRange } from "react-day-picker";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 
 interface DeliveredOrder {
   id: string;
@@ -26,9 +26,10 @@ interface DeliveredOrder {
   created_at: string;
   delivery_address: any;
   customer_full_name: string;
+  logistics_mode: 'APP' | 'OWN';
 }
 
-const DRIVER_FEE_PER_ORDER = 5.00; // Placeholder for driver earnings
+const DRIVER_FEE_PER_ORDER = 5.00;
 
 const DeliveryHistoryPage = () => {
   const [orders, setOrders] = useState<DeliveredOrder[]>([]);
@@ -52,7 +53,6 @@ const DeliveryHistoryPage = () => {
         query = query.gte('created_at', format(dateRange.from, 'yyyy-MM-dd'));
       }
       if (dateRange?.to) {
-        // Adiciona 1 dia para incluir o dia final
         const endOfDay = new Date(dateRange.to);
         endOfDay.setDate(endOfDay.getDate() + 1);
         query = query.lt('created_at', format(endOfDay, 'yyyy-MM-dd'));
@@ -93,8 +93,10 @@ const DeliveryHistoryPage = () => {
   }, [dateRange]);
 
   const stats = useMemo(() => {
+    // Apenas ordens em modo APP contam para o saldo financeiro do aplicativo
+    const appOrders = orders.filter(o => o.logistics_mode === 'APP' || !o.logistics_mode);
     const totalDeliveries = orders.length;
-    const totalEarnings = totalDeliveries * DRIVER_FEE_PER_ORDER;
+    const totalEarnings = appOrders.length * DRIVER_FEE_PER_ORDER;
     return { totalDeliveries, totalEarnings };
   }, [orders]);
 
@@ -143,35 +145,44 @@ const DeliveryHistoryPage = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {orders.map((order) => (
-            <Card key={order.id} className="rounded-2xl border-none shadow-sm bg-white">
-              <CardContent className="p-4 space-y-3">
-                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-green-500 text-white rounded-full text-xs font-bold">Entregue</Badge>
-                    <span className="text-[10px] text-gray-400 font-bold uppercase">#{order.id.slice(0, 6)}</span>
+          {orders.map((order) => {
+            const isOwnFleet = order.logistics_mode === 'OWN';
+            return (
+              <Card key={order.id} className="rounded-2xl border-none shadow-sm bg-white">
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-green-500 text-white rounded-full text-xs font-bold">Entregue</Badge>
+                      <span className="text-[10px] text-gray-400 font-bold uppercase">#{order.id.slice(0, 6)}</span>
+                    </div>
+                    {isOwnFleet ? (
+                        <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 rounded-full border border-indigo-100">
+                            <ShieldCheck className="h-3 w-3 text-indigo-600" />
+                            <span className="text-[10px] font-black text-indigo-700 uppercase">Pagamento Externo/Lojista</span>
+                        </div>
+                    ) : (
+                        <span className="font-black text-lg text-green-600">R$ {DRIVER_FEE_PER_ORDER.toFixed(2)}</span>
+                    )}
                   </div>
-                  <span className="font-black text-lg text-green-600">R$ {DRIVER_FEE_PER_ORDER.toFixed(2)}</span>
-                </div>
-                
-                <div className="flex items-start gap-3">
-                  <MapPin className="h-4 w-4 text-indigo-600 mt-1 shrink-0" />
-                  <div>
-                    <p className="font-bold text-gray-800 leading-tight">{order.customer_full_name}</p>
-                    <p className="text-xs text-gray-600">{order.delivery_address?.street}, {order.delivery_address?.number}</p>
+                  
+                  <div className="flex items-start gap-3">
+                    <MapPin className="h-4 w-4 text-indigo-600 mt-1 shrink-0" />
+                    <div>
+                      <p className="font-bold text-gray-800 leading-tight">{order.customer_full_name}</p>
+                      <p className="text-xs text-gray-600">{order.delivery_address?.street}, {order.delivery_address?.number}</p>
+                    </div>
                   </div>
-                </div>
-                
-                <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-                  <div className="flex items-center gap-1 text-xs text-gray-500">
-                    <Clock className="h-3 w-3" />
-                    <span>{format(new Date(order.created_at), 'dd/MM/yyyy HH:mm')}</span>
+                  
+                  <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                      <Clock className="h-3 w-3" />
+                      <span>{format(new Date(order.created_at), 'dd/MM/yyyy HH:mm')}</span>
+                    </div>
                   </div>
-                  {/* Botão de detalhes removido */}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

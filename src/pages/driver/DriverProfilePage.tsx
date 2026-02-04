@@ -1,26 +1,46 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { User, LogOut, Settings, Bike, ArrowRight } from "lucide-react";
+import { User, LogOut, Settings, Bike, ArrowRight, ShieldCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
 import RoleSwitcher from "@/components/shared/RoleSwitcher";
+import { Switch } from "@/components/ui/switch";
+import { useAuth } from "@/context/AuthContext";
 
 const DriverProfilePage = () => {
   const navigate = useNavigate();
-  const [user, setUser] = React.useState<any>(null);
+  const { user, refreshUser } = useAuth();
+  const [isExclusive, setIsExclusive] = useState(false);
 
-  React.useEffect(() => {
-    const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-    };
-    fetchUser();
-  }, []);
+  useEffect(() => {
+    if (user?.user_metadata) {
+      setIsExclusive(user.user_metadata.is_exclusive === true);
+    }
+  }, [user]);
+
+  const handleToggleExclusive = async (val: boolean) => {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: { is_exclusive: val }
+      });
+
+      if (error) throw error;
+      
+      setIsExclusive(val);
+      await refreshUser();
+      showSuccess(val 
+        ? "Modo Exclusivo Ativo: Você só receberá entregas dos lojistas autorizados." 
+        : "Modo Público Ativo: Você receberá ofertas de toda a rede."
+      );
+    } catch (err: any) {
+      showError("Não foi possível alterar o modo exclusivo.");
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -51,6 +71,31 @@ const DriverProfilePage = () => {
             <span>Entregador Parceiro</span>
           </div>
         </CardContent>
+      </Card>
+
+      {/* Seção Modo Exclusivo */}
+      <Card className="rounded-[2rem] border-none shadow-sm bg-white p-6">
+        <div className="flex items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className={cn("p-3 rounded-2xl shadow-sm", isExclusive ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-400")}>
+                <ShieldCheck className="h-6 w-6" />
+              </div>
+              <div className="flex-1">
+                <p className="font-black text-indigo-900 text-sm">Trabalho Exclusivo</p>
+                <p className="text-[10px] text-gray-500 font-bold uppercase leading-tight">Sou frotista fixo de um restaurante</p>
+              </div>
+            </div>
+            <Switch 
+                checked={isExclusive} 
+                onCheckedChange={handleToggleExclusive}
+                className="data-[state=checked]:bg-indigo-600"
+            />
+        </div>
+        {isExclusive && (
+            <p className="mt-4 p-3 bg-indigo-50 rounded-xl text-[10px] text-indigo-700 font-bold uppercase leading-relaxed text-center">
+                Atenção: Ao ativar este modo, o sistema ignorará você nas buscas automáticas de outros lojistas.
+            </p>
+        )}
       </Card>
       
       {/* Role Switcher Section */}

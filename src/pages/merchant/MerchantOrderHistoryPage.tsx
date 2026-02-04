@@ -21,7 +21,8 @@ import {
   Truck,
   User,
   Eye,
-  EyeOff
+  EyeOff,
+  ShieldCheck
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
@@ -52,27 +53,27 @@ interface Order {
   subtotal: number;
   discount: number;
   hasCoupon: boolean;
-  coupon_code?: string; // Adicionado para o cupom
+  coupon_code?: string;
   item_count: number;
   delivery_fee_customer: number;
   merchant_commission: number;
-  driver_fee_paid: number; // Adicionado
+  driver_fee_paid: number;
+  logistics_mode: 'APP' | 'OWN';
 }
 
 const MerchantOrderHistoryPage = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [showItemDetails, setShowItemDetails] = useState(false); // Novo estado para detalhes dos itens
+  const [showItemDetails, setShowItemDetails] = useState(false);
   
-  // Estado para o seletor de datas
   const today = startOfDay(new Date());
   const [dateFilter, setDateFilter] = useState("7d");
   const [customDateRange, setCustomDateRange] = useState<DateRange | undefined>({ from: subDays(today, 7), to: today });
 
   const calculatedDateRange = useMemo(() => {
     if (dateFilter === 'custom') return customDateRange;
-    return customDateRange; // O seletor já atualiza customDateRange para as pre-defined
+    return customDateRange;
   }, [dateFilter, customDateRange]);
 
   const fetchOrders = useCallback(async () => {
@@ -103,19 +104,18 @@ const MerchantOrderHistoryPage = () => {
       const enrichedOrders = await Promise.all((rawOrders || []).map(async (order: any) => {
         const subtotal = (order.items || []).reduce((sum: number, item: OrderItem) => sum + (item.price * item.quantity), 0);
         
-        // Simulação de cupom (se o total for menor que o subtotal + taxa de entrega)
         const totalWithFee = subtotal + DELIVERY_FEE_CUSTOMER;
         const discount = Math.max(0, totalWithFee - order.total);
         const hasCoupon = discount > 0.01;
         
-        // Verifica se é novo cliente
         const { data: isNew } = await supabase.rpc('is_new_customer', { 
             p_customer_id: order.customer_id, 
             p_current_order_created_at: order.created_at 
         });
 
-        // Simulação de código de cupom (apenas para exibição, não temos o código real no DB)
         const couponCode = hasCoupon ? "CUPOM_X" : undefined;
+        
+        const isOwnFleet = order.logistics_mode === 'OWN';
 
         return {
           ...order,
@@ -127,7 +127,9 @@ const MerchantOrderHistoryPage = () => {
           item_count: (order.items || []).reduce((sum: number, item: OrderItem) => sum + item.quantity, 0),
           delivery_fee_customer: DELIVERY_FEE_CUSTOMER,
           merchant_commission: subtotal * MERCHANT_COMMISSION_RATE,
-          driver_fee_paid: order.driver_id ? DRIVER_FEE_PAID : 0, // Paga taxa ao entregador se houver um
+          // No modo Frota Própria, o lojista não paga taxa de entregador pelo App
+          driver_fee_paid: (order.driver_id && !isOwnFleet) ? DRIVER_FEE_PAID : 0,
+          logistics_mode: order.logistics_mode || 'APP'
         };
       }));
 
@@ -173,10 +175,11 @@ const MerchantOrderHistoryPage = () => {
       "ID do Pedido": order.id.slice(0, 8),
       "Data/Hora": format(new Date(order.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR }),
       "Status": order.status,
+      "Modo Logística": order.logistics_mode === 'OWN' ? 'Frota Própria' : 'Rede App',
       "Total (R$)": order.total,
       "Subtotal (R$)": order.subtotal,
       "Comissão App (R$)": order.merchant_commission,
-      "Taxa Entregador (R$)": order.driver_fee_paid,
+      "Taxa Entregador App (R$)": order.driver_fee_paid,
       "Taxa Cliente (R$)": order.delivery_fee_customer,
       "Desconto Cupom (R$)": order.discount,
       "Cupom Aplicado": order.coupon_code || 'N/A',
@@ -245,8 +248,8 @@ const MerchantOrderHistoryPage = () => {
           <TableHeader className="bg-gray-50">
             <TableRow>
               <TableHead className="font-bold">ID / Data</TableHead>
+              <TableHead className="font-bold">Logística</TableHead>
               <TableHead className="font-bold">Status</TableHead>
-              <TableHead className="font-bold">Itens</TableHead>
               <TableHead className="font-bold">Pagamento</TableHead>
               <TableHead className="text-right font-bold">Total (R$)</TableHead>
             </TableRow>
@@ -274,6 +277,20 @@ const MerchantOrderHistoryPage = () => {
                       <div className="text-xs text-gray-500">{format(new Date(order.created_at), 'dd/MM HH:mm')}</div>
                     </TableCell>
                     <TableCell>
+                        <div className="flex flex-col gap-1">
+                            <Badge variant="outline" className={cn(
+                                "text-[9px] font-black border-none gap-1", 
+                                order.logistics_mode === 'OWN' ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-500"
+                            )}>
+                                {order.logistics_mode === 'OWN' ? <ShieldCheck className="h-2 w-2" /> : <Truck className="h-2 w-2" />}
+                                {order.logistics_mode === 'OWN' ? 'FROTA PRÓPRIA' : 'REDE APP'}
+                            </Badge>
+                            {order.logistics_mode === 'OWN' && (
+                                <span className="text-[8px] font-bold text-indigo-400 uppercase">Taxa de entrega integral</span>
+                            )}
+                        </div>
+                    </TableCell>
+                    <TableCell>
                       <div className="mb-1">{getStatusBadge(order.status)}</div>
                       {order.is_new_customer && (
                           <Badge variant="outline" className="text-[10px] font-bold text-brand-accent border-brand-accent/50 bg-brand-accent/10 gap-1">
@@ -282,18 +299,11 @@ const MerchantOrderHistoryPage = () => {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="text-sm font-medium text-gray-700">{order.item_count} itens</div>
-                      {order.hasCoupon && (
-                          <div className="flex items-center gap-1 text-xs text-green-600 font-bold">
-                              <Tag className="h-3 w-3" /> Cupom: {order.coupon_code}
-                          </div>
-                      )}
-                    </TableCell>
-                    <TableCell>
                       <div className="text-sm font-medium text-gray-700 uppercase">{order.payment_method}</div>
-                      <div className="text-xs text-gray-500">Comissão App (10%): R$ {order.merchant_commission.toFixed(2)}</div>
-                      <div className="text-xs text-gray-500">Taxa Entregador: R$ {order.driver_fee_paid.toFixed(2)}</div>
-                      <div className="text-xs text-gray-500">Taxa Cliente: R$ {order.delivery_fee_customer.toFixed(2)}</div>
+                      <div className="text-xs text-gray-500">Comissão App: R$ {order.merchant_commission.toFixed(2)}</div>
+                      <div className="text-xs text-gray-500">
+                        Taxa Entregador: {order.logistics_mode === 'OWN' ? 'R$ 0,00 (Próprio)' : `R$ ${order.driver_fee_paid.toFixed(2)}`}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <span className="font-black text-lg text-indigo-900">R$ {order.total.toFixed(2)}</span>

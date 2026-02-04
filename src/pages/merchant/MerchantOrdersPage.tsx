@@ -21,7 +21,9 @@ import {
   Truck,
   CheckCircle2,
   History,
-  Store
+  Store,
+  ShieldCheck,
+  ChevronDown
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
@@ -38,6 +40,7 @@ import { Input } from "@/components/ui/input";
 import { printReceipt } from "@/utils/print";
 import { useNavigate } from "react-router-dom";
 import { subHours } from "date-fns";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface PrintSettings {
   paperWidth: "80mm" | "58mm";
@@ -74,6 +77,9 @@ const MerchantOrdersPage = () => {
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   
   const [merchantName, setMerchantName] = useState("Minha Loja");
+  const [merchantDeliveryMode, setMerchantDeliveryMode] = useState<'APP' | 'OWN'>('APP');
+  const [authorizedEmails, setAuthorizedEmails] = useState<string[]>([]);
+  const [availableFleetDrivers, setAvailableFleetDrivers] = useState<any[]>([]);
   const [printSettings, setPrintSettings] = useState<PrintSettings>(defaultPrintSettings);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -103,20 +109,61 @@ const MerchantOrdersPage = () => {
     }
   }, []);
 
+  const fetchOnlineFleetDrivers = useCallback(async () => {
+      if (authorizedEmails.length === 0) {
+          setAvailableFleetDrivers([]);
+          return;
+      }
+
+      try {
+          // Busca os dados da tabela driver_applications para os e-mails autorizados
+          const { data: drivers } = await supabase
+              .from('driver_applications')
+              .select('id, email, full_name, metadata')
+              .in('email', authorizedEmails)
+              .eq('status', 'APPROVED');
+
+          if (!drivers) return;
+
+          // Cruza com as localizações para saber quem está online/ativo
+          // Para ser mais simples, vamos considerar quem teve update na localização nos últimos 10 min
+          const { data: locations } = await supabase
+              .from('driver_locations')
+              .select('driver_id')
+              .gte('updated_at', new Date(Date.now() - 10 * 60000).toISOString());
+
+          const activeIds = (locations || []).map(l => l.driver_id);
+
+          const filtered = drivers.filter(d => 
+              activeIds.includes(d.id) && 
+              d.metadata?.is_exclusive === true // Só mostra quem está no Modo Exclusivo
+          );
+
+          setAvailableFleetDrivers(filtered);
+      } catch (err) {
+          console.error("Error fetching fleet drivers:", err);
+      }
+  }, [authorizedEmails]);
+
   const handleAcceptOrder = useCallback(async (order: any, isSilent = false) => {
     const tid = isSilent ? null : showLoading("Aceitando pedido...");
     try {
+      // Marcamos o logistics_mode inicial com base na config da loja
+      const mode = merchantDeliveryMode;
+      
       const { error: updateError } = await supabase
         .from('orders')
         .update({ 
           status: 'PREPARING',
           merchant_acceptance_deadline: null,
+          logistics_mode: mode
         })
         .eq('id', order.id);
       
       if (updateError) throw updateError;
 
-      if (order.delivery_type === 'delivery') {
+      // Se for modo APP, dispara a busca automática
+      if (order.delivery_type === 'delivery' && mode === 'APP') {
         await supabase.functions.invoke('dispatch-order', {
           body: { orderId: order.id }
         });
@@ -136,7 +183,56 @@ const MerchantOrdersPage = () => {
         showError("Erro ao aceitar pedido.");
       }
     }
-  }, [handlePrint]);
+  }, [handlePrint, merchantDeliveryMode]);
+
+  const handleAssignFleetDriver = async (orderId: string, driverId: string) => {
+      const tid = showLoading("Vinculando entregador...");
+      try {
+          const { error } = await supabase
+              .from('orders')
+              .update({ 
+                  driver_id: driverId,
+                  status: 'WAITING_FOR_DRIVER',
+                  logistics_mode: 'OWN' // Garante que é modo Frota Própria
+              })
+              .eq('id', orderId);
+
+          if (error) throw error;
+          showSuccess("Entregador vinculado!");
+          fetchOrders(true);
+      } catch (err) {
+          showError("Erro ao vincular entregador.");
+      } finally {
+          dismissToast(tid);
+      }
+  };
+
+  const handleFallbackToApp = async (order: any) => {
+      const tid = showLoading("Buscando entregador na rede...");
+      try {
+          const { error } = await supabase
+              .from('orders')
+              .update({ 
+                  logistics_mode: 'APP',
+                  driver_id: null // Remove qualquer entregador próprio anterior
+              })
+              .eq('id', order.id);
+
+          if (error) throw error;
+
+          await supabase.functions.invoke('dispatch-order', {
+              body: { orderId: order.id }
+          });
+
+          showSuccess("Pedido direcionado para a rede do App!");
+          setIsDetailsDialogOpen(false);
+          fetchOrders(true);
+      } catch (err) {
+          showError("Erro ao processar fallback.");
+      } finally {
+          dismissToast(tid);
+      }
+  };
 
   const handleStatusUpdate = async (orderId: string, newStatus: string) => {
     const tid = showLoading("Atualizando status...");
@@ -204,6 +300,8 @@ const MerchantOrdersPage = () => {
         if (merchantData) {
           setIsStoreOpen(merchantData.is_open);
           setMerchantName(merchantData.store_name || "Minha Loja");
+          setMerchantDeliveryMode(merchantData.metadata?.delivery_area?.delivery_mode || 'APP');
+          setAuthorizedEmails(merchantData.metadata?.delivery_area?.authorized_drivers || []);
           if (merchantData.metadata?.print_settings) {
             setPrintSettings(merchantData.metadata.print_settings);
           }
@@ -247,7 +345,8 @@ const MerchantOrdersPage = () => {
           driver: driver || null,
           items: Array.isArray(order.items) ? order.items : [],
           delivery_address: order.delivery_address || {},
-          delivery_type: order.delivery_type || 'delivery'
+          delivery_type: order.delivery_type || 'delivery',
+          logistics_mode: order.logistics_mode || 'APP'
         };
       });
 
@@ -280,6 +379,15 @@ const MerchantOrdersPage = () => {
     return () => { supabase.removeChannel(channel); };
   }, [fetchOrders, playAlert, handleAcceptOrder, handleCleanupExpired]);
 
+  // Sync fleet drivers periodically when open
+  useEffect(() => {
+      if (merchantDeliveryMode === 'OWN' && authorizedEmails.length > 0) {
+          fetchOnlineFleetDrivers();
+          const interval = setInterval(fetchOnlineFleetDrivers, 15000);
+          return () => clearInterval(interval);
+      }
+  }, [merchantDeliveryMode, authorizedEmails, fetchOnlineFleetDrivers]);
+
   const handleToggleStore = async (val: boolean) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -298,7 +406,6 @@ const MerchantOrdersPage = () => {
     );
   }, [orders, searchTerm]);
 
-  // Função de renderização de seção revisada para ser mais robusta
   const renderColumn = (title: string, color: string, statusList: string[]) => {
     const data = filteredOrders.filter(o => statusList.includes(o.status));
 
@@ -317,7 +424,14 @@ const MerchantOrdersPage = () => {
               <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden hover:shadow-md transition-all">
                 <CardContent className="p-5 space-y-4">
                   <div className="flex justify-between items-start">
-                    <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
+                      {o.delivery_type === 'delivery' && (
+                        <Badge variant="outline" className={cn("text-[8px] font-black border-none px-1.5 py-0", o.logistics_mode === 'OWN' ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-400")}>
+                          {o.logistics_mode === 'OWN' ? "FROTA PRÓPRIA" : "APP REDE"}
+                        </Badge>
+                      )}
+                    </div>
                     {o.status === 'PENDING' && o.merchant_acceptance_deadline && (
                       <AcceptanceTimer 
                         deadline={o.merchant_acceptance_deadline} 
@@ -342,6 +456,28 @@ const MerchantOrdersPage = () => {
                         </span>
                     </div>
                   </div>
+
+                  {/* Fleet Selection UI in Dashboard */}
+                  {o.status === 'PREPARING' && o.delivery_type === 'delivery' && o.logistics_mode === 'OWN' && !o.driver_id && (
+                      <div className="space-y-2 pt-2 animate-in fade-in">
+                        <Label className="text-[10px] font-black text-indigo-900 uppercase">Selecionar Entregador Próprio</Label>
+                        <Select onValueChange={(val) => handleAssignFleetDriver(o.id, val)}>
+                          <SelectTrigger className="rounded-xl border-indigo-100 h-10 text-xs font-bold bg-indigo-50/30">
+                            <SelectValue placeholder={availableFleetDrivers.length > 0 ? "Escolha na lista..." : "Nenhum frotista online"} />
+                          </SelectTrigger>
+                          <SelectContent className="rounded-xl">
+                            {availableFleetDrivers.map(d => (
+                              <SelectItem key={d.id} value={d.id} className="text-xs font-bold">
+                                {d.full_name} ({d.email.split('@')[0]})
+                              </SelectItem>
+                            ))}
+                            {availableFleetDrivers.length === 0 && (
+                                <p className="p-2 text-[10px] text-gray-400 font-bold uppercase text-center">Ninguém disponível agora</p>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                  )}
 
                   {showFullDetails ? (
                     <div className="space-y-3 bg-gray-50 p-4 rounded-2xl animate-in fade-in">
@@ -382,6 +518,7 @@ const MerchantOrdersPage = () => {
                         <Button 
                             className="w-full bg-orange-500 rounded-xl h-11 font-bold" 
                             onClick={() => handleStatusUpdate(o.id, o.delivery_type === 'pickup' ? 'READY_FOR_PICKUP' : 'WAITING_FOR_DRIVER')}
+                            disabled={o.delivery_type === 'delivery' && o.logistics_mode === 'OWN' && !o.driver_id}
                         >
                             Pronto para {o.delivery_type === 'pickup' ? 'Retirada' : 'Coleta'}
                         </Button>
@@ -501,6 +638,25 @@ const MerchantOrdersPage = () => {
                     printSettings={printSettings} 
                   />
                 </div>
+
+                {/* Fallback Option for Own Fleet Orders */}
+                {selectedOrderDetails.logistics_mode === 'OWN' && !['DELIVERED', 'CANCELLED', 'OUT_FOR_DELIVERY'].includes(selectedOrderDetails.status) && (
+                    <div className="p-5 bg-orange-50 border border-orange-100 rounded-[2rem] space-y-3">
+                        <div className="flex items-center gap-3">
+                            <Truck className="h-5 w-5 text-orange-600" />
+                            <h4 className="font-black text-orange-900 text-sm">Problemas com sua frota?</h4>
+                        </div>
+                        <p className="text-[10px] text-orange-800 font-bold uppercase leading-relaxed">
+                            Se você não tiver entregadores próprios disponíveis agora, você pode direcionar este pedido para a rede do App.
+                        </p>
+                        <Button 
+                            className="w-full bg-white text-orange-600 border border-orange-200 hover:bg-orange-100 rounded-xl h-12 font-black text-[10px] uppercase tracking-wider"
+                            onClick={() => handleFallbackToApp(selectedOrderDetails)}
+                        >
+                            Direcionar para Entregador do App
+                        </Button>
+                    </div>
+                )}
 
                 <div className="space-y-4">
                   <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest px-2">Contato</h4>
