@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Trash2, Plus, Minus, ArrowLeft, MapPin, CreditCard, ChevronRight, ShoppingBag, Wallet, QrCode, Check, Tag, X, Truck, Store, Loader2 } from "lucide-react";
+import { Trash2, Plus, Minus, ArrowLeft, MapPin, CreditCard, ChevronRight, ShoppingBag, Wallet, QrCode, Check, Tag, X, Truck, Store, Loader2, AlertCircle, Banknote } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useAddresses } from "@/context/AddressContext";
 import { usePayment, PaymentMethodType } from "@/context/PaymentContext";
@@ -46,7 +46,6 @@ const CartPage = () => {
         if (data?.metadata?.delivery_area) {
           const canPickup = data.metadata.delivery_area.allows_pickup !== false;
           setAllowsPickup(canPickup);
-          // Se a loja não aceita retirada e o carrinho está em pickup, reseta para delivery
           if (!canPickup && deliveryType === "pickup") {
             setDeliveryType("delivery");
           }
@@ -96,6 +95,8 @@ const CartPage = () => {
   const discount = getDiscountAmount();
   const total = getTotal() + deliveryFee;
 
+  const isDeliveryPayment = ["card_credit_delivery", "card_debit_delivery", "cash_delivery"].includes(selectedPaymentType);
+
   return (
     <div className="space-y-8 pb-32 text-gray-800">
       <div className="flex items-center gap-4">
@@ -130,12 +131,9 @@ const CartPage = () => {
             </button>
           )}
         </div>
-        {loadingRestaurant && (
-            <div className="flex items-center justify-center py-2"><Loader2 className="h-4 w-4 animate-spin text-indigo-300" /></div>
-        )}
       </section>
 
-      {/* Endereço ou Local de Retirada */}
+      {/* Endereço */}
       {deliveryType === "delivery" ? (
         <Card className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden animate-in fade-in">
           <Sheet open={isAddressSheetOpen} onOpenChange={setIsAddressSheetOpen}>
@@ -227,10 +225,12 @@ const CartPage = () => {
       </section>
 
       {/* Pagamento */}
-      <section className="space-y-3">
+      <section className="space-y-4">
         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Como pagar?</p>
         
+        {/* Pagar pelo App */}
         <div className="space-y-2">
+            <p className="text-xs font-bold text-indigo-900 px-1">Pelo Aplicativo (Mais Rápido)</p>
             <button 
               onClick={() => setSelectedPaymentType("pix")}
               className={cn("flex items-center justify-between w-full p-5 rounded-2xl border-none bg-white shadow-sm transition-all", selectedPaymentType === "pix" && "ring-2 ring-brand-accent bg-brand-accent/5")}
@@ -242,18 +242,18 @@ const CartPage = () => {
             {savedCards.map(card => (
               <button 
                 key={card.id}
-                onClick={() => { setSelectedPaymentType("stripe"); setSelectedCardId(card.id); }}
-                className={cn("flex items-center justify-between w-full p-5 rounded-2xl border-none bg-white shadow-sm transition-all", (selectedPaymentType === "stripe" && selectedCardId === card.id) && "ring-2 ring-brand-accent bg-brand-accent/5")}
+                onClick={() => { setSelectedPaymentType(card.type === 'credit' ? 'card_credit_online' : 'card_debit_online'); setSelectedCardId(card.id); }}
+                className={cn("flex items-center justify-between w-full p-5 rounded-2xl border-none bg-white shadow-sm transition-all", ((selectedPaymentType === "card_credit_online" || selectedPaymentType === "card_debit_online") && selectedCardId === card.id) && "ring-2 ring-brand-accent bg-brand-accent/5")}
               >
-                <div className="flex items-center gap-4"><div className="p-2 bg-indigo-50 rounded-xl"><CreditCard className="h-5 w-5 text-indigo-600" /></div><span className="font-bold">Cartão (final {card.lastFour})</span></div>
-                {selectedPaymentType === "stripe" && selectedCardId === card.id && <Check className="h-5 w-5 text-brand-accent" />}
+                <div className="flex items-center gap-4"><div className="p-2 bg-indigo-50 rounded-xl"><CreditCard className="h-5 w-5 text-indigo-600" /></div><span className="font-bold">Cartão {card.type === 'credit' ? 'Crédito' : 'Débito'} (final {card.lastFour})</span></div>
+                {((selectedPaymentType === "card_credit_online" || selectedPaymentType === "card_debit_online") && selectedCardId === card.id) && <Check className="h-5 w-5 text-brand-accent" />}
               </button>
             ))}
 
             <Sheet open={isCardSheetOpen} onOpenChange={setIsCardSheetOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" className="w-full justify-start text-indigo-600 font-black h-14 rounded-2xl border-dashed border-2 border-indigo-100 hover:bg-indigo-50 transition-all">
-                  <Plus className="h-5 w-5 mr-3" /> Adicionar Cartão
+                  <Plus className="h-5 w-5 mr-3" /> Adicionar Cartão Online
                 </Button>
               </SheetTrigger>
               <SheetContent side="bottom" className="h-[70vh] rounded-t-[2.5rem] p-8">
@@ -262,6 +262,44 @@ const CartPage = () => {
               </SheetContent>
             </Sheet>
         </div>
+
+        {/* Pagar na Entrega */}
+        <div className="space-y-2">
+            <p className="text-xs font-bold text-gray-500 px-1">Pagar na Entrega</p>
+            <div className="grid grid-cols-1 gap-2">
+              <button 
+                onClick={() => { setSelectedPaymentType("card_credit_delivery"); setSelectedCardId(null); }}
+                className={cn("flex items-center justify-between w-full p-5 rounded-2xl border-none bg-white shadow-sm transition-all", selectedPaymentType === "card_credit_delivery" && "ring-2 ring-brand-accent bg-brand-accent/5")}
+              >
+                <div className="flex items-center gap-4"><div className="p-2 bg-gray-100 rounded-xl"><CreditCard className="h-5 w-5 text-gray-400" /></div><span className="font-bold">Cartão de Crédito</span></div>
+                {selectedPaymentType === "card_credit_delivery" && <Check className="h-5 w-5 text-brand-accent" />}
+              </button>
+              <button 
+                onClick={() => { setSelectedPaymentType("card_debit_delivery"); setSelectedCardId(null); }}
+                className={cn("flex items-center justify-between w-full p-5 rounded-2xl border-none bg-white shadow-sm transition-all", selectedPaymentType === "card_debit_delivery" && "ring-2 ring-brand-accent bg-brand-accent/5")}
+              >
+                <div className="flex items-center gap-4"><div className="p-2 bg-gray-100 rounded-xl"><CreditCard className="h-5 w-5 text-gray-400" /></div><span className="font-bold">Cartão de Débito</span></div>
+                {selectedPaymentType === "card_debit_delivery" && <Check className="h-5 w-5 text-brand-accent" />}
+              </button>
+              <button 
+                onClick={() => { setSelectedPaymentType("cash_delivery"); setSelectedCardId(null); }}
+                className={cn("flex items-center justify-between w-full p-5 rounded-2xl border-none bg-white shadow-sm transition-all", selectedPaymentType === "cash_delivery" && "ring-2 ring-brand-accent bg-brand-accent/5")}
+              >
+                <div className="flex items-center gap-4"><div className="p-2 bg-gray-100 rounded-xl"><Banknote className="h-5 w-5 text-gray-400" /></div><span className="font-bold">Dinheiro</span></div>
+                {selectedPaymentType === "cash_delivery" && <Check className="h-5 w-5 text-brand-accent" />}
+              </button>
+            </div>
+        </div>
+
+        {/* Aviso de Pagamento Offline */}
+        {isDeliveryPayment && (
+          <div className="p-4 bg-yellow-50 rounded-2xl border border-yellow-100 flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+            <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" />
+            <p className="text-xs text-yellow-800 font-medium leading-relaxed">
+              <strong>Atenção:</strong> Ao escolher pagar na entrega, seu pedido pode demorar um pouco a mais, pois o entregador precisará processar o pagamento no local.
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Sumário */}

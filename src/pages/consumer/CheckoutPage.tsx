@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, CreditCard, CheckCircle2, QrCode, Wallet, Truck, Loader2, Calendar, Clock, Store } from "lucide-react";
+import { ArrowLeft, CreditCard, CheckCircle2, QrCode, Wallet, Truck, Loader2, Calendar, Clock, Store, Banknote, Copy } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { usePayment } from "@/context/PaymentContext";
 import { useAddresses } from "@/context/AddressContext";
@@ -98,6 +98,18 @@ const CheckoutPage = () => {
     return options;
   };
 
+  const getPaymentLabel = (type: string) => {
+    switch(type) {
+      case "pix": return "PIX (Online)";
+      case "card_credit_online": return "Cartão de Crédito (App)";
+      case "card_debit_online": return "Cartão de Débito (App)";
+      case "card_credit_delivery": return "Cartão de Crédito (Na Entrega)";
+      case "card_debit_delivery": return "Cartão de Débito (Na Entrega)";
+      case "cash_delivery": return "Dinheiro (Na Entrega)";
+      default: return "Pagamento";
+    }
+  };
+
   if (step === "success") {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center space-y-6 bg-white">
@@ -141,7 +153,7 @@ const CheckoutPage = () => {
               onClick={() => setScheduledTime("")}
               className={cn(
                 "p-5 rounded-3xl border-2 transition-all flex flex-col items-center gap-2",
-                !scheduledTime ? "border-indigo-600 bg-indigo-50 text-indigo-600" : "border-gray-100 text-gray-400"
+                !scheduledTime ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-100 text-gray-400"
               )}
             >
               <Clock className="h-6 w-6" />
@@ -151,7 +163,7 @@ const CheckoutPage = () => {
               onClick={() => setScheduledTime(getScheduleOptions()[0]?.value || "")}
               className={cn(
                 "p-5 rounded-3xl border-2 transition-all flex flex-col items-center gap-2",
-                scheduledTime ? "border-indigo-600 bg-indigo-50 text-indigo-600" : "border-gray-100 text-gray-400"
+                scheduledTime ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-100 text-gray-400"
               )}
             >
               <Calendar className="h-6 w-6" />
@@ -198,9 +210,11 @@ const CheckoutPage = () => {
                </div>
              )}
              <div className="flex items-center gap-4 pt-4 border-t border-gray-50">
-               <div className="p-3 bg-green-50 rounded-2xl"><CreditCard className="text-green-600 h-6 w-6" /></div>
+               <div className="p-3 bg-green-50 rounded-2xl">
+                  {selectedPaymentType === 'cash_delivery' ? <Banknote className="text-green-600 h-6 w-6" /> : <CreditCard className="text-green-600 h-6 w-6" />}
+               </div>
                <div>
-                  <p className="font-black text-gray-800 text-sm uppercase">{selectedPaymentType}</p>
+                  <p className="font-black text-gray-800 text-sm uppercase">{getPaymentLabel(selectedPaymentType)}</p>
                   <p className="text-[10px] text-gray-400 font-bold uppercase">Método de Pagamento</p>
                </div>
              </div>
@@ -219,12 +233,20 @@ const CheckoutPage = () => {
               <div className="bg-white p-4 rounded-3xl shadow-inner">
                 <QrCode className="h-40 w-40 text-indigo-600" />
               </div>
-              <div className="bg-white p-4 rounded-2xl border border-gray-100 w-full flex items-center justify-between">
-                <span className="text-[10px] font-black text-gray-400 truncate max-w-[180px]">00020126360014BR.GOV.BCB.PIX0114+5511999999999</span>
-                <Button variant="ghost" size="sm" className="text-indigo-600 font-black uppercase text-[10px]" onClick={() => { navigator.clipboard.writeText("PIX_KEY"); showSuccess("Copiado!"); }}>Copiar</Button>
+              <div className="space-y-2 w-full">
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Chave Copia e Cola</p>
+                <div className="bg-white p-4 rounded-2xl border border-gray-100 w-full flex items-center justify-between gap-3">
+                  <span className="text-[10px] font-black text-indigo-900 truncate flex-1 text-left">00020126360014BR.GOV.BCB.PIX0114+5511999999999</span>
+                  <Button variant="ghost" size="icon" className="text-indigo-600 hover:bg-indigo-50 rounded-lg shrink-0" onClick={() => { navigator.clipboard.writeText("00020126360014BR.GOV.BCB.PIX0114+5511999999999"); showSuccess("Chave copiada!"); }}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </div>
-            <Button className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-lg shadow-xl" onClick={handleFinishOrder}>Já realizei o pagamento</Button>
+            <div className="space-y-3">
+              <Button className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-lg shadow-xl" onClick={handleFinishOrder}>Já realizei o pagamento</Button>
+              <Button variant="ghost" className="w-full text-gray-400 font-bold" onClick={() => setStep("review")}>Voltar e alterar pagamento</Button>
+            </div>
           </DialogContent>
         </Dialog>
       )}

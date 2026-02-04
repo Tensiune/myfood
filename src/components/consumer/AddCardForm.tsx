@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { CreditCard as CardIcon, Lock } from "lucide-react";
 import { usePayment } from "@/context/PaymentContext";
 import { showSuccess, showError } from "@/utils/toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const AddCardForm = ({ onSuccess }: { onSuccess: () => void }) => {
   const { addCard } = usePayment();
@@ -15,11 +16,11 @@ const AddCardForm = ({ onSuccess }: { onSuccess: () => void }) => {
     expiry: "",
     cvc: "",
     name: "",
+    type: "credit" as "credit" | "debit"
   });
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    // Simple masking could be added here
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
@@ -32,10 +33,11 @@ const AddCardForm = ({ onSuccess }: { onSuccess: () => void }) => {
     }
 
     addCard({
-      brand: "visa", // Mock brand logic
+      brand: "visa", 
       lastFour: formData.number.slice(-4),
       expiry: formData.expiry,
       holderName: formData.name,
+      type: formData.type
     });
 
     showSuccess("Cartão adicionado com sucesso!");
@@ -44,6 +46,19 @@ const AddCardForm = ({ onSuccess }: { onSuccess: () => void }) => {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Tipo de Cartão</Label>
+        <Select value={formData.type} onValueChange={(v: any) => setFormData({...formData, type: v})}>
+          <SelectTrigger className="rounded-xl">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="credit">Cartão de Crédito</SelectItem>
+            <SelectItem value="debit">Cartão de Débito</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="space-y-2">
         <Label htmlFor="number">Número do Cartão</Label>
         <div className="relative">

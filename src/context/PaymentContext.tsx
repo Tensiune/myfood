@@ -2,7 +2,13 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 
-export type PaymentMethodType = "stripe" | "pix" | "delivery_card" | "delivery_cash";
+export type PaymentMethodType = 
+  | "pix" 
+  | "card_credit_online" 
+  | "card_debit_online" 
+  | "card_credit_delivery" 
+  | "card_debit_delivery" 
+  | "cash_delivery";
 
 export interface CreditCard {
   id: string;
@@ -10,6 +16,7 @@ export interface CreditCard {
   lastFour: string;
   expiry: string;
   holderName: string;
+  type: "credit" | "debit";
 }
 
 interface PaymentContextType {
@@ -48,7 +55,7 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const newCard = { ...card, id: Date.now().toString() };
     setSavedCards(prev => [...prev, newCard]);
     setSelectedCardId(newCard.id);
-    setSelectedPaymentType("stripe");
+    setSelectedPaymentType(card.type === "credit" ? "card_credit_online" : "card_debit_online");
   };
 
   const removeCard = (id: string) => {
