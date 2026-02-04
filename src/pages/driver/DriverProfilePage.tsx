@@ -11,6 +11,7 @@ import { showSuccess, showError } from "@/utils/toast";
 import RoleSwitcher from "@/components/shared/RoleSwitcher";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/context/AuthContext";
+import { cn } from "@/lib/utils";
 
 const DriverProfilePage = () => {
   const navigate = useNavigate();
