@@ -88,6 +88,12 @@ const PaymentHistoryPage = () => {
     );
   }
 
+  // Definindo classes de cor para o saldo pendente (sempre verde, conforme solicitado)
+  const balanceBgClass = "bg-green-50 border-green-200";
+  const balanceIconBgClass = "bg-green-100";
+  const balanceIcon = outstandingBalance > 0 ? <AlertTriangle className="h-6 w-6 text-green-600" /> : <CheckCircle2 className="h-6 w-6 text-green-600" />;
+
+
   return (
     <div className="space-y-6 pb-20">
       <h1 className="text-3xl font-black text-indigo-900">Pagamentos</h1>
@@ -96,13 +102,12 @@ const PaymentHistoryPage = () => {
       {/* Dashboard Stats */}
       <Card className={cn(
         "rounded-3xl border-none shadow-lg",
-        // Cor de fundo verde se o saldo pendente for 0, caso contrário, vermelho/amarelo
-        outstandingBalance === 0 ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
+        balanceBgClass // Usando a classe verde
       )}>
         <CardContent className="p-5 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className={cn("p-3 rounded-xl", outstandingBalance === 0 ? "bg-green-100" : "bg-red-100")}>
-              {outstandingBalance > 0 ? <AlertTriangle className="h-6 w-6 text-red-600" /> : <CheckCircle2 className="h-6 w-6 text-green-600" />}
+            <div className={cn("p-3 rounded-xl", balanceIconBgClass)}>
+              {balanceIcon}
             </div>
             <div>
               <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Saldo Pendente</p>
