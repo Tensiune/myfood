@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { User, Share2, Star, Mail, Settings, LogOut, MapPin, ArrowRight } from "lucide-react";
+import { User, Share2, Star, Mail, Settings, LogOut, MapPin, ArrowRight, AlertCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
 import { useNavigate } from "react-router-dom";
@@ -15,14 +15,25 @@ import RoleSwitcher from "@/components/shared/RoleSwitcher";
 const ProfilePage = () => {
   const navigate = useNavigate();
   const [user, setUser] = React.useState<any>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            // Se não houver usuário, o AuthGuard deveria ter redirecionado, mas por segurança:
+            navigate("/login");
+            return;
+        }
+        setUser(user);
+      } catch (e: any) {
+        console.error("Error fetching user in ProfilePage:", e);
+        setError("Erro ao carregar dados do usuário.");
+      }
     };
     fetchUser();
-  }, []);
+  }, [navigate]);
 
   const handleLogout = async () => {
     try {
@@ -34,6 +45,19 @@ const ProfilePage = () => {
       showError(error.message || "Erro ao deslogar.");
     }
   };
+  
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="w-full max-w-md rounded-xl shadow-lg border-none p-6 text-center space-y-4">
+          <AlertCircle className="h-10 w-10 text-red-500 mx-auto" />
+          <h1 className="text-xl font-bold text-red-800">Erro de Carregamento</h1>
+          <p className="text-gray-600">{error}</p>
+          <Button onClick={() => navigate("/")} className="rounded-xl bg-indigo-600">Voltar</Button>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-20">
