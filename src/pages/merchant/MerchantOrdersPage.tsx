@@ -139,11 +139,12 @@ const MerchantOrdersPage = () => {
 
       if (error) throw error;
       
+      // Auto Print
+      if (autoPrint) handlePrint(order);
+      
       if (order.delivery_type === 'delivery' && mode === 'APP') {
         supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } }).catch(() => {});
       }
-      
-      if (autoPrint) handlePrint(order);
       
       dismissToast(tid); 
       showSuccess("Pedido aceito!");
@@ -160,12 +161,11 @@ const MerchantOrdersPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const dayAgo = subHours(new Date(), 24).toISOString();
+      // Removido o filtro de 24 horas para mostrar todos os pedidos
       const { data: raw, error } = await supabase
         .from('orders')
         .select('*')
         .eq('merchant_id', user.id)
-        .gte('created_at', dayAgo)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
