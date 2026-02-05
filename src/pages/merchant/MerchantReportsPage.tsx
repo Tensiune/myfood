@@ -11,20 +11,15 @@ import {
   Tooltip, 
   ResponsiveContainer, 
   Cell,
-  PieChart,
-  Pie,
-  Legend
 } from "recharts";
 import { 
-  TrendingUp, 
-  TrendingDown, 
   DollarSign, 
   ShoppingBag, 
-  Users, 
-  Star,
-  Download,
+  TrendingUp, 
   Calendar,
-  Loader2
+  Loader2,
+  Download,
+  Info
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -42,317 +37,131 @@ const MerchantReportsPage = () => {
   const calculatedDateRange = useMemo(() => {
     const today = startOfDay(new Date());
     switch (dateFilter) {
-      case "24h":
-        return { from: subDays(today, 1), to: today };
-      case "7d":
-        return { from: subDays(today, 7), to: today };
-      case "30d":
-        return { from: subMonths(today, 1), to: today };
-      case "90d":
-        return { from: subMonths(today, 3), to: today };
-      case "other":
-        return customDateRange;
-      default:
-        return { from: subDays(today, 7), to: today };
+      case "24h": return { from: subDays(today, 1), to: today };
+      case "7d": return { from: subDays(today, 7), to: today };
+      case "30d": return { from: subMonths(today, 1), to: today };
+      case "other": return customDateRange;
+      default: return { from: subDays(today, 7), to: today };
     }
   }, [dateFilter, customDateRange]);
 
-  const { loading, stats, salesChartData, annualComparisonData, topProducts } = useMerchantReports(calculatedDateRange);
+  const { loading, stats, salesChartData, topProducts } = useMerchantReports(calculatedDateRange);
 
-  const currentYear = new Date().getFullYear();
-  const lastYear = currentYear - 1;
-
-  const statCards = [
-    { label: "Faturamento Total", value: `R$ ${stats.totalRevenue || '0.00'}`, trend: "+12.5%", isUp: true, icon: DollarSign },
-    { label: "Total de Pedidos", value: `${stats.totalOrders || 0}`, trend: "+8.2%", isUp: true, icon: ShoppingBag },
-    { label: "Ticket Médio", value: `R$ ${stats.averageTicket || '0.00'}`, trend: "-2.1%", isUp: false, icon: TrendingUp },
-    { label: "Novos Clientes", value: `${stats.newCustomers || 0}`, trend: "+5.4%", isUp: true, icon: Users },
-  ];
-
-  const handleDateFilterChange = (value: string) => {
-    setDateFilter(value);
-    if (value !== 'other') {
-      setCustomDateRange(undefined);
-    }
-  };
-  
   const handleExport = () => {
     const exportData = [
-      // Estatísticas Principais
-      { Relatório: "Estatísticas Principais" },
-      { Métrica: "Faturamento Total", Valor: parseFloat(stats.totalRevenue || 0) },
-      { Métrica: "Total de Pedidos", Valor: stats.totalOrders || 0 },
-      { Métrica: "Ticket Médio", Valor: parseFloat(stats.averageTicket || 0) },
-      { Métrica: "Novos Clientes", Valor: stats.newCustomers || 0 },
-      {}, // Linha em branco
-      
-      // Vendas Semanais
-      { Relatório: "Vendas Semanais (R$)" },
-      ...salesChartData.map(d => ({ Dia: d.name, Vendas: d.vendas })),
-      {}, // Linha em branco
-      
-      // Comparação Anual
-      { Relatório: "Comparação Anual (R$)" },
-      ...annualComparisonData.map(d => ({ 
-        Mês: d.name, 
-        [`Vendas ${currentYear}`]: d.currentYear, 
-        [`Vendas ${lastYear}`]: d.lastYear 
-      })),
-      {}, // Linha em branco
-      
-      // Top Produtos
-      { Relatório: "Top Produtos Vendidos (Unidades)" },
-      ...topProducts.map(p => ({ Produto: p.name, Unidades: p.value })),
+      { "Métrica": "1. Faturamento Total", "Valor (R$)": stats.totalRevenue || 0 },
+      { "Métrica": "2. Venda de Produtos", "Valor (R$)": stats.productSales || 0 },
+      { "Métrica": "3. Receita com Taxa de Entrega", "Valor (R$)": stats.deliveryRevenue || 0 },
+      { "Métrica": "4. Despesas com Taxa de Entrega", "Valor (R$)": stats.deliveryExpenses || 0 },
+      { "Métrica": "5. Comissão do APP", "Valor (R$)": stats.platformFees || 0 },
+      { "Métrica": "6. Taxa de Processamento de Pagamento", "Valor (R$)": stats.paymentFees || 0 },
+      { "Métrica": "7. Ganhos Líquidos", "Valor (R$)": stats.netRevenue || 0 },
     ];
-    
-    const dateLabel = calculatedDateRange?.from 
-        ? `De ${format(calculatedDateRange.from, 'dd-MM-yyyy')} a ${format(calculatedDateRange.to || new Date(), 'dd-MM-yyyy')}`
-        : 'Geral';
-        
-    exportToExcel(exportData, `Relatorio_Vendas_${dateLabel}`);
-    showSuccess("Relatório exportado com sucesso!");
+    exportToExcel(exportData, `Relatorio_Financeiro_${format(new Date(), 'dd_MM_yyyy')}`);
+    showSuccess("Exportado com sucesso!");
   };
 
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
-        <p className="text-gray-500 font-bold">Carregando relatórios...</p>
-      </div>
-    );
+    return <div className="flex flex-col items-center justify-center py-20"><Loader2 className="h-10 w-10 text-indigo-600 animate-spin" /></div>;
   }
 
   return (
     <div className="space-y-8 pb-10">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-indigo-900 tracking-tight">Relatórios de Desempenho</h1>
-          <p className="text-gray-500">Acompanhe o crescimento da sua loja em tempo real.</p>
+          <h1 className="text-3xl font-black text-indigo-900 tracking-tight">Relatórios Financeiros</h1>
+          <p className="text-gray-500">Resumo detalhado dos pedidos entregues.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Select value={dateFilter} onValueChange={handleDateFilterChange}>
-            <SelectTrigger className="w-40 rounded-xl bg-white border-none shadow-sm">
+          <Select value={dateFilter} onValueChange={setDateFilter}>
+            <SelectTrigger className="w-40 rounded-xl bg-white shadow-sm border-none">
               <Calendar className="h-4 w-4 mr-2 text-indigo-500" />
-              <SelectValue placeholder="Período" />
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="24h">Últimas 24h</SelectItem>
               <SelectItem value="7d">Últimos 7 dias</SelectItem>
               <SelectItem value="30d">Últimos 30 dias</SelectItem>
-              <SelectItem value="90d">Últimos 90 dias</SelectItem>
               <SelectItem value="other">Outro Período...</SelectItem>
             </SelectContent>
           </Select>
-          
-          {dateFilter === 'other' && (
-            <DateRangePicker date={customDateRange} setDate={setCustomDateRange} className="w-full md:w-auto" />
-          )}
-
-          <Button 
-            variant="outline" 
-            className="rounded-xl bg-white border-none shadow-sm gap-2 bg-green-500 hover:bg-green-600 text-white font-bold"
-            onClick={handleExport}
-          >
-            <Download className="h-4 w-4" /> Exportar Excel
+          {dateFilter === 'other' && <DateRangePicker date={customDateRange} setDate={setCustomDateRange} />}
+          <Button className="rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold" onClick={handleExport}>
+            <Download className="h-4 w-4 mr-2" /> Exportar
           </Button>
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCards.map((stat, i) => (
-          <Card key={i} className="rounded-3xl border-none shadow-sm bg-white overflow-hidden">
-            <CardContent className="p-6">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-2 bg-indigo-50 rounded-xl">
-                  <stat.icon className="h-6 w-6 text-indigo-600" />
+      {/* Tabela de Resumo Financeiro Solicita pelo Usuário */}
+      <Card className="rounded-[2.5rem] border-none shadow-sm bg-white overflow-hidden">
+        <CardHeader className="p-8 bg-indigo-900 text-white">
+            <CardTitle className="text-xl font-bold flex items-center gap-2">
+                <DollarSign className="h-5 w-5" /> Resumo Financeiro Detalhado
+            </CardTitle>
+            <p className="text-indigo-200 text-sm">Baseado em {stats.totalOrders} pedidos entregues no período.</p>
+        </CardHeader>
+        <CardContent className="p-0">
+            <div className="divide-y divide-gray-100">
+                <div className="p-6 flex justify-between items-center bg-indigo-50/30">
+                    <span className="font-bold text-gray-700">1. Faturamento Total (Vendas + Entregas)</span>
+                    <span className="text-xl font-black text-indigo-900">R$ {stats.totalRevenue?.toFixed(2)}</span>
                 </div>
-                <div className={`flex items-center text-xs font-bold ${stat.isUp ? 'text-green-600' : 'text-red-500'}`}>
-                  {stat.trend}
-                  {stat.isUp ? <TrendingUp className="h-3 w-3 ml-1" /> : <TrendingDown className="h-3 w-3 ml-1" />}
+                <div className="p-4 px-8 flex justify-between items-center">
+                    <span className="text-sm text-gray-600">2. Faturamento com Venda de Produtos</span>
+                    <span className="font-bold text-gray-800">R$ {stats.productSales?.toFixed(2)}</span>
                 </div>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-500">{stat.label}</p>
-                <h3 className="text-2xl font-black text-indigo-900 mt-1">{stat.value}</h3>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                <div className="p-4 px-8 flex justify-between items-center">
+                    <span className="text-sm text-gray-600">3. Faturamento com Taxa de Entrega</span>
+                    <span className="font-bold text-gray-800">R$ {stats.deliveryRevenue?.toFixed(2)}</span>
+                </div>
+                <div className="p-4 px-8 flex justify-between items-center text-red-500">
+                    <span className="text-sm font-medium">4. Despesas com Taxa de Entrega (Motorista)</span>
+                    <span className="font-bold">- R$ {stats.deliveryExpenses?.toFixed(2)}</span>
+                </div>
+                <div className="p-4 px-8 flex justify-between items-center text-red-500">
+                    <span className="text-sm font-medium">5. Despesas com Comissão do APP</span>
+                    <span className="font-bold">- R$ {stats.platformFees?.toFixed(2)}</span>
+                </div>
+                <div className="p-4 px-8 flex justify-between items-center text-red-500">
+                    <span className="text-sm font-medium">6. Despesas com Taxa de Processamento</span>
+                    <span className="font-bold">- R$ {stats.paymentFees?.toFixed(2)}</span>
+                </div>
+                <div className="p-6 flex justify-between items-center bg-green-50 border-t-2 border-green-100">
+                    <span className="font-black text-green-800 uppercase tracking-wider">7. Líquido Final</span>
+                    <span className="text-2xl font-black text-green-600">R$ {stats.netRevenue?.toFixed(2)}</span>
+                </div>
+            </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Sales Chart (Daily/Weekly) */}
         <Card className="lg:col-span-2 rounded-[2.5rem] border-none shadow-sm bg-white p-6">
-          <CardHeader className="px-0 pt-0">
-            <CardTitle className="text-xl font-bold text-indigo-900">Evolução de Vendas (Período Selecionado)</CardTitle>
-          </CardHeader>
-          <div className="h-[350px] w-full mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={salesChartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis 
-                  dataKey="name" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#94a3b8', fontSize: 12 }} 
-                  dy={10}
-                />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#94a3b8', fontSize: 12 }}
-                  tickFormatter={(value) => `R$ ${value}`}
-                />
-                <Tooltip 
-                  cursor={{ fill: '#f8fafc' }}
-                  contentStyle={{ 
-                    borderRadius: '16px', 
-                    border: 'none', 
-                    boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
-                    padding: '12px'
-                  }}
-                  formatter={(value) => [`R$ ${parseFloat(value.toString()).toFixed(2)}`, 'Vendas']}
-                />
-                <Bar 
-                  dataKey="vendas" 
-                  fill="#6366f1" 
-                  radius={[8, 8, 0, 0]} 
-                  barSize={40}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+            <CardTitle className="text-lg font-bold mb-6">Volume de Vendas</CardTitle>
+            <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={salesChartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                        <Tooltip cursor={{ fill: '#f8fafc' }} />
+                        <Bar dataKey="vendas" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
         </Card>
 
-        {/* Top Products Chart (Real Data) */}
         <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-6">
-          <CardHeader className="px-0 pt-0">
-            <CardTitle className="text-xl font-bold text-indigo-900">Top {topProducts.length} Produtos Vendidos</CardTitle>
-          </CardHeader>
-          <div className="h-[250px] w-full relative">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={topProducts}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                  nameKey="name"
-                >
-                  {topProducts.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                    formatter={(value, name, props) => [`${value} un.`, props.payload.name]}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-center">
-                <p className="text-xs font-bold text-gray-400 uppercase">Total</p>
-                <p className="text-xl font-black text-indigo-900">{topProducts.reduce((sum, p) => sum + p.value, 0)}</p>
-              </div>
+            <CardTitle className="text-lg font-bold mb-6">Top Produtos</CardTitle>
+            <div className="space-y-4">
+                {topProducts.map((p, i) => (
+                    <div key={i} className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600 truncate flex-1">{p.name}</span>
+                        <span className="font-bold text-indigo-900 ml-4">{p.value} un.</span>
+                    </div>
+                ))}
             </div>
-          </div>
-          <div className="mt-6 space-y-3 max-h-40 overflow-y-auto pr-2">
-            {topProducts.map((item, i) => (
-              <div key={i} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-                  <span className="text-sm font-medium text-gray-600 truncate">{item.name}</span>
-                </div>
-                <span className="text-sm font-bold text-indigo-900 shrink-0">{item.value} un.</span>
-              </div>
-            ))}
-          </div>
         </Card>
       </div>
-      
-      {/* Annual Comparison Chart */}
-      <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-6">
-          <CardHeader className="px-0 pt-0">
-            <CardTitle className="text-xl font-bold text-indigo-900">Comparação Anual de Vendas</CardTitle>
-            <p className="text-gray-500 text-sm">Vendas Mês a Mês ({currentYear} vs {lastYear})</p>
-          </CardHeader>
-          <div className="h-[350px] w-full mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={annualComparisonData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis 
-                  dataKey="name" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#94a3b8', fontSize: 12 }} 
-                  dy={10}
-                />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#94a3b8', fontSize: 12 }}
-                  tickFormatter={(value) => `R$ ${value}`}
-                />
-                <Tooltip 
-                  cursor={{ fill: '#f8fafc' }}
-                  contentStyle={{ 
-                    borderRadius: '16px', 
-                    border: 'none', 
-                    boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
-                    padding: '12px'
-                  }}
-                  formatter={(value, name) => [`R$ ${parseFloat(value.toString()).toFixed(2)}`, name === 'currentYear' ? `Vendas ${currentYear}` : `Vendas ${lastYear}`]}
-                />
-                <Legend 
-                    wrapperStyle={{ paddingTop: '20px' }}
-                    formatter={(value) => value === 'currentYear' ? `Vendas ${currentYear}` : `Vendas ${lastYear}`}
-                />
-                <Bar 
-                  dataKey="currentYear" 
-                  name={`Vendas ${currentYear}`}
-                  fill="#10b981" // Verde
-                  radius={[8, 8, 0, 0]} 
-                  barSize={20}
-                />
-                <Bar 
-                  dataKey="lastYear" 
-                  name={`Vendas ${lastYear}`}
-                  fill="#3b82f6" // Azul
-                  radius={[8, 8, 0, 0]} 
-                  barSize={20}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-
-
-      {/* Satisfaction Insights (Mocked) */}
-      <Card className="rounded-[2.5rem] border-none shadow-sm bg-indigo-900 text-white p-8">
-        <div className="flex flex-col md:flex-row items-center gap-8">
-          <div className="flex-1 text-center md:text-left">
-            <h2 className="text-2xl font-bold mb-2">Nível de Satisfação</h2>
-            <p className="text-indigo-200">Sua loja está no topo! 98% dos clientes recomendariam você para amigos.</p>
-            <div className="flex items-center gap-2 mt-6 justify-center md:justify-start">
-              {[1, 2, 3, 4, 5].map(star => (
-                <Star key={star} className="h-8 w-8 text-yellow-400 fill-yellow-400" />
-              ))}
-              <span className="text-2xl font-black ml-2">4.9/5.0</span>
-            </div>
-          </div>
-          <div className="bg-white/10 p-6 rounded-3xl backdrop-blur-md">
-            <h4 className="font-bold mb-4">Melhores Comentários</h4>
-            <div className="space-y-4">
-              <p className="text-sm italic">"Melhor hambúrguer da cidade, entrega super rápida!"</p>
-              <div className="h-px bg-white/20 w-full" />
-              <p className="text-sm italic">"A comida chegou quentinha e muito bem embalada."</p>
-            </div>
-          </div>
-        </div>
-      </Card>
     </div>
   );
 };
