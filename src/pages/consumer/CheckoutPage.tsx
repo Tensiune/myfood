@@ -29,7 +29,8 @@ const CheckoutPage = () => {
   useEffect(() => {
     const fetchFlagName = async () => {
         if (!selectedFlagId || !restaurantId) return;
-        const { data } = await supabase.from('app_settings').select('value').eq('key', 'global_payment_methods').single();
+        //maybeSingle()
+        const { data } = await supabase.from('app_settings').select('value').eq('key', 'global_payment_methods').maybeSingle();
         if (data) {
             const method = data.value.methods.find((m: any) => m.id === selectedPaymentType);
             const flag = method?.flags?.find((f: any) => f.id === selectedFlagId);

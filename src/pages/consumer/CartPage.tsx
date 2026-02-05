@@ -58,10 +58,11 @@ const CartPage = () => {
         return;
       }
       try {
-        const { data: globalData } = await supabase.from('app_settings').select('value').eq('key', 'global_payment_methods').single();
+        // Mudança crítica: maybeSingle() em vez de single()
+        const { data: globalData } = await supabase.from('app_settings').select('value').eq('key', 'global_payment_methods').maybeSingle();
         const global: GlobalPaymentSettings = globalData?.value || { methods: [] };
 
-        const { data: merchantData } = await supabase.from('merchant_applications').select('metadata').eq('id', restaurantId).single();
+        const { data: merchantData } = await supabase.from('merchant_applications').select('metadata').eq('id', restaurantId).maybeSingle();
         const merchantMeta = merchantData?.metadata || {};
         const merchantPay: MerchantPaymentSettings = merchantMeta.payment_settings || { enabledMethods: [], enabledFlags: {} };
         
