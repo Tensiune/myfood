@@ -26,7 +26,8 @@ import {
   Loader2,
   Filter,
   Download,
-  Bike
+  Bike,
+  AlertCircle
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
@@ -42,6 +43,7 @@ const DriverManagementPage = () => {
   const [drivers, setDrivers] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState("");
@@ -51,31 +53,43 @@ const DriverManagementPage = () => {
   // Ordenação
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' | null }>({ key: 'name', direction: 'asc' });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        // 1. Buscar todos os entregadores
-        const { data: driverData, error: dError } = await supabase.from('driver_applications').select('*');
-        if (dError) throw dError;
-        setDrivers(driverData || []);
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // 1. Buscar entregadores (Principal)
+      const { data: driverData, error: dError } = await supabase
+        .from('driver_applications')
+        .select('*');
+      
+      if (dError) throw dError;
+      setDrivers(driverData || []);
 
-        // 2. Buscar pedidos para cálculos
-        const { data: orderData, error: oError } = await supabase.from('orders').select('id, total, status, driver_id, logistics_mode');
-        if (oError) throw oError;
-        setOrders(orderData || []);
+      // 2. Buscar pedidos e pagamentos (Opcionais para as estatísticas)
+      // Usamos Promise.allSettled para que se um falhar por RLS, o outro ainda carregue
+      const [ordersRes, paymentsRes] = await Promise.allSettled([
+        supabase.from('orders').select('id, total, status, driver_id, logistics_mode'),
+        supabase.from('driver_payments').select('driver_id, amount')
+      ]);
 
-        // 3. Buscar pagamentos realizados
-        const { data: paymentData, error: pError } = await supabase.from('driver_payments').select('driver_id, amount');
-        if (pError) throw pError;
-        setPayments(paymentData || []);
-
-      } catch (err: any) {
-        showError("Erro ao carregar dados: " + err.message);
-      } finally {
-        setLoading(false);
+      if (ordersRes.status === 'fulfilled' && !ordersRes.value.error) {
+        setOrders(ordersRes.value.data || []);
       }
-    };
+      
+      if (paymentsRes.status === 'fulfilled' && !paymentsRes.value.error) {
+        setPayments(paymentsRes.value.data || []);
+      }
+
+    } catch (err: any) {
+      console.error("[Admin] Fetch Error:", err);
+      setError(err.message || "Erro ao conectar com o servidor.");
+      showError("Erro ao carregar lista de entregadores.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchData();
   }, []);
 
@@ -84,15 +98,10 @@ const DriverManagementPage = () => {
     const completed = driverOrders.filter(o => o.status === 'DELIVERED');
     const cancelled = driverOrders.filter(o => o.status === 'CANCELLED');
     
-    // Vendas totais (Soma dos pedidos entregues pelo motorista)
-    const totalSales = completed.reduce((sum, o) => sum + o.total, 0);
-    
-    // Ganhos (Apenas ordens APP contam para o saldo do sistema)
+    const totalSales = completed.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
     const appDeliveries = completed.filter(o => o.logistics_mode !== 'OWN');
     const totalEarned = appDeliveries.length * DRIVER_FEE_PER_ORDER;
-    
-    // Já pago
-    const totalPaid = payments.filter(p => p.driver_id === driverId).reduce((sum, p) => sum + p.amount, 0);
+    const totalPaid = payments.filter(p => p.driver_id === driverId).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     
     return { 
         totalSales, 
@@ -169,6 +178,13 @@ const DriverManagementPage = () => {
     exportToExcel(exportData, `Relatorio_Entregadores_${format(new Date(), 'dd_MM_yyyy')}`);
   };
 
+  if (loading) {
+      return <div className="flex flex-col items-center justify-center py-40 gap-4">
+          <Loader2 className="h-10 w-10 text-indigo-600 animate-spin" />
+          <p className="text-gray-400 font-bold">Carregando entregadores...</p>
+      </div>;
+  }
+
   return (
     <div className="space-y-6 pb-20">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -183,6 +199,14 @@ const DriverManagementPage = () => {
             <Badge className="bg-brand-accent px-4 py-1.5 rounded-full text-sm">{tableData.length} Filtrados</Badge>
         </div>
       </div>
+
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 animate-in fade-in">
+            <AlertCircle className="h-5 w-5" />
+            <p className="text-sm font-medium">Erro ao carregar dados: {error}</p>
+            <Button variant="outline" size="sm" className="ml-auto rounded-xl" onClick={fetchData}>Tentar Novamente</Button>
+        </div>
+      )}
 
       {/* Toolbar de Filtros */}
       <Card className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden">
@@ -247,9 +271,7 @@ const DriverManagementPage = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-20"><Loader2 className="animate-spin h-8 w-8 mx-auto text-indigo-600" /></TableCell></TableRow>
-            ) : sortedData.length === 0 ? (
+            {sortedData.length === 0 ? (
               <TableRow><TableCell colSpan={6} className="text-center py-20 text-gray-400 font-medium">Nenhum entregador encontrado.</TableCell></TableRow>
             ) : sortedData.map(d => (
               <TableRow key={d.id} className="hover:bg-indigo-50/20 transition-colors">
