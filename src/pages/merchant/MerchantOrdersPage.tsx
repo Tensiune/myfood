@@ -14,7 +14,8 @@ import {
   Clock,
   CheckCircle2,
   ChevronDown,
-  AlertCircle
+  AlertCircle,
+  XCircle
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
@@ -79,7 +80,6 @@ const MerchantOrdersPage = () => {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // 1. Carregar Configurações (Apenas uma vez)
   useEffect(() => {
     audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
     const loadConfig = async () => {
@@ -98,7 +98,6 @@ const MerchantOrdersPage = () => {
     loadConfig();
   }, []);
 
-  // 2. Função de busca de pedidos (Estável)
   const fetchOrders = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
@@ -143,10 +142,8 @@ const MerchantOrdersPage = () => {
     }
   }, []);
 
-  // 3. Efeito de Realtime e Sincronização
   useEffect(() => {
     fetchOrders();
-
     const channel = supabase.channel('merchant_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
         if (payload.eventType === 'INSERT') {
@@ -155,13 +152,9 @@ const MerchantOrdersPage = () => {
         fetchOrders(true);
       })
       .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchOrders]);
 
-    return () => {
-        supabase.removeChannel(channel);
-    };
-  }, [fetchOrders]); // Removido 'orders' daqui para evitar o loop infinito
-
-  // 4. Efeito para Busca Automática de Entregadores (Intervalo separado)
   useEffect(() => {
     const autoDispatchInterval = setInterval(() => {
         const pending = orders.filter(o => o.status === 'WAITING_FOR_DRIVER' && o.logistics_mode === 'APP' && !o.current_driver_offered_id);
@@ -169,9 +162,8 @@ const MerchantOrdersPage = () => {
             pending.forEach(o => supabase.functions.invoke('dispatch-order', { body: { orderId: o.id } }).catch(() => {}));
         }
     }, 20000);
-
     return () => clearInterval(autoDispatchInterval);
-  }, [orders]); // Este efeito depende de 'orders', mas não chama fetchOrders, então não há loop
+  }, [orders]);
 
   const handlePrint = useCallback((order: any) => {
     printReceipt(order, merchantConfig.name, order.customer_full_name || 'Cliente', merchantConfig.printSettings);
@@ -180,29 +172,29 @@ const MerchantOrdersPage = () => {
   const handleAcceptOrder = async (order: any) => {
     const tid = showLoading("Aceitando pedido...");
     try {
-      const { error } = await supabase
-        .from('orders')
-        .update({ 
-          status: 'PREPARING',
-          merchant_acceptance_deadline: null,
-          logistics_mode: merchantConfig.deliveryMode
-        })
-        .eq('id', order.id);
-      
+      const { error } = await supabase.from('orders').update({ status: 'PREPARING', merchant_acceptance_deadline: null, logistics_mode: merchantConfig.deliveryMode }).eq('id', order.id);
       if (error) throw error;
-      
       if (order.delivery_type === 'delivery' && merchantConfig.deliveryMode === 'APP') {
         supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } }).catch(() => {});
       }
-      
       if (autoPrint) handlePrint(order);
       dismissToast(tid); 
       showSuccess("Pedido aceito!");
       fetchOrders(true);
-    } catch (err) { 
-      dismissToast(tid); 
-      showError("Erro ao aceitar pedido."); 
-    }
+    } catch (err) { dismissToast(tid); showError("Erro ao aceitar pedido."); }
+  };
+
+  const handleCancelOrder = async (orderId: string) => {
+    if (!window.confirm("Tem certeza que deseja cancelar este pedido? Esta ação não pode ser desfeita.")) return;
+    const tid = showLoading("Cancelando pedido...");
+    try {
+      const { error } = await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', orderId);
+      if (error) throw error;
+      showSuccess("Pedido cancelado com sucesso.");
+      setIsDetailsDialogOpen(false);
+      fetchOrders(true);
+    } catch (err) { showError("Erro ao cancelar pedido."); }
+    finally { dismissToast(tid); }
   };
 
   const handleReadyForShipping = async (order: any) => {
@@ -311,10 +303,6 @@ const MerchantOrdersPage = () => {
                        <Button variant="outline" className="w-full rounded-lg border-indigo-100 text-indigo-600 text-xs h-9" onClick={() => navigate(`/chat/${o.driver_id}?orderId=${o.id}`)}><Bike className="h-3 w-3 mr-2" /> Chat</Button>
                    </div>
                 )}
-
-                {o.status === 'DELIVERED' && (
-                  <Button variant="outline" className="w-full h-9 rounded-lg border-green-100 text-green-700 text-xs font-black uppercase" onClick={() => navigate(`/chat/${o.customer_id}?orderId=${o.id}`)}>Falar com Cliente</Button>
-                )}
               </CardContent>
             </Card>
           ))}
@@ -380,7 +368,7 @@ const MerchantOrdersPage = () => {
       )}
 
       <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
-        <DialogContent className="rounded-[2.5rem] sm:max-w-xl h-[80vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
+        <DialogContent className="rounded-[2.5rem] sm:max-w-xl h-[85vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
           <div className="p-6 bg-indigo-900 text-white shrink-0 flex justify-between items-center">
               <DialogTitle className="text-xl font-black">Detalhes do Pedido</DialogTitle>
               <Button variant="ghost" size="icon" className="text-white/50 hover:text-white" onClick={() => setIsDetailsDialogOpen(false)}><X /></Button>
@@ -391,9 +379,27 @@ const MerchantOrdersPage = () => {
                 <div className="bg-gray-50 p-4 rounded-2xl border-2 border-dashed border-gray-200 flex justify-center">
                     <OrderReceipt order={selectedOrderDetails} merchantName={merchantConfig.name} customerName={selectedOrderDetails.customer_full_name} printSettings={merchantConfig.printSettings} />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                    <Button variant="outline" className="h-12 rounded-xl border-indigo-100 text-indigo-600 font-bold" onClick={() => navigate(`/chat/${selectedOrderDetails.customer_id}?orderId=${selectedOrderDetails.id}`)}>CHAT CLIENTE</Button>
-                    <Button variant="outline" className="h-12 rounded-xl border-indigo-100 text-indigo-600 font-bold" onClick={() => handlePrint(selectedOrderDetails)}>IMPRIMIR</Button>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Button variant="outline" className="h-12 rounded-xl border-indigo-100 text-indigo-600 font-bold gap-2" onClick={() => navigate(`/chat/${selectedOrderDetails.customer_id}?orderId=${selectedOrderDetails.id}`)}>
+                        <MessageCircle className="h-4 w-4" /> CHAT CLIENTE
+                    </Button>
+                    
+                    {selectedOrderDetails.driver_id && (
+                        <Button variant="outline" className="h-12 rounded-xl border-blue-100 text-blue-600 font-bold gap-2" onClick={() => navigate(`/chat/${selectedOrderDetails.driver_id}?orderId=${selectedOrderDetails.id}`)}>
+                            <Bike className="h-4 w-4" /> CHAT ENTREGADOR
+                        </Button>
+                    )}
+
+                    <Button variant="outline" className="h-12 rounded-xl border-indigo-100 text-indigo-600 font-bold gap-2" onClick={() => handlePrint(selectedOrderDetails)}>
+                        <Printer className="h-4 w-4" /> IMPRIMIR
+                    </Button>
+
+                    {!['DELIVERED', 'CANCELLED'].includes(selectedOrderDetails.status) && (
+                        <Button variant="outline" className="h-12 rounded-xl border-red-100 text-red-600 font-bold gap-2 hover:bg-red-50" onClick={() => handleCancelOrder(selectedOrderDetails.id)}>
+                            <XCircle className="h-4 w-4" /> CANCELAR PEDIDO
+                        </Button>
+                    )}
                 </div>
               </div>
             )}
