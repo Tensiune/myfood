@@ -368,8 +368,8 @@ const MerchantOrdersPage = () => {
         <DialogContent className="rounded-[2.5rem] sm:max-w-xl h-[85vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
           <div className="p-8 bg-indigo-900 text-white shrink-0 flex justify-between items-center">
               <div>
-                <h3 className="text-2xl font-black">Detalhes do Pedido</h3>
-                <p className="text-indigo-300 text-xs font-bold uppercase tracking-widest">Confira os itens e endereço</p>
+                <DialogTitle className="text-2xl font-black">Detalhes do Pedido</DialogTitle>
+                <DialogDescription className="text-indigo-300 text-xs font-bold uppercase tracking-widest">Confira os itens e endereço</DialogDescription>
               </div>
               <Button variant="ghost" size="icon" className="text-white/50 hover:text-white" onClick={() => setIsDetailsDialogOpen(false)}><X /></Button>
           </div>

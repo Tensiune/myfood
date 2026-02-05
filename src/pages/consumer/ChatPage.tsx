@@ -47,39 +47,54 @@ const ChatPage = () => {
       if (!currentUser || !receiverId) return;
 
       try {
+        // Busca nome do contato
         const { data: profile } = await supabase.rpc('get_user_full_name', { user_id: receiverId });
         setReceiverInfo({ name: profile || "Contato", id: receiverId });
 
-        // LÓGICA DE EXPIRAÇÃO CORRIGIDA
+        // LÓGICA DE EXPIRAÇÃO BASEADA NO STATUS DO PEDIDO
         const userRole = currentUser.user_metadata?.role;
         if (userRole === 'MERCHANT' || userRole === 'DRIVER') {
-            // Se houver um orderId, verifica se o pedido ainda está ativo
-            if (orderId) {
-                const { data: order } = await supabase.from('orders').select('status').eq('id', orderId).single();
+            let activeOrderId = orderId;
+
+            // Se não veio orderId na URL, busca o último pedido entre essas duas partes
+            if (!activeOrderId) {
+                const { data: lastOrder } = await supabase
+                    .from('orders')
+                    .select('id, status, updated_at')
+                    .or(`customer_id.eq.${receiverId},merchant_id.eq.${receiverId},driver_id.eq.${receiverId}`)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
                 
-                // Se o pedido está finalizado (DELIVERED ou CANCELLED), aplica regra de 24h
-                if (order && ['DELIVERED', 'CANCELLED'].includes(order.status)) {
-                    const { data: lastClientMsg } = await supabase
-                        .from('order_chats')
-                        .select('created_at')
-                        .eq('sender_id', receiverId)
-                        .order('created_at', { ascending: false })
-                        .limit(1)
-                        .single();
+                if (lastOrder) activeOrderId = lastOrder.id;
+            }
+
+            if (activeOrderId) {
+                const { data: order } = await supabase
+                    .from('orders')
+                    .select('status, updated_at')
+                    .eq('id', activeOrderId)
+                    .single();
+                
+                if (order) {
+                    const isFinished = ['DELIVERED', 'CANCELLED'].includes(order.status);
                     
-                    if (lastClientMsg) {
-                        const lastTime = new Date(lastClientMsg.created_at).getTime();
-                        if (Date.now() - lastTime > 24 * 60 * 60 * 1000) {
+                    if (isFinished) {
+                        const finishTime = new Date(order.updated_at).getTime();
+                        const twentyFourHours = 24 * 60 * 60 * 1000;
+                        
+                        if (Date.now() - finishTime > twentyFourHours) {
                             setIsCommunicationExpired(true);
                         }
                     } else {
-                        // Se nunca houve mensagem e o pedido foi entregue há mais de 24h, bloqueia
-                        // (Simplificado: bloqueia apenas se houve conversa prévia ou se for muito antigo)
+                        // Pedido ainda está ativo (PENDING, PREPARING, etc) - Chat sempre liberado
+                        setIsCommunicationExpired(false);
                     }
                 }
             }
         }
 
+        // Carrega histórico de mensagens
         const { data: history, error } = await supabase
           .from('order_chats')
           .select('*')
@@ -95,7 +110,7 @@ const ChatPage = () => {
 
         setMessages(filteredHistory);
       } catch (err) {
-        console.error("Chat error:", err);
+        console.error("Chat init error:", err);
       } finally {
         setLoading(false);
         setTimeout(scrollToBottom, 100);
@@ -109,7 +124,6 @@ const ChatPage = () => {
                 (msg.sender_id === receiverId && msg.receiver_id === currentUser.id)) {
               setMessages(prev => [...prev, msg]);
               setTimeout(scrollToBottom, 50);
-              if (msg.sender_id === receiverId) setIsCommunicationExpired(false);
             }
           }
         )
@@ -200,7 +214,7 @@ const ChatPage = () => {
         {isCommunicationExpired && (
             <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-xl flex items-center gap-2 text-xs font-bold animate-in zoom-in-95">
                 <AlertCircle className="h-4 w-4" />
-                Comunicação bloqueada (24h sem resposta do cliente após o pedido).
+                Comunicação bloqueada (Já se passaram 24h desde a conclusão do pedido).
             </div>
         )}
         <form onSubmit={handleSendMessage} className={cn("flex items-center gap-2", isCommunicationExpired && "opacity-50")}>
