@@ -6,7 +6,6 @@ import {
   Loader2, 
   Bike, 
   MapPin, 
-  User, 
   X, 
   Search, 
   Printer,
@@ -64,7 +63,6 @@ const MerchantOrdersPage = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   
-  // Configurações persistentes
   const [showFullDetails, setShowFullDetails] = useState(() => localStorage.getItem('merchant_show_details') === 'true');
   const [autoAccept, setAutoAccept] = useState(() => localStorage.getItem('merchant_auto_accept') === 'true');
   const [autoPrint, setAutoPrint] = useState(() => localStorage.getItem('merchant_auto_print') === 'true');
@@ -73,7 +71,6 @@ const MerchantOrdersPage = () => {
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
 
-  // Dados da Loja
   const [merchantConfig, setMerchantConfig] = useState({
     name: "Minha Loja",
     deliveryMode: 'APP' as 'APP' | 'OWN',
@@ -82,9 +79,9 @@ const MerchantOrdersPage = () => {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // 1. Carregar Configurações (Apenas uma vez)
   useEffect(() => {
     audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
-    // Carrega configurações da loja apenas UMA VEZ ao montar
     const loadConfig = async () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
@@ -101,35 +98,7 @@ const MerchantOrdersPage = () => {
     loadConfig();
   }, []);
 
-  const handlePrint = useCallback((order: any) => {
-    printReceipt(order, merchantConfig.name, order.customer_full_name || 'Cliente', merchantConfig.printSettings);
-  }, [merchantConfig]);
-
-  const handleAcceptOrder = useCallback(async (order: any, isSilent = false) => {
-    const tid = isSilent ? null : showLoading("Aceitando pedido...");
-    try {
-      const { error } = await supabase
-        .from('orders')
-        .update({ 
-          status: 'PREPARING',
-          merchant_acceptance_deadline: null,
-          logistics_mode: merchantConfig.deliveryMode
-        })
-        .eq('id', order.id);
-      
-      if (error) throw error;
-      
-      if (order.delivery_type === 'delivery' && merchantConfig.deliveryMode === 'APP') {
-        supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } }).catch(() => {});
-      }
-      
-      if (autoPrint) handlePrint(order);
-      if (!isSilent) { dismissToast(tid); showSuccess("Pedido aceito!"); }
-    } catch (err) { 
-      if (!isSilent) { dismissToast(tid); showError("Erro ao aceitar pedido."); } 
-    }
-  }, [merchantConfig, autoPrint, handlePrint]);
-
+  // 2. Função de busca de pedidos (Estável)
   const fetchOrders = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
@@ -174,7 +143,7 @@ const MerchantOrdersPage = () => {
     }
   }, []);
 
-  // Efeito principal de sincronização
+  // 3. Efeito de Realtime e Sincronização
   useEffect(() => {
     fetchOrders();
 
@@ -187,17 +156,54 @@ const MerchantOrdersPage = () => {
       })
       .subscribe();
 
-    const autoDispatchInterval = setInterval(() => {
-        // Tenta despachar pedidos que estão esperando entregador e são da rede do app
-        const pending = orders.filter(o => o.status === 'WAITING_FOR_DRIVER' && o.logistics_mode === 'APP' && !o.current_driver_offered_id);
-        pending.forEach(o => supabase.functions.invoke('dispatch-order', { body: { orderId: o.id } }).catch(() => {}));
-    }, 15000);
-
     return () => {
         supabase.removeChannel(channel);
-        clearInterval(autoDispatchInterval);
     };
-  }, [fetchOrders, orders]); // Adicionado orders como dependência para o interval
+  }, [fetchOrders]); // Removido 'orders' daqui para evitar o loop infinito
+
+  // 4. Efeito para Busca Automática de Entregadores (Intervalo separado)
+  useEffect(() => {
+    const autoDispatchInterval = setInterval(() => {
+        const pending = orders.filter(o => o.status === 'WAITING_FOR_DRIVER' && o.logistics_mode === 'APP' && !o.current_driver_offered_id);
+        if (pending.length > 0) {
+            pending.forEach(o => supabase.functions.invoke('dispatch-order', { body: { orderId: o.id } }).catch(() => {}));
+        }
+    }, 20000);
+
+    return () => clearInterval(autoDispatchInterval);
+  }, [orders]); // Este efeito depende de 'orders', mas não chama fetchOrders, então não há loop
+
+  const handlePrint = useCallback((order: any) => {
+    printReceipt(order, merchantConfig.name, order.customer_full_name || 'Cliente', merchantConfig.printSettings);
+  }, [merchantConfig]);
+
+  const handleAcceptOrder = async (order: any) => {
+    const tid = showLoading("Aceitando pedido...");
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ 
+          status: 'PREPARING',
+          merchant_acceptance_deadline: null,
+          logistics_mode: merchantConfig.deliveryMode
+        })
+        .eq('id', order.id);
+      
+      if (error) throw error;
+      
+      if (order.delivery_type === 'delivery' && merchantConfig.deliveryMode === 'APP') {
+        supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } }).catch(() => {});
+      }
+      
+      if (autoPrint) handlePrint(order);
+      dismissToast(tid); 
+      showSuccess("Pedido aceito!");
+      fetchOrders(true);
+    } catch (err) { 
+      dismissToast(tid); 
+      showError("Erro ao aceitar pedido."); 
+    }
+  };
 
   const handleReadyForShipping = async (order: any) => {
     const tid = showLoading("Atualizando...");
@@ -278,20 +284,22 @@ const MerchantOrdersPage = () => {
 
                 {['READY_FOR_PICKUP', 'WAITING_FOR_DRIVER'].includes(o.status) && (
                   <Dialog>
-                     <DialogTrigger asChild><Button className="w-full bg-green-600 h-10 rounded-xl font-black text-xs uppercase">Validar Código</Button></DialogTrigger>
+                     <DialogTrigger asChild>
+                       <Button className="w-full bg-green-600 h-10 rounded-xl font-black text-xs uppercase">Validar Código</Button>
+                     </DialogTrigger>
                      <DialogContent className="rounded-[2rem] p-8 text-center border-none shadow-2xl">
                          <DialogHeader>
-                             <DialogTitle className="text-xl font-black">Validar Entrega</DialogTitle>
+                             <DialogTitle className="text-xl font-black text-indigo-900">Validar Entrega</DialogTitle>
                              <DialogDescription>Insira o código informado pelo {o.status === 'READY_FOR_PICKUP' ? 'cliente' : 'entregador'}.</DialogDescription>
                          </DialogHeader>
                          <div className="flex justify-center my-4"><OtpInput length={4} value={verificationCode} onChange={setVerificationCode} /></div>
-                         <Button className="w-full h-14 rounded-xl bg-indigo-600 font-bold text-white" onClick={async () => {
+                         <Button className="w-full h-14 rounded-xl bg-indigo-600 font-bold text-white shadow-lg" onClick={async () => {
                              if (verificationCode === o.confirmation_code) {
                                  await supabase.from('orders').update({ status: o.status === 'READY_FOR_PICKUP' ? 'DELIVERED' : 'OUT_FOR_DELIVERY' }).eq('id', o.id);
                                  setVerificationCode("");
-                                 showSuccess("Validado!");
+                                 showSuccess("Validado com sucesso!");
                                  fetchOrders(true);
-                             } else { showError("Incorreto."); }
+                             } else { showError("Código incorreto. Tente novamente."); }
                          }}>Confirmar</Button>
                      </DialogContent>
                   </Dialog>
@@ -329,7 +337,7 @@ const MerchantOrdersPage = () => {
                     const { data } = await supabase.auth.getUser(); 
                     await supabase.from('merchant_applications').update({ is_open: v }).eq('id', data.user?.id); 
                     setIsStoreOpen(v); 
-                    showSuccess(v ? "Aberta!" : "Fechada.");
+                    showSuccess(v ? "Sua loja agora está visível!" : "Sua loja foi fechada.");
                 }} />
             </div>
         </div>
@@ -350,7 +358,7 @@ const MerchantOrdersPage = () => {
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
         <Input 
           placeholder="Busque por cliente ou endereço..." 
-          className="rounded-2xl pl-11 h-12 bg-white border-none shadow-sm" 
+          className="rounded-2xl pl-11 h-12 bg-white border-none shadow-sm focus:ring-2 focus:ring-indigo-100" 
           value={searchTerm} 
           onChange={(e) => setSearchTerm(e.target.value)} 
         />
@@ -359,7 +367,7 @@ const MerchantOrdersPage = () => {
       {loading ? (
         <div className="py-40 text-center space-y-4">
             <Loader2 className="animate-spin h-10 w-10 mx-auto text-indigo-600" />
-            <p className="text-gray-400 font-bold uppercase text-[10px]">Sincronizando...</p>
+            <p className="text-gray-400 font-bold uppercase text-[10px]">Sincronizando pedidos...</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
