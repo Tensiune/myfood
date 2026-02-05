@@ -17,7 +17,8 @@ import {
   Power, 
   User,
   ChevronRight,
-  PhoneCall
+  PhoneCall,
+  UserCheck
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
