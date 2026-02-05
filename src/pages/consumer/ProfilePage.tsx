@@ -5,40 +5,20 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { User, Share2, Star, Mail, Settings, LogOut, MapPin, ArrowRight, AlertCircle } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { User, Share2, Star, Mail, Settings, LogOut, MapPin, ArrowRight, Loader2 } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { useNavigate } from "react-router-dom";
 import AddressManager from "@/components/consumer/AddressManager";
 import RoleSwitcher from "@/components/shared/RoleSwitcher";
+import { useAuth } from "@/context/AuthContext";
 
 const ProfilePage = () => {
   const navigate = useNavigate();
-  const [user, setUser] = React.useState<any>(null);
-  const [error, setError] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-            // Se não houver usuário, o AuthGuard deveria ter redirecionado, mas por segurança:
-            navigate("/login");
-            return;
-        }
-        setUser(user);
-      } catch (e: any) {
-        console.error("Error fetching user in ProfilePage:", e);
-        setError("Erro ao carregar dados do usuário.");
-      }
-    };
-    fetchUser();
-  }, [navigate]);
+  const { user, signOut, loading } = useAuth();
 
   const handleLogout = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      await signOut();
       showSuccess("Deslogado com sucesso!");
       navigate("/login");
     } catch (error: any) {
@@ -46,18 +26,16 @@ const ProfilePage = () => {
     }
   };
   
-  if (error) {
+  if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="w-full max-w-md rounded-xl shadow-lg border-none p-6 text-center space-y-4">
-          <AlertCircle className="h-10 w-10 text-red-500 mx-auto" />
-          <h1 className="text-xl font-bold text-red-800">Erro de Carregamento</h1>
-          <p className="text-gray-600">{error}</p>
-          <Button onClick={() => navigate("/")} className="rounded-xl bg-indigo-600">Voltar</Button>
-        </Card>
+      <div className="min-h-[60vh] flex flex-col items-center justify-center">
+        <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mb-4" />
+        <p className="text-gray-500 font-bold">Carregando seu perfil...</p>
       </div>
     );
   }
+
+  if (!user) return null;
 
   return (
     <div className="space-y-6 pb-20">
@@ -71,7 +49,7 @@ const ProfilePage = () => {
               {user?.email ? user.email.charAt(0).toUpperCase() : <User className="h-12 w-12" />}
             </AvatarFallback>
           </Avatar>
-          <h2 className="text-2xl font-semibold text-gray-800">{user?.email || "Usuário"}</h2>
+          <h2 className="text-2xl font-semibold text-gray-800">{user?.user_metadata?.full_name || user?.email || "Usuário"}</h2>
           <Button variant="outline" className="rounded-full border-indigo-200 text-indigo-600 hover:bg-indigo-50">
             Editar Perfil
           </Button>

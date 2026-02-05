@@ -15,7 +15,7 @@ const InboxPage = () => {
     {
       id: "1",
       name: "Restaurante Sabor",
-      avatar: "https://via.placeholder.com/100/FF6347/FFFFFF?text=S",
+      avatar: "https://placehold.co/100x100/FF6347/FFFFFF?text=S",
       lastMessage: "Seu pedido #1234 já saiu para entrega!",
       time: "10:30",
       unread: 1,
@@ -24,7 +24,7 @@ const InboxPage = () => {
     {
       id: "2",
       name: "João (Entregador)",
-      avatar: "https://via.placeholder.com/100/4682B4/FFFFFF?text=J",
+      avatar: "https://placehold.co/100x100/4682B4/FFFFFF?text=J",
       lastMessage: "Estou chegando no seu endereço, pode descer?",
       time: "Ontem",
       unread: 0,
@@ -33,7 +33,7 @@ const InboxPage = () => {
     {
       id: "3",
       name: "Pizzaria Delícia",
-      avatar: "https://via.placeholder.com/100/FFA500/FFFFFF?text=P",
+      avatar: "https://placehold.co/100x100/FFA500/FFFFFF?text=P",
       lastMessage: "Obrigado pela preferência! Esperamos que goste.",
       time: "2 dias",
       unread: 0,
