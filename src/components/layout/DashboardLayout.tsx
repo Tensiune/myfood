@@ -18,7 +18,8 @@ import {
   DollarSign,
   Loader2,
   History,
-  MessageCircle
+  MessageCircle,
+  Star
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -54,6 +55,7 @@ const DashboardLayout = () => {
     { label: "Histórico de Pedidos", path: "/merchant/history", icon: History },
     { label: "Meu Cardápio", path: "/merchant/menu", icon: Package },
     { label: "Relatórios", path: "/merchant/reports", icon: BarChart3 },
+    { label: "Avaliações", path: "/merchant/ratings", icon: Star }, // NOVO LINK
     { label: "Configurações", path: "/merchant/settings", icon: Settings },
   ];
 

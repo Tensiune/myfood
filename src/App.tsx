@@ -47,6 +47,7 @@ import DeliveryFeesPage from "./pages/admin/DeliveryFeesPage";
 import DeliveryHistoryPage from "./pages/driver/DeliveryHistoryPage";
 import PaymentHistoryPage from "./pages/driver/PaymentHistoryPage";
 import MerchantOrderHistoryPage from "./pages/merchant/MerchantOrderHistoryPage";
+import MerchantRatingsPage from "./pages/merchant/MerchantRatingsPage";
 
 const queryClient = new QueryClient();
 
@@ -96,12 +97,13 @@ const App = () => (
                   <Route element={<DashboardLayout />}>
                     {/* Merchant Routes */}
                     <Route path="/merchant/dashboard" element={<MerchantOrdersPage />} />
+                    <Route path="/merchant/history" element={<MerchantOrderHistoryPage />} />
                     <Route path="/merchant/menu" element={<MerchantMenuPage />} />
                     <Route path="/merchant/reports" element={<MerchantReportsPage />} />
+                    <Route path="/merchant/ratings" element={<MerchantRatingsPage />} />
                     <Route path="/merchant/settings" element={<MerchantSettingsPage />} />
                     <Route path="/merchant/setup" element={<MerchantSetupPage />} />
                     <Route path="/merchant/inbox" element={<MerchantInboxPage />} />
-                    <Route path="/merchant/history" element={<MerchantOrderHistoryPage />} />
                     
                     {/* Admin Routes */}
                     <Route path="/admin/dashboard" element={<AdminDashboard />} />
