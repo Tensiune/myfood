@@ -51,6 +51,8 @@ import MerchantRatingsPage from "./pages/merchant/MerchantRatingsPage";
 import AdminFeesPage from "./pages/admin/AdminFeesPage";
 import StoreManagementPage from "./pages/admin/StoreManagementPage";
 import StoreDetailPage from "./pages/admin/StoreDetailPage";
+import DriverManagementPage from "./pages/admin/DriverManagementPage";
+import DriverDetailPage from "./pages/admin/DriverDetailPage";
 
 const queryClient = new QueryClient();
 
@@ -112,6 +114,8 @@ const App = () => (
                     <Route path="/admin/dashboard" element={<AdminDashboard />} />
                     <Route path="/admin/stores" element={<StoreManagementPage />} />
                     <Route path="/admin/stores/:id" element={<StoreDetailPage />} />
+                    <Route path="/admin/drivers-management" element={<DriverManagementPage />} />
+                    <Route path="/admin/drivers/:id" element={<DriverDetailPage />} />
                     <Route path="/admin/merchants" element={<ValidateMerchantsPage />} />
                     <Route path="/admin/drivers" element={<ValidateDriversPage />} />
                     <Route path="/admin/delivery-fees" element={<DeliveryFeesPage />} />

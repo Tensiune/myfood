@@ -62,7 +62,8 @@ const DashboardLayout = () => {
 
   const adminLinks = [
     { label: "Visão Geral", path: "/admin/dashboard", icon: LayoutDashboard },
-    { label: "Gestão de Lojas", path: "/admin/stores", icon: Store }, // Link solicitado adicionado aqui
+    { label: "Gestão de Lojas", path: "/admin/stores", icon: Store },
+    { label: "Gestão de Entregadores", path: "/admin/drivers-management", icon: Bike }, // Link solicitado adicionado aqui
     { label: "Validar Lojistas", path: "/admin/merchants", icon: ShieldCheck },
     { label: "Validar Entregadores", path: "/admin/drivers", icon: Bike },
     { label: "Valor da Entrega", path: "/admin/delivery-fees", icon: DollarSign },
