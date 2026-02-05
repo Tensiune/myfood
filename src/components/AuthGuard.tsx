@@ -100,7 +100,9 @@ const AuthGuard = () => {
       path === "/select-role" || 
       path === "/checkout" || 
       path.startsWith("/chat") || 
-      path.startsWith("/track");
+      path.startsWith("/track") ||
+      path.startsWith("/profile") || // Adicionado para permitir acesso ao perfil
+      path.startsWith("/inbox");     // Adicionado para permitir acesso à caixa de entrada
 
     if (!path.startsWith(expectedPrefix) && !isSharedRoute && expectedPrefix !== '/') {
         navigate(getRolePath(activeRole!, user));
