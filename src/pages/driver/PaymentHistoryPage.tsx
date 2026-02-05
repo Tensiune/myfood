@@ -38,11 +38,13 @@ const PaymentHistoryPage = () => {
       if (!user) return;
 
       // 1. Fetch all delivered orders to calculate total earnings
+      // Filtra para incluir apenas pedidos com logistics_mode diferente de 'OWN'
       const { data: deliveredOrders, error: orderError } = await supabase
         .from('orders')
         .select('id')
         .eq('driver_id', user.id)
-        .eq('status', 'DELIVERED');
+        .eq('status', 'DELIVERED')
+        .neq('logistics_mode', 'OWN'); // <--- FILTRO ADICIONADO AQUI
 
       if (orderError) throw orderError;
       
