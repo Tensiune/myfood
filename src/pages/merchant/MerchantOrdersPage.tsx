@@ -19,7 +19,9 @@ import {
   CheckCircle2,
   Store,
   ShieldCheck,
-  ChevronDown
+  ChevronDown,
+  Settings2,
+  AlertCircle
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
@@ -36,7 +38,7 @@ import { Input } from "@/components/ui/input";
 import { printReceipt } from "@/utils/print";
 import { useNavigate } from "react-router-dom";
 import { subHours } from "date-fns";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import OrderCardDetails from "@/components/merchant/OrderCardDetails";
 
 interface PrintSettings {
   paperWidth: "80mm" | "58mm";
@@ -58,11 +60,9 @@ const MerchantOrdersPage = () => {
   const navigate = useNavigate();
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
-  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(true);
   const [verificationCode, setVerificationCode] = useState("");
-  const [isVerifying, setIsVerifying] = useState(false);
   
   const [searchTerm, setSearchTerm] = useState("");
   const [showFullDetails, setShowFullDetails] = useState(() => localStorage.getItem('merchant_show_details') === 'true');
@@ -75,7 +75,6 @@ const MerchantOrdersPage = () => {
   const [merchantName, setMerchantName] = useState("Minha Loja");
   const [merchantDeliveryMode, setMerchantDeliveryMode] = useState<'APP' | 'OWN'>('APP');
   const [authorizedEmails, setAuthorizedEmails] = useState<string[]>([]);
-  const [availableFleetDrivers, setAvailableFleetDrivers] = useState<any[]>([]);
   const [printSettings, setPrintSettings] = useState<PrintSettings>(defaultPrintSettings);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -97,32 +96,6 @@ const MerchantOrdersPage = () => {
     printReceipt(order, merchantName, order.customer_full_name || 'Cliente', printSettings);
   }, [merchantName, printSettings]);
 
-  const fetchOnlineFleetDrivers = useCallback(async () => {
-      if (authorizedEmails.length === 0) {
-          setAvailableFleetDrivers([]);
-          return;
-      }
-      try {
-          const { data: drivers } = await supabase
-              .from('driver_applications')
-              .select('id, email, full_name, metadata')
-              .in('email', authorizedEmails)
-              .eq('status', 'APPROVED');
-
-          if (!drivers) return;
-          const { data: locations } = await supabase
-              .from('driver_locations')
-              .select('driver_id')
-              .gte('updated_at', new Date(Date.now() - 10 * 60000).toISOString());
-
-          const activeIds = (locations || []).map(l => l.driver_id);
-          const filtered = drivers.filter(d => activeIds.includes(d.id) && d.metadata?.is_exclusive === true);
-          setAvailableFleetDrivers(filtered);
-      } catch (err) {
-          console.error("Error fetching fleet drivers:", err);
-      }
-  }, [authorizedEmails]);
-
   const handleAcceptOrder = useCallback(async (order: any, isSilent = false) => {
     const tid = isSilent ? null : showLoading("Aceitando pedido...");
     try {
@@ -137,19 +110,24 @@ const MerchantOrdersPage = () => {
         .eq('id', order.id);
       
       if (updateError) throw updateError;
+      
       if (order.delivery_type === 'delivery' && mode === 'APP') {
         await supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } });
       }
-      if (localStorage.getItem('merchant_auto_print') === 'true') handlePrint(order);
+      
+      if (autoPrint) handlePrint(order);
       if (!isSilent) { dismissToast(tid); showSuccess("Pedido aceito!"); }
-    } catch (err) { if (!isSilent) { dismissToast(tid); showError("Erro ao aceitar."); } }
-  }, [handlePrint, merchantDeliveryMode]);
+    } catch (err) { 
+      if (!isSilent) { dismissToast(tid); showError("Erro ao aceitar."); } 
+    }
+  }, [handlePrint, merchantDeliveryMode, autoPrint]);
 
   const fetchOrders = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+
       if (isInitialMount.current) {
         const { data: mData } = await supabase.from('merchant_applications').select('is_open, store_name, metadata').eq('id', user.id).single();
         if (mData) {
@@ -161,22 +139,47 @@ const MerchantOrdersPage = () => {
         }
         isInitialMount.current = false;
       }
+
       const dayAgo = subHours(new Date(), 24).toISOString();
-      const { data: raw, error } = await supabase.from('orders').select('*').eq('merchant_id', user.id).gte('created_at', dayAgo).order('created_at', { ascending: false });
+      const { data: raw, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('merchant_id', user.id)
+        .gte('created_at', dayAgo)
+        .order('created_at', { ascending: false });
+
       if (error) throw error;
+
       const cIds = Array.from(new Set((raw || []).map(o => o.customer_id).filter(Boolean)));
       const { data: profiles } = cIds.length > 0 ? await supabase.from('profiles').select('id, first_name, last_name').in('id', cIds) : { data: [] };
-      setOrders((raw || []).map(o => ({
+
+      const enriched = (raw || []).map(o => {
+        const p = profiles?.find(p => p.id === o.customer_id);
+        const name = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Cliente';
+        
+        // Auto Aceite Lógica
+        if (o.status === 'PENDING' && autoAccept) {
+            handleAcceptOrder(o, true);
+        }
+
+        return {
           ...o,
-          customer_full_name: profiles?.find(p => p.id === o.customer_id) ? `${profiles.find(p => p.id === o.customer_id).first_name} ${profiles.find(p => p.id === o.customer_id).last_name}` : 'Cliente',
+          customer_full_name: name,
           delivery_address: o.delivery_address || {}
-      })));
-    } catch (err: any) { setFetchError(err.message); } finally { if (!isSilent) setLoading(false); }
-  }, []);
+        };
+      });
+
+      setOrders(enriched);
+    } catch (err: any) { 
+        showError("Falha na sincronização.");
+    } finally { 
+        if (!isSilent) setLoading(false); 
+    }
+  }, [autoAccept, handleAcceptOrder]);
 
   useEffect(() => {
     fetchOrders();
-    const chan = supabase.channel(`merchant_orders`).on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+    const chan = supabase.channel(`merchant_orders_realtime`).on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
         if (payload.eventType === 'INSERT') playAlert();
         fetchOrders(true);
     }).subscribe();
@@ -186,79 +189,172 @@ const MerchantOrdersPage = () => {
   const filteredOrders = useMemo(() => {
     if (!searchTerm) return orders;
     const term = searchTerm.toLowerCase();
-    return orders.filter(o => 
-      o.id.toLowerCase().includes(term) || 
-      o.customer_full_name.toLowerCase().includes(term) ||
-      (o.delivery_address?.street || "").toLowerCase().includes(term) ||
-      (o.delivery_address?.number || "").toLowerCase().includes(term)
-    );
+    return orders.filter(o => {
+      const addr = o.delivery_address || {};
+      const shortId = o.id.slice(0, 6).toLowerCase();
+      return o.id.toLowerCase().includes(term) || 
+             shortId.includes(term) ||
+             o.customer_full_name.toLowerCase().includes(term) ||
+             (addr.street || "").toLowerCase().includes(term) ||
+             (addr.number || "").toLowerCase().includes(term);
+    });
   }, [orders, searchTerm]);
+
+  const toggleConfig = (key: string, value: boolean) => {
+    localStorage.setItem(key, value.toString());
+    if (key === 'merchant_show_details') setShowFullDetails(value);
+    if (key === 'merchant_auto_accept') setAutoAccept(value);
+    if (key === 'merchant_auto_print') setAutoPrint(value);
+    showSuccess("Configuração salva!");
+  };
 
   const renderColumn = (title: string, color: string, statusList: string[]) => {
     const data = filteredOrders.filter(o => statusList.includes(o.status));
     return (
-      <div className="space-y-4 flex flex-col min-h-[500px]">
-        <h2 className={cn("font-black text-[10px] uppercase tracking-widest flex items-center gap-2 px-2", color)}>
+      <div className="space-y-4 flex flex-col min-h-[600px] bg-indigo-50/30 p-3 rounded-[2.5rem]">
+        <h2 className={cn("font-black text-[10px] uppercase tracking-widest flex items-center gap-2 px-3 py-2", color)}>
           <span className={cn("h-2 w-2 rounded-full", color.replace('text-', 'bg-'))} />
           {title} ({data.length})
         </h2>
         <div className="space-y-4">
-          {data.map(o => (
-            <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden">
-              <CardContent className="p-5 space-y-4">
-                <div className="flex justify-between">
-                    <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setSelectedOrderDetails(o); setIsDetailsDialogOpen(true); }}><Eye className="h-4 w-4" /></Button>
-                </div>
-                <div>
-                    <p className="text-sm font-bold text-gray-800">{o.customer_full_name}</p>
-                    <p className="text-[10px] text-gray-400 uppercase mt-1 flex items-center gap-1"><Clock className="h-3 w-3" /> {new Date(o.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
-                </div>
-                <div className="bg-gray-50 p-3 rounded-2xl flex items-start gap-2 text-xs text-gray-500">
-                    <MapPin className="h-3.5 w-3.5 text-brand-accent mt-0.5 shrink-0" />
-                    <p className="line-clamp-1">{o.delivery_type === 'pickup' ? 'Retirada' : `${o.delivery_address?.street}, ${o.delivery_address?.number}`}</p>
-                </div>
-                {o.status === 'PENDING' && <Button className="w-full bg-blue-600 rounded-xl" onClick={() => handleAcceptOrder(o)}>Aceitar</Button>}
-                {o.status === 'PREPARING' && <Button className="w-full bg-orange-500 rounded-xl" onClick={() => supabase.from('orders').update({ status: o.delivery_type === 'pickup' ? 'READY_FOR_PICKUP' : 'WAITING_FOR_DRIVER' }).eq('id', o.id)}>Pronto</Button>}
-                {o.status === 'DELIVERED' && <Button variant="outline" className="w-full rounded-xl text-indigo-600" onClick={() => navigate(`/chat/${o.customer_id}?orderId=${o.id}`)}><MessageCircle className="h-4 w-4 mr-2" /> Chat</Button>}
-                {['READY_FOR_PICKUP', 'WAITING_FOR_DRIVER'].includes(o.status) && (
-                   <Dialog>
-                       <DialogTrigger asChild><Button className="w-full bg-green-600 rounded-xl">Validar Código</Button></DialogTrigger>
-                       <DialogContent className="rounded-3xl p-6 space-y-4 text-center">
-                           <DialogHeader><DialogTitle>Validar Código</DialogTitle></DialogHeader>
-                           <OtpInput length={4} value={verificationCode} onChange={setVerificationCode} />
-                           <Button className="w-full h-14" onClick={() => { if(verificationCode === o.confirmation_code) { supabase.from('orders').update({ status: o.status === 'READY_FOR_PICKUP' ? 'DELIVERED' : 'OUT_FOR_DELIVERY' }).eq('id', o.id).then(() => { setVerificationCode(""); fetchOrders(true); }); } else { showError("Incorreto"); } }}>Confirmar</Button>
+          {data.length === 0 ? (
+            <div className="p-10 border-2 border-dashed border-gray-200 rounded-[2rem] text-center text-gray-300 text-[10px] font-black uppercase">Vazio</div>
+          ) : (
+            data.map(o => (
+              <Card key={o.id} className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden hover:shadow-md transition-all">
+                <CardContent className="p-5 space-y-4">
+                  <div className="flex justify-between items-start">
+                      <span className="text-[10px] font-black text-gray-300 bg-gray-50 px-2 py-1 rounded-lg">#{o.id.slice(0, 6)}</span>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-indigo-400" onClick={() => { setSelectedOrderDetails(o); setIsDetailsDialogOpen(true); }}><Eye className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-indigo-400" onClick={() => handlePrint(o)}><Printer className="h-4 w-4" /></Button>
+                      </div>
+                  </div>
+                  <div>
+                      <p className="text-sm font-bold text-gray-800 truncate">{o.customer_full_name}</p>
+                      <p className="text-[10px] text-gray-400 uppercase mt-0.5 flex items-center gap-1"><Clock className="h-3 w-3" /> {new Date(o.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+                  </div>
+
+                  {showFullDetails && <OrderCardDetails order={o} />}
+
+                  {!showFullDetails && (
+                    <div className="bg-gray-50 p-3 rounded-2xl flex items-start gap-2 text-xs text-gray-500">
+                        <MapPin className="h-3.5 w-3.5 text-brand-accent mt-0.5 shrink-0" />
+                        <p className="line-clamp-1">{o.delivery_type === 'pickup' ? 'Retirada no Local' : `${o.delivery_address?.street}, ${o.delivery_address?.number}`}</p>
+                    </div>
+                  )}
+
+                  {o.status === 'PENDING' && (
+                    <div className="space-y-3">
+                        {o.merchant_acceptance_deadline && <AcceptanceTimer deadline={o.merchant_acceptance_deadline} onExpire={() => fetchOrders(true)} />}
+                        <Button className="w-full bg-blue-600 hover:bg-blue-700 h-12 rounded-xl font-black text-xs uppercase" onClick={() => handleAcceptOrder(o)}>Aceitar Pedido</Button>
+                    </div>
+                  )}
+
+                  {o.status === 'PREPARING' && (
+                    <Button className="w-full bg-orange-500 hover:bg-orange-600 h-12 rounded-xl font-black text-xs uppercase" onClick={() => supabase.from('orders').update({ status: o.delivery_type === 'pickup' ? 'READY_FOR_PICKUP' : 'WAITING_FOR_DRIVER' }).eq('id', o.id)}>Pronto para Envio</Button>
+                  )}
+
+                  {['READY_FOR_PICKUP', 'WAITING_FOR_DRIVER'].includes(o.status) && (
+                    <Dialog>
+                       <DialogTrigger asChild><Button className="w-full bg-green-600 h-12 rounded-xl font-black text-xs uppercase">Validar Código</Button></DialogTrigger>
+                       <DialogContent className="rounded-[2.5rem] p-8 space-y-6 text-center border-none shadow-2xl">
+                           <DialogHeader>
+                               <DialogTitle className="text-2xl font-black text-indigo-900">Validar Entrega</DialogTitle>
+                               <DialogDescription>Insira os 4 dígitos informados pelo {o.status === 'READY_FOR_PICKUP' ? 'cliente' : 'entregador'}.</DialogDescription>
+                           </DialogHeader>
+                           <div className="flex justify-center"><OtpInput length={4} value={verificationCode} onChange={setVerificationCode} /></div>
+                           <Button className="w-full h-16 rounded-2xl bg-indigo-600 font-black" onClick={async () => {
+                               if (verificationCode === o.confirmation_code) {
+                                   const newStatus = o.status === 'READY_FOR_PICKUP' ? 'DELIVERED' : 'OUT_FOR_DELIVERY';
+                                   await supabase.from('orders').update({ status: newStatus }).eq('id', o.id);
+                                   setVerificationCode("");
+                                   showSuccess("Validado!");
+                                   fetchOrders(true);
+                               } else {
+                                   showError("Código incorreto.");
+                               }
+                           }}>Confirmar e Finalizar</Button>
                        </DialogContent>
-                   </Dialog>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                    </Dialog>
+                  )}
+
+                  {o.status === 'OUT_FOR_DELIVERY' && (
+                    <div className="space-y-2">
+                        <Badge className="w-full py-2.5 justify-center bg-yellow-50 text-yellow-700 border-none rounded-xl font-bold uppercase text-[10px]">A caminho do cliente</Badge>
+                        <Button variant="outline" className="w-full rounded-xl border-indigo-100 text-indigo-600 text-xs font-bold" onClick={() => navigate(`/chat/${o.driver_id}?orderId=${o.id}`)}><Bike className="h-3.5 w-3.5 mr-2" /> Chat Entregador</Button>
+                    </div>
+                  )}
+
+                  {o.status === 'DELIVERED' && (
+                    <Button variant="outline" className="w-full h-11 rounded-xl border-green-100 text-green-700 text-xs font-black uppercase" onClick={() => navigate(`/chat/${o.customer_id}?orderId=${o.id}`)}>
+                        <MessageCircle className="h-4 w-4 mr-2" /> Falar com Cliente
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ))
+          )}
         </div>
       </div>
     );
   };
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto pb-20">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-        <div>
-            <h1 className="text-3xl font-black text-indigo-900">Painel de Pedidos</h1>
-            <p className="text-gray-500 text-sm">Busque por nome ou endereço para identificar pedidos.</p>
+    <div className="space-y-8 max-w-[1600px] mx-auto pb-20">
+      {/* Header e Status da Loja */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white p-6 rounded-[2.5rem] shadow-sm">
+        <div className="space-y-1">
+            <h1 className="text-3xl font-black text-indigo-900 tracking-tight">{merchantName}</h1>
+            <div className="flex items-center gap-2">
+                <Badge variant="outline" className={cn("rounded-full px-3 py-1 font-black text-[10px] gap-2 border-none", isStoreOpen ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600")}>
+                    <div className={cn("h-2 w-2 rounded-full", isStoreOpen ? "bg-green-500 animate-pulse" : "bg-red-500")} />
+                    LOJA {isStoreOpen ? "ABERTA" : "FECHADA"}
+                </Badge>
+                <Switch checked={isStoreOpen} onCheckedChange={async (v) => { 
+                    const { data } = await supabase.auth.getUser(); 
+                    await supabase.from('merchant_applications').update({ is_open: v }).eq('id', data.user?.id); 
+                    setIsStoreOpen(v); 
+                    showSuccess(v ? "Loja aberta!" : "Loja fechada.");
+                }} />
+            </div>
         </div>
-        <div className="flex items-center gap-2">
-            <div className={cn("h-3 w-3 rounded-full animate-pulse", isStoreOpen ? "bg-green-500" : "bg-red-500")} />
-            <Switch checked={isStoreOpen} onCheckedChange={async (v) => { const { data } = await supabase.auth.getUser(); await supabase.from('merchant_applications').update({ is_open: v }).eq('id', data.user?.id); setIsStoreOpen(v); }} />
+
+        {/* Controles Rápidos - RESTAURADOS */}
+        <div className="flex flex-wrap items-center gap-4 bg-gray-50 p-2 rounded-3xl border border-gray-100">
+            <div className="flex items-center gap-3 px-4 py-2 border-r border-gray-200">
+                <span className="text-[10px] font-black text-gray-400 uppercase">Auto Aceite</span>
+                <Switch checked={autoAccept} onCheckedChange={(v) => toggleConfig('merchant_auto_accept', v)} className="scale-75" />
+            </div>
+            <div className="flex items-center gap-3 px-4 py-2 border-r border-gray-200">
+                <span className="text-[10px] font-black text-gray-400 uppercase">Auto Impressão</span>
+                <Switch checked={autoPrint} onCheckedChange={(v) => toggleConfig('merchant_auto_print', v)} className="scale-75" />
+            </div>
+            <div className="flex items-center gap-3 px-4 py-2">
+                <span className="text-[10px] font-black text-gray-400 uppercase">Ver Detalhes</span>
+                <Switch checked={showFullDetails} onCheckedChange={(v) => toggleConfig('merchant_show_details', v)} className="scale-75" />
+            </div>
         </div>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-300" />
-        <Input placeholder="Buscar por cliente ou endereço..." className="rounded-2xl pl-12 h-14 bg-white border-none shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+      {/* Busca */}
+      <div className="relative group max-w-2xl">
+        <Search className="absolute left-6 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-300 group-focus-within:text-indigo-500 transition-colors" />
+        <Input 
+          placeholder="Busque por cliente, endereço ou #código do pedido..." 
+          className="rounded-[2rem] pl-14 h-16 bg-white border-none shadow-sm text-lg focus:ring-4 focus:ring-indigo-100 transition-all" 
+          value={searchTerm} 
+          onChange={(e) => setSearchTerm(e.target.value)} 
+        />
       </div>
 
-      {loading ? <div className="py-20 text-center"><Loader2 className="animate-spin h-10 w-10 mx-auto text-indigo-600" /></div> : (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 overflow-x-auto pb-4">
+      {loading ? (
+        <div className="py-40 text-center space-y-4">
+            <Loader2 className="animate-spin h-12 w-12 mx-auto text-indigo-600" />
+            <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Sincronizando Pedidos...</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           {renderColumn("Aceitar", "text-blue-600", ["PENDING"])}
           {renderColumn("Preparando", "text-orange-600", ["PREPARING"])}
           {renderColumn("Coleta/Retirada", "text-indigo-600", ["WAITING_FOR_DRIVER", "READY_FOR_PICKUP"])}
@@ -267,19 +363,30 @@ const MerchantOrdersPage = () => {
         </div>
       )}
 
+      {/* Modal de Detalhes Completo */}
       <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
-        <DialogContent className="rounded-3xl sm:max-w-md h-[80vh] flex flex-col p-0 overflow-hidden">
-          <div className="p-6 bg-indigo-900 text-white shrink-0"><h3 className="font-bold">Detalhes</h3></div>
-          <ScrollArea className="flex-1 p-6 bg-white">
+        <DialogContent className="rounded-[2.5rem] sm:max-w-xl h-[85vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
+          <div className="p-8 bg-indigo-900 text-white shrink-0 flex justify-between items-center">
+              <div>
+                <h3 className="text-2xl font-black">Detalhes do Pedido</h3>
+                <p className="text-indigo-300 text-xs font-bold uppercase tracking-widest">Confira os itens e endereço</p>
+              </div>
+              <Button variant="ghost" size="icon" className="text-white/50 hover:text-white" onClick={() => setIsDetailsDialogOpen(false)}><X /></Button>
+          </div>
+          <ScrollArea className="flex-1 p-8 bg-white">
             {selectedOrderDetails && (
-              <div className="space-y-6">
-                <div className="bg-gray-50 p-4 rounded-3xl border border-dashed border-gray-200 flex justify-center">
+              <div className="space-y-8 pb-10">
+                <div className="bg-gray-50 p-6 rounded-[2.5rem] border-2 border-dashed border-gray-200 flex justify-center shadow-inner">
                     <OrderReceipt order={selectedOrderDetails} merchantName={merchantName} customerName={selectedOrderDetails.customer_full_name} printSettings={printSettings} />
                 </div>
-                <div className="space-y-2">
-                    <p className="text-[10px] font-black text-gray-400 uppercase">Ações Rápidas</p>
-                    <Button variant="outline" className="w-full rounded-xl" onClick={() => navigate(`/chat/${selectedOrderDetails.customer_id}?orderId=${selectedOrderDetails.id}`)}><MessageCircle className="h-4 w-4 mr-2" /> Falar com Cliente</Button>
-                    <Button variant="outline" className="w-full rounded-xl" onClick={() => handlePrint(selectedOrderDetails)}><Printer className="h-4 w-4 mr-2" /> Reimprimir Comanda</Button>
+                
+                <div className="grid grid-cols-2 gap-4">
+                    <Button variant="outline" className="h-16 rounded-2xl border-indigo-100 text-indigo-600 font-black gap-3" onClick={() => navigate(`/chat/${selectedOrderDetails.customer_id}?orderId=${selectedOrderDetails.id}`)}>
+                        <MessageCircle className="h-5 w-5" /> CHAT CLIENTE
+                    </Button>
+                    <Button variant="outline" className="h-16 rounded-2xl border-indigo-100 text-indigo-600 font-black gap-3" onClick={() => handlePrint(selectedOrderDetails)}>
+                        <Printer className="h-5 w-5" /> REIMPRIMIR
+                    </Button>
                 </div>
               </div>
             )}
