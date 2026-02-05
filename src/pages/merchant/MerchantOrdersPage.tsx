@@ -42,7 +42,6 @@ import { printReceipt } from "@/utils/print";
 import { useNavigate } from "react-router-dom";
 import { subHours } from "date-fns";
 import OrderCardDetails from "@/components/merchant/OrderCardDetails";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface PrintSettings {
   paperWidth: "80mm" | "58mm";
@@ -87,6 +86,14 @@ const MerchantOrdersPage = () => {
   });
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Refs para usar os valores atuais dentro do listener de realtime (que é uma closure)
+  const autoAcceptRef = useRef(autoAccept);
+  const merchantConfigRef = useRef(merchantConfig);
+
+  useEffect(() => {
+    autoAcceptRef.current = autoAccept;
+    merchantConfigRef.current = merchantConfig;
+  }, [autoAccept, merchantConfig]);
 
   useEffect(() => {
     audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
@@ -104,7 +111,6 @@ const MerchantOrdersPage = () => {
                 authorizedEmails: deliveryArea.authorized_drivers || []
             });
             
-            // Busca nomes dos entregadores autorizados
             if (deliveryArea.authorized_drivers?.length > 0) {
                 const { data: driverProfiles } = await supabase
                     .from('driver_applications')
@@ -116,6 +122,37 @@ const MerchantOrdersPage = () => {
     };
     loadConfig();
   }, []);
+
+  const handlePrint = useCallback((order: any) => {
+    printReceipt(order, merchantConfig.name, order.customer_full_name || 'Cliente', merchantConfig.printSettings);
+  }, [merchantConfig]);
+
+  const handleAcceptOrder = useCallback(async (order: any) => {
+    const tid = showLoading("Aceitando...");
+    try {
+      const mode = merchantConfigRef.current.deliveryMode;
+      const { error } = await supabase.from('orders').update({ 
+          status: 'PREPARING', 
+          merchant_acceptance_deadline: null, 
+          logistics_mode: mode 
+      }).eq('id', order.id);
+
+      if (error) throw error;
+      
+      if (order.delivery_type === 'delivery' && mode === 'APP') {
+        supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } }).catch(() => {});
+      }
+      
+      if (autoPrint) handlePrint(order);
+      
+      dismissToast(tid); 
+      showSuccess("Pedido aceito!");
+      fetchOrders(true);
+    } catch (err) { 
+      dismissToast(tid); 
+      showError("Erro ao aceitar pedido."); 
+    }
+  }, [autoPrint, handlePrint]);
 
   const fetchOrders = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -157,30 +194,18 @@ const MerchantOrdersPage = () => {
     fetchOrders();
     const channel = supabase.channel('merchant_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
-        if (payload.eventType === 'INSERT' && audioRef.current) audioRef.current.play().catch(() => {});
+        if (payload.eventType === 'INSERT') {
+            if (audioRef.current) audioRef.current.play().catch(() => {});
+            // Lógica de Auto Aceite
+            if (autoAcceptRef.current) {
+                handleAcceptOrder(payload.new);
+            }
+        }
         fetchOrders(true);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchOrders]);
-
-  const handlePrint = useCallback((order: any) => {
-    printReceipt(order, merchantConfig.name, order.customer_full_name || 'Cliente', merchantConfig.printSettings);
-  }, [merchantConfig]);
-
-  const handleAcceptOrder = async (order: any) => {
-    const tid = showLoading("Aceitando...");
-    try {
-      const { error } = await supabase.from('orders').update({ status: 'PREPARING', merchant_acceptance_deadline: null, logistics_mode: merchantConfig.deliveryMode }).eq('id', order.id);
-      if (error) throw error;
-      if (order.delivery_type === 'delivery' && merchantConfig.deliveryMode === 'APP') {
-        supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } }).catch(() => {});
-      }
-      if (autoPrint) handlePrint(order);
-      dismissToast(tid); showSuccess("Pedido aceito!");
-      fetchOrders(true);
-    } catch (err) { dismissToast(tid); showError("Erro ao aceitar."); }
-  };
+  }, [fetchOrders, handleAcceptOrder]);
 
   const handleSwitchToAppLogistics = async (orderId: string) => {
     if (!window.confirm("Deseja enviar este pedido para a rede de entregadores do App?")) return;
@@ -200,8 +225,7 @@ const MerchantOrdersPage = () => {
     if (!orderToAssign) return;
     const tid = showLoading("Enviando para entregador...");
     try {
-        // Envia oferta para o entregador próprio (ele aceita no app dele)
-        const expiresAt = new Date(Date.now() + 300 * 1000).toISOString(); // 5 min
+        const expiresAt = new Date(Date.now() + 300 * 1000).toISOString(); 
         const { error } = await supabase.from('orders').update({ 
             current_driver_offered_id: driverId, 
             offer_expires_at: expiresAt,
@@ -255,12 +279,12 @@ const MerchantOrdersPage = () => {
                 {o.delivery_type === 'delivery' && (
                     <div className={cn(
                         "px-2 py-1.5 rounded-lg border flex items-center gap-2",
-                        o.driver_full_name ? "bg-blue-50 border-blue-100 text-blue-700" : "bg-gray-50 border-gray-100 text-gray-400"
+                        (o.driver_full_name || o.logistics_mode === 'OWN' || merchantConfig.deliveryMode === 'OWN') ? "bg-blue-50 border-blue-100 text-blue-700" : "bg-gray-50 border-gray-100 text-gray-400"
                     )}>
                       <Bike className="h-3 w-3" />
                       <span className="text-[9px] font-black uppercase truncate">
                           {o.driver_full_name ? `Entregador: ${o.driver_full_name}` : 
-                           o.logistics_mode === 'OWN' ? "Entregador Próprio" :
+                           (o.logistics_mode === 'OWN' || (o.status === 'PENDING' && merchantConfig.deliveryMode === 'OWN')) ? "Entrega Própria" :
                            o.current_driver_offered_id ? "Aguardando Resposta..." : "Buscando Entregador..."}
                       </span>
                     </div>
@@ -351,6 +375,16 @@ const MerchantOrdersPage = () => {
         </div>
       </div>
 
+      <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-300" />
+          <Input 
+            placeholder="Filtrar pedidos por nome ou ID..." 
+            className="rounded-2xl pl-12 h-14 bg-white border-none shadow-sm focus:ring-2 focus:ring-indigo-100 text-base"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+      </div>
+
       {loading ? (
         <div className="py-40 text-center"><Loader2 className="animate-spin h-10 w-10 mx-auto text-indigo-600" /></div>
       ) : (
@@ -392,9 +426,9 @@ const MerchantOrdersPage = () => {
                         <Printer className="h-4 w-4" /> IMPRIMIR
                     </Button>
 
-                    {selectedOrderDetails.logistics_mode === 'OWN' && ['PREPARING', 'WAITING_FOR_DRIVER'].includes(selectedOrderDetails.status) && (
+                    {(selectedOrderDetails.logistics_mode === 'OWN' || merchantConfig.deliveryMode === 'OWN') && ['PENDING', 'PREPARING', 'WAITING_FOR_DRIVER'].includes(selectedOrderDetails.status) && (
                         <Button className="h-12 rounded-xl bg-brand-accent text-white font-black gap-2 shadow-lg" onClick={() => handleSwitchToAppLogistics(selectedOrderDetails.id)}>
-                            <Zap className="h-4 w-4" /> USAR REDE DO APP
+                            <Zap className="h-4 w-4" /> ENTREGA PELO APP
                         </Button>
                     )}
 
