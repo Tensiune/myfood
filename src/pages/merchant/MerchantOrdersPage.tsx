@@ -112,13 +112,18 @@ const MerchantOrdersPage = () => {
       if (updateError) throw updateError;
       
       if (order.delivery_type === 'delivery' && mode === 'APP') {
-        await supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } });
+        // Ignora erro se a função de despacho falhar (ex: sem entregadores), 
+        // o importante é o pedido ter sido aceito.
+        supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } }).catch(console.error);
       }
       
       if (autoPrint) handlePrint(order);
       if (!isSilent) { dismissToast(tid); showSuccess("Pedido aceito!"); }
-    } catch (err) { 
-      if (!isSilent) { dismissToast(tid); showError("Erro ao aceitar."); } 
+    } catch (err: any) { 
+      if (!isSilent) { 
+          dismissToast(tid); 
+          showError("Erro técnico: " + (err.message || "Tente novamente")); 
+      } 
     }
   }, [handlePrint, merchantDeliveryMode, autoPrint]);
 
@@ -157,7 +162,6 @@ const MerchantOrdersPage = () => {
         const p = profiles?.find(p => p.id === o.customer_id);
         const name = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Cliente';
         
-        // Auto Aceite Lógica
         if (o.status === 'PENDING' && autoAccept) {
             handleAcceptOrder(o, true);
         }
@@ -302,7 +306,6 @@ const MerchantOrdersPage = () => {
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto pb-20">
-      {/* Header e Status da Loja */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white p-6 rounded-[2.5rem] shadow-sm">
         <div className="space-y-1">
             <h1 className="text-3xl font-black text-indigo-900 tracking-tight">{merchantName}</h1>
@@ -320,7 +323,6 @@ const MerchantOrdersPage = () => {
             </div>
         </div>
 
-        {/* Controles Rápidos - RESTAURADOS */}
         <div className="flex flex-wrap items-center gap-4 bg-gray-50 p-2 rounded-3xl border border-gray-100">
             <div className="flex items-center gap-3 px-4 py-2 border-r border-gray-200">
                 <span className="text-[10px] font-black text-gray-400 uppercase">Auto Aceite</span>
@@ -337,7 +339,6 @@ const MerchantOrdersPage = () => {
         </div>
       </div>
 
-      {/* Busca */}
       <div className="relative group max-w-2xl">
         <Search className="absolute left-6 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-300 group-focus-within:text-indigo-500 transition-colors" />
         <Input 
@@ -363,7 +364,6 @@ const MerchantOrdersPage = () => {
         </div>
       )}
 
-      {/* Modal de Detalhes Completo */}
       <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
         <DialogContent className="rounded-[2.5rem] sm:max-w-xl h-[85vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
           <div className="p-8 bg-indigo-900 text-white shrink-0 flex justify-between items-center">
