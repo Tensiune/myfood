@@ -39,8 +39,18 @@ const MerchantPaymentSettingsPage = () => {
         if (!user) return;
 
         // 1. Busca Config Global do Admin
-        const { data: global } = await supabase.from('app_settings').select('*').eq('key', 'global_payment_methods').single();
-        if (global) setGlobalSettings(global.value);
+        const { data: global, error: globalError } = await supabase
+          .from('app_settings')
+          .select('*')
+          .eq('key', 'global_payment_methods')
+          .single();
+        
+        if (global) {
+          setGlobalSettings(global.value);
+        } else if (globalError) {
+          console.warn("Global settings not found, using empty defaults.");
+          setGlobalSettings({ methods: [] });
+        }
 
         // 2. Busca Config da Loja
         const { data: merchant } = await supabase.from('merchant_applications').select('metadata').eq('id', user.id).single();
@@ -48,7 +58,7 @@ const MerchantPaymentSettingsPage = () => {
           setMerchantSettings(merchant.metadata.payment_settings);
         }
       } catch (err) {
-        showError("Erro ao carregar dados.");
+        console.error("Fetch error:", err);
       } finally {
         setLoading(false);
       }
@@ -112,7 +122,18 @@ const MerchantPaymentSettingsPage = () => {
     }
   };
 
-  if (loading || !globalSettings) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-10 w-10 text-indigo-600" /></div>;
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-10 w-10 text-indigo-600" /></div>;
+
+  // Se não houver métodos configurados globalmente, exibe aviso amigável
+  if (!globalSettings || !globalSettings.methods || globalSettings.methods.length === 0) {
+      return (
+          <div className="text-center py-20 space-y-4">
+              <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto" />
+              <h2 className="text-xl font-bold text-indigo-900">Métodos Globais não encontrados</h2>
+              <p className="text-gray-500 max-w-md mx-auto">O administrador da plataforma ainda não configurou os métodos de pagamento aceitos globalmente.</p>
+          </div>
+      );
+  }
 
   const activeGlobalMethods = globalSettings.methods.filter(m => m.enabled);
 
