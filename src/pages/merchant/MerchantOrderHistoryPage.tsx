@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge"; // Corrigido: Importação adicionada
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -13,8 +14,6 @@ import {
   Search, 
   Download, 
   Package,
-  ChevronDown,
-  ChevronUp,
   ReceiptText
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -118,6 +117,19 @@ const MerchantOrderHistoryPage = () => {
     setExpandedOrders(newExpanded);
   };
 
+  const getFriendlyPaymentMethod = (method: string) => {
+    switch (method) {
+        case 'pix': return "App - pix";
+        case 'card_credit_online': return "App - cartão de crédito";
+        case 'card_debit_online': return "App - Cartão de débito";
+        case 'card_credit_delivery': return "Entrega - Cartão crédito";
+        case 'card_debit_delivery': return "Entrega - Cartão de débito";
+        case 'pix_delivery': return "Entrega - Pix";
+        case 'cash_delivery': return "Entrega Dinheiro";
+        default: return method;
+    }
+  };
+
   const handleExport = () => {
     const exportData = filteredOrders.map(o => ({
       "1. Faturamento Total": o.total,
@@ -129,8 +141,8 @@ const MerchantOrderHistoryPage = () => {
       "7. Líquido": (o.total - o.driver_fee_paid - o.merchant_commission - o.payment_processing_fee).toFixed(2),
       "ID Pedido": o.id.slice(0, 8),
       "Data": format(new Date(o.created_at), 'dd/MM/yyyy HH:mm'),
-      "Pagamento": o.payment_method,
-      "Logística": o.logistics_mode,
+      "Pagamento": getFriendlyPaymentMethod(o.payment_method),
+      "Logística": o.logistics_mode === 'OWN' ? "Entregador próprio" : "Rede App",
       "Produtos": o.items.map(i => `${i.quantity}x ${i.name}`).join(', ')
     }));
     exportToExcel(exportData, `Relatorio_Vendas_${format(new Date(), 'dd_MM_yyyy')}`);
@@ -170,7 +182,7 @@ const MerchantOrderHistoryPage = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? <TableRow><TableCell colSpan={7} className="text-center py-20"><Loader2 className="animate-spin h-8 w-8 mx-auto" /></TableCell></TableRow> :
+            {loading ? <TableRow><TableCell colSpan={7} className="text-center py-20"><Loader2 className="animate-spin h-8 w-8 mx-auto text-indigo-600" /></TableCell></TableRow> :
             filteredOrders.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center py-20 text-gray-400 font-medium">Nenhum pedido encontrado.</TableCell></TableRow> :
             filteredOrders.map(o => (
               <React.Fragment key={o.id}>
@@ -224,7 +236,7 @@ const MerchantOrderHistoryPage = () => {
                                 </Badge>
                                 <div className="flex items-center gap-1.5">
                                   <ReceiptText className="h-3 w-3 text-gray-400" />
-                                  <span className="text-[10px] font-bold text-gray-400 uppercase">{o.payment_method.replace(/_/g, ' ')}</span>
+                                  <span className="text-[10px] font-bold text-gray-400 uppercase">{getFriendlyPaymentMethod(o.payment_method)}</span>
                                 </div>
                             </div>
                         </div>

@@ -8,6 +8,7 @@ export type PaymentMethodType =
   | "card_debit_online" 
   | "card_credit_delivery" 
   | "card_debit_delivery" 
+  | "pix_delivery"
   | "cash_delivery";
 
 export interface CreditCard {

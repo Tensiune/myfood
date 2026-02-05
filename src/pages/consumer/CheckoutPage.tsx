@@ -105,6 +105,7 @@ const CheckoutPage = () => {
       case "card_debit_online": return "Cartão de Débito (App)";
       case "card_credit_delivery": return "Cartão de Crédito (Na Entrega)";
       case "card_debit_delivery": return "Cartão de Débito (Na Entrega)";
+      case "pix_delivery": return "PIX (Na Entrega)";
       case "cash_delivery": return "Dinheiro (Na Entrega)";
       default: return "Pagamento";
     }

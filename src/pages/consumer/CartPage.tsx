@@ -95,7 +95,7 @@ const CartPage = () => {
   const discount = getDiscountAmount();
   const total = getTotal() + deliveryFee;
 
-  const isDeliveryPayment = ["card_credit_delivery", "card_debit_delivery", "cash_delivery"].includes(selectedPaymentType);
+  const isDeliveryPayment = ["card_credit_delivery", "card_debit_delivery", "pix_delivery", "cash_delivery"].includes(selectedPaymentType);
 
   return (
     <div className="space-y-8 pb-32 text-gray-800">
@@ -267,6 +267,13 @@ const CartPage = () => {
         <div className="space-y-2">
             <p className="text-xs font-bold text-gray-500 px-1">Pagar na Entrega</p>
             <div className="grid grid-cols-1 gap-2">
+              <button 
+                onClick={() => { setSelectedPaymentType("pix_delivery"); setSelectedCardId(null); }}
+                className={cn("flex items-center justify-between w-full p-5 rounded-2xl border-none bg-white shadow-sm transition-all", selectedPaymentType === "pix_delivery" && "ring-2 ring-brand-accent bg-brand-accent/5")}
+              >
+                <div className="flex items-center gap-4"><div className="p-2 bg-gray-100 rounded-xl"><QrCode className="h-5 w-5 text-gray-400" /></div><span className="font-bold">PIX</span></div>
+                {selectedPaymentType === "pix_delivery" && <Check className="h-5 w-5 text-brand-accent" />}
+              </button>
               <button 
                 onClick={() => { setSelectedPaymentType("card_credit_delivery"); setSelectedCardId(null); }}
                 className={cn("flex items-center justify-between w-full p-5 rounded-2xl border-none bg-white shadow-sm transition-all", selectedPaymentType === "card_credit_delivery" && "ring-2 ring-brand-accent bg-brand-accent/5")}
