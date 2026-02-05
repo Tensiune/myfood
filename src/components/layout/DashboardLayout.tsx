@@ -19,7 +19,8 @@ import {
   Loader2,
   History,
   MessageCircle,
-  Star
+  Star,
+  Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -55,7 +56,7 @@ const DashboardLayout = () => {
     { label: "Histórico de Pedidos", path: "/merchant/history", icon: History },
     { label: "Meu Cardápio", path: "/merchant/menu", icon: Package },
     { label: "Relatórios", path: "/merchant/reports", icon: BarChart3 },
-    { label: "Avaliações", path: "/merchant/ratings", icon: Star }, // NOVO LINK
+    { label: "Avaliações", path: "/merchant/ratings", icon: Star },
     { label: "Configurações", path: "/merchant/settings", icon: Settings },
   ];
 
@@ -64,6 +65,7 @@ const DashboardLayout = () => {
     { label: "Validar Lojistas", path: "/admin/merchants", icon: ShieldCheck },
     { label: "Validar Entregadores", path: "/admin/drivers", icon: Bike },
     { label: "Valor da Entrega", path: "/admin/delivery-fees", icon: DollarSign },
+    { label: "Taxas", path: "/admin/fees", icon: Zap },
     { label: "Usuários", path: "/admin/users", icon: Users },
   ];
 
@@ -146,7 +148,6 @@ const DashboardLayout = () => {
           </Button>
 
           <div className="ml-auto flex items-center gap-4">
-            {/* NOVO: Atalho para Caixa de Mensagens do Lojista */}
             {role === 'MERCHANT' && (
                 <Button 
                   variant="ghost" 

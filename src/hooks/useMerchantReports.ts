@@ -11,6 +11,7 @@ interface Order {
   created_at: string;
   status: string;
   items: any[];
+  payment_method: string;
 }
 
 interface SalesData {
@@ -25,14 +26,14 @@ interface MonthlySales {
 }
 
 interface AnnualComparison {
-  name: string; // Mês
+  name: string;
   currentYear: number;
   lastYear: number;
 }
 
 interface TopProduct {
   name: string;
-  value: number; // Quantidade vendida
+  value: number;
   color: string;
 }
 
@@ -47,19 +48,28 @@ export function useMerchantReports(dateRange?: DateRange) {
   const [salesChartData, setSalesChartData] = useState<SalesData[]>([]);
   const [annualComparisonData, setAnnualComparisonData] = useState<AnnualComparison[]>([]);
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
+  const [config, setConfig] = useState<any>(null);
 
-  const fetchOrders = useCallback(async () => {
+  const fetchConfigAndOrders = useCallback(async () => {
     if (!user?.id) return;
 
     setLoading(true);
     try {
+      // 1. Fetch Tax Config
+      const { data: feeData } = await supabase.from('app_settings').select('*').eq('key', 'platform_fees').single();
+      const platformFees = feeData?.value || {
+          service_fee: { fixed: 0, percent: 10 },
+          payment_fees: { pix: { fixed: 0, percent: 0.99 }, card_credit_online: { fixed: 0.5, percent: 3.99 }, card_debit_online: { fixed: 0.5, percent: 2.5 } }
+      };
+      setConfig(platformFees);
+
+      // 2. Fetch Orders
       let query = supabase
         .from('orders')
-        .select('id, total, created_at, status, items') // Incluindo 'items' para o relatório de produtos
+        .select('id, total, created_at, status, items, payment_method')
         .eq('merchant_id', user.id)
         .in('status', ['DELIVERED', 'OUT_FOR_DELIVERY', 'PREPARING', 'WAITING_FOR_DRIVER']);
 
-      // Filtro de data
       if (dateRange?.from) {
         query = query.gte('created_at', format(dateRange.from, 'yyyy-MM-dd'));
       }
@@ -74,18 +84,18 @@ export function useMerchantReports(dateRange?: DateRange) {
       
       setOrders(data || []);
     } catch (error) {
-      console.error("Error fetching merchant orders for reports:", error);
+      console.error("Error fetching merchant reports:", error);
     } finally {
       setLoading(false);
     }
   }, [user, dateRange]);
 
   useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
+    fetchConfigAndOrders();
+  }, [fetchConfigAndOrders]);
 
   useEffect(() => {
-    if (orders.length === 0) {
+    if (orders.length === 0 || !config) {
       setStats({});
       setSalesChartData([]);
       setAnnualComparisonData([]);
@@ -94,96 +104,83 @@ export function useMerchantReports(dateRange?: DateRange) {
     }
 
     const deliveredOrders = orders.filter(o => o.status === 'DELIVERED');
-    const totalRevenue = deliveredOrders.reduce((sum, o) => sum + o.total, 0);
-    const totalOrders = orders.length;
-    const deliveredCount = deliveredOrders.length;
-    const averageTicket = deliveredCount > 0 ? totalRevenue / deliveredCount : 0;
+    
+    // Cálculo financeiro real baseado nas taxas dinâmicas
+    let totalGrossRevenue = 0;
+    let totalPlatformFees = 0;
+    let totalPaymentFees = 0;
 
-    // Mock de novos clientes (precisaria de lógica de DB mais complexa, mantendo simples)
-    const newCustomers = Math.floor(deliveredCount * 0.1); 
+    deliveredOrders.forEach(order => {
+        totalGrossRevenue += order.total;
+        
+        // 1. Comissão da Plataforma
+        const platformFee = config.service_fee.fixed + (order.total * (config.service_fee.percent / 100));
+        totalPlatformFees += platformFee;
 
-    setStats({
-      totalRevenue: totalRevenue.toFixed(2),
-      totalOrders: totalOrders,
-      averageTicket: averageTicket.toFixed(2),
-      newCustomers: newCustomers,
+        // 2. Taxas de Processamento (apenas online)
+        const payFee = config.payment_fees[order.payment_method];
+        if (payFee) {
+            const processingFee = payFee.fixed + (order.total * (payFee.percent / 100));
+            totalPaymentFees += processingFee;
+        }
     });
 
-    // --- Sales Chart Data (Weekly: Monday to Sunday) ---
+    const netRevenue = totalGrossRevenue - totalPlatformFees - totalPaymentFees;
+    const deliveredCount = deliveredOrders.length;
+    const averageTicket = deliveredCount > 0 ? totalGrossRevenue / deliveredCount : 0;
+
+    setStats({
+      totalRevenue: totalGrossRevenue.toFixed(2),
+      netRevenue: netRevenue.toFixed(2),
+      platformFees: totalPlatformFees.toFixed(2),
+      paymentFees: totalPaymentFees.toFixed(2),
+      totalOrders: orders.length,
+      averageTicket: averageTicket.toFixed(2),
+      newCustomers: Math.floor(deliveredCount * 0.1), 
+    });
+
+    // Chart Data logic stays the same but uses gross revenue
     const today = new Date();
-    // Encontra o início da semana (Segunda-feira)
     const startOfCurrentWeek = startOfWeek(today, { weekStartsOn: 1 }); 
     const weeklySales: SalesData[] = [];
-    
-    // Itera 7 dias a partir da Segunda-feira
     for (let i = 0; i < 7; i++) {
         const date = subDays(startOfCurrentWeek, -i);
-        // Formata o nome do dia (ex: Seg, Ter, etc.)
         const dayName = format(date, 'EEE', { locale: ptBR });
-        
-        const dailyOrders = deliveredOrders.filter(o => 
-            format(new Date(o.created_at), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
-        );
+        const dailyOrders = deliveredOrders.filter(o => format(new Date(o.created_at), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'));
         const dailyRevenue = dailyOrders.reduce((sum, o) => sum + o.total, 0);
-        
         weeklySales.push({ name: dayName, vendas: dailyRevenue });
     }
     setSalesChartData(weeklySales);
 
-
-    // --- Annual Comparison Data (Monthly) ---
+    // Annual Comparison
     const currentYear = getYear(new Date());
     const lastYear = currentYear - 1;
-    
-    const monthlySales: MonthlySales[] = deliveredOrders.map(o => ({
+    const monthlySales = deliveredOrders.map(o => ({
         month: getMonth(new Date(o.created_at)),
         year: getYear(new Date(o.created_at)),
         sales: o.total,
     }));
-
-    const comparisonData: AnnualComparison[] = MONTH_NAMES.map((name, monthIndex) => {
-        const currentYearSales = monthlySales
-            .filter(m => m.year === currentYear && m.month === monthIndex)
-            .reduce((sum, m) => sum + m.sales, 0);
-            
-        const lastYearSales = monthlySales
-            .filter(m => m.year === lastYear && m.month === monthIndex)
-            .reduce((sum, m) => sum + m.sales, 0);
-
-        return {
-            name,
-            currentYear: currentYearSales,
-            lastYear: lastYearSales,
-        };
-    });
-    
+    const comparisonData = MONTH_NAMES.map((name, monthIndex) => ({
+        name,
+        currentYear: monthlySales.filter(m => m.year === currentYear && m.month === monthIndex).reduce((sum, m) => sum + m.sales, 0),
+        lastYear: monthlySales.filter(m => m.year === lastYear && m.month === monthIndex).reduce((sum, m) => sum + m.sales, 0),
+    }));
     setAnnualComparisonData(comparisonData);
     
-    // --- Top Products Data (Top 10) ---
+    // Top Products
     const productCounts = new Map<string, number>();
     deliveredOrders.forEach(order => {
-        // Garantir que 'items' é um array e iterar sobre ele
         if (Array.isArray(order.items)) {
             order.items.forEach(item => {
-                const name = item.name;
-                const quantity = item.quantity;
-                productCounts.set(name, (productCounts.get(name) || 0) + quantity);
+                productCounts.set(item.name, (productCounts.get(item.name) || 0) + item.quantity);
             });
         }
     });
-    
-    const sortedProducts = Array.from(productCounts.entries())
-        .sort(([, countA], [, countB]) => countB - countA)
-        .slice(0, 10)
-        .map(([name, value], index) => ({
-            name,
-            value,
-            color: COLORS[index % COLORS.length]
-        }));
-        
-    setTopProducts(sortedProducts);
+    setTopProducts(Array.from(productCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, value], index) => ({
+        name, value, color: COLORS[index % COLORS.length]
+    })));
 
-  }, [orders]);
+  }, [orders, config]);
 
   return { loading, stats, salesChartData, annualComparisonData, topProducts };
 }

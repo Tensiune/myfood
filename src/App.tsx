@@ -48,6 +48,7 @@ import DeliveryHistoryPage from "./pages/driver/DeliveryHistoryPage";
 import PaymentHistoryPage from "./pages/driver/PaymentHistoryPage";
 import MerchantOrderHistoryPage from "./pages/merchant/MerchantOrderHistoryPage";
 import MerchantRatingsPage from "./pages/merchant/MerchantRatingsPage";
+import AdminFeesPage from "./pages/admin/AdminFeesPage";
 
 const queryClient = new QueryClient();
 
@@ -110,6 +111,7 @@ const App = () => (
                     <Route path="/admin/merchants" element={<ValidateMerchantsPage />} />
                     <Route path="/admin/drivers" element={<ValidateDriversPage />} />
                     <Route path="/admin/delivery-fees" element={<DeliveryFeesPage />} />
+                    <Route path="/admin/fees" element={<AdminFeesPage />} />
                     <Route path="/admin/users" element={<PlaceholderPage title="Gestão de Usuários" />} />
                   </Route>
 
