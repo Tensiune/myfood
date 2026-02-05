@@ -24,7 +24,14 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import AcceptanceTimer from "@/components/merchant/AcceptanceTimer";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogDescription, 
+  DialogTrigger 
+} from "@/components/ui/dialog";
 import { OtpInput } from "@/components/shared/OtpInput";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import OrderReceipt from "@/components/merchant/OrderReceipt";
@@ -190,7 +197,7 @@ const MerchantOrdersPage = () => {
         supabase.removeChannel(channel);
         clearInterval(autoDispatchInterval);
     };
-  }, [fetchOrders]); // Agora fetchOrders é estável pois loadConfig é separado
+  }, [fetchOrders, orders]); // Adicionado orders como dependência para o interval
 
   const handleReadyForShipping = async (order: any) => {
     const tid = showLoading("Atualizando...");
@@ -272,13 +279,13 @@ const MerchantOrdersPage = () => {
                 {['READY_FOR_PICKUP', 'WAITING_FOR_DRIVER'].includes(o.status) && (
                   <Dialog>
                      <DialogTrigger asChild><Button className="w-full bg-green-600 h-10 rounded-xl font-black text-xs uppercase">Validar Código</Button></DialogTrigger>
-                     <DialogContent className="rounded-[2rem] p-8 text-center">
+                     <DialogContent className="rounded-[2rem] p-8 text-center border-none shadow-2xl">
                          <DialogHeader>
-                             <DialogTitle>Validar Entrega</DialogTitle>
+                             <DialogTitle className="text-xl font-black">Validar Entrega</DialogTitle>
                              <DialogDescription>Insira o código informado pelo {o.status === 'READY_FOR_PICKUP' ? 'cliente' : 'entregador'}.</DialogDescription>
                          </DialogHeader>
                          <div className="flex justify-center my-4"><OtpInput length={4} value={verificationCode} onChange={setVerificationCode} /></div>
-                         <Button className="w-full h-14 rounded-xl bg-indigo-600 font-bold" onClick={async () => {
+                         <Button className="w-full h-14 rounded-xl bg-indigo-600 font-bold text-white" onClick={async () => {
                              if (verificationCode === o.confirmation_code) {
                                  await supabase.from('orders').update({ status: o.status === 'READY_FOR_PICKUP' ? 'DELIVERED' : 'OUT_FOR_DELIVERY' }).eq('id', o.id);
                                  setVerificationCode("");
