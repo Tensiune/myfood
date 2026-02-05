@@ -9,10 +9,7 @@ import { useAuth } from "@/context/AuthContext";
 
 const getAvailableRoles = (user: User): UserRole[] => {
     const roles: UserRole[] = ['CONSUMER'];
-    
-    // Verifica primeiro o app_metadata (Seguro/Admin)
     const appRole = user.app_metadata?.role;
-    // Verifica o user_metadata (Cadastro inicial)
     const metaRole = user.user_metadata?.role;
 
     if (appRole === 'ADMIN' || metaRole === 'ADMIN') roles.push('ADMIN');
@@ -27,7 +24,6 @@ const getRolePrefix = (role: UserRole) => {
       case 'MERCHANT': return '/merchant';
       case 'DRIVER': return '/driver';
       case 'ADMIN': return '/admin';
-      case 'CONSUMER': return '/';
       default: return '/';
     }
 };
@@ -51,9 +47,11 @@ const AuthGuard = () => {
   useEffect(() => {
     if (authLoading) return;
 
+    const path = location.pathname;
+
     if (!session || !user) {
       const publicPaths = ["/login", "/register", "/forgot-password", "/reset-password"];
-      const isPublicPath = publicPaths.some(path => location.pathname.startsWith(path)) || location.pathname.includes("-register");
+      const isPublicPath = publicPaths.some(p => path.startsWith(p)) || path.includes("-register");
       
       if (!isPublicPath) {
         navigate("/login");
@@ -62,68 +60,57 @@ const AuthGuard = () => {
     }
 
     const availableRoles = getAvailableRoles(user);
-    const activeRoleFromStorage = localStorage.getItem('active_role') as UserRole | null;
-    const path = location.pathname;
+    const activeRole = (localStorage.getItem('active_role') as UserRole) || 'CONSUMER';
     
-    let activeRole = activeRoleFromStorage;
-    
-    if (!activeRole || !availableRoles.includes(activeRole)) {
-        const professionalRoles = availableRoles.filter(r => r !== 'CONSUMER');
-        if (professionalRoles.length === 1) {
-            activeRole = professionalRoles[0];
-            localStorage.setItem('active_role', activeRole);
-        } else if (professionalRoles.length > 1) {
-            if (path !== "/select-role") {
-                navigate("/select-role");
-                return;
-            }
-        } else {
-            activeRole = 'CONSUMER';
-            localStorage.setItem('active_role', 'CONSUMER');
-        }
+    // Se o papel ativo não for permitido para este usuário, redefine para o primeiro disponível
+    if (!availableRoles.includes(activeRole)) {
+        localStorage.setItem('active_role', availableRoles[0]);
+        navigate(getRolePath(availableRoles[0], user));
+        return;
     }
-    
-    const expectedPrefix = getRolePrefix(activeRole!);
+
     const status = user.user_metadata?.status;
     
+    // Bloqueia acesso se estiver em setup
     if (activeRole === 'MERCHANT' && status === 'NEEDS_SETUP' && path !== "/merchant/setup") {
         navigate("/merchant/setup");
         return;
     }
-
     if (activeRole === 'DRIVER' && status === 'NEEDS_SETUP' && path !== "/driver/setup") {
         navigate("/driver/setup");
         return;
     }
-    
+
+    // Rotas compartilhadas por todos os perfis logados
     const isSharedRoute = 
       path === "/select-role" || 
       path === "/checkout" || 
       path.startsWith("/chat") || 
       path.startsWith("/track") ||
-      path.startsWith("/profile") || // Adicionado para permitir acesso ao perfil
-      path.startsWith("/inbox");     // Adicionado para permitir acesso à caixa de entrada
+      path.startsWith("/profile") || 
+      path.startsWith("/inbox");
 
-    if (!path.startsWith(expectedPrefix) && !isSharedRoute && expectedPrefix !== '/') {
-        navigate(getRolePath(activeRole!, user));
-        return;
+    if (isSharedRoute) return;
+
+    const expectedPrefix = getRolePrefix(activeRole);
+    
+    // Regra de prefixo: Se estou num prefixo errado para meu papel ativo, redireciona
+    if (expectedPrefix !== '/' && !path.startsWith(expectedPrefix)) {
+        navigate(getRolePath(activeRole, user));
     }
     
+    // Se estou na home mas meu papel não é consumidor, vai para o dashboard do papel
     if (path === "/" && activeRole !== 'CONSUMER') {
-        navigate(getRolePath(activeRole!, user));
-        return;
+        navigate(getRolePath(activeRole, user));
     }
+
   }, [session, user, authLoading, location.pathname, navigate]);
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4 space-y-4">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 space-y-4">
         <Skeleton className="h-12 w-3/4 rounded-lg" />
         <Skeleton className="h-8 w-1/2 rounded-lg" />
-        <div className="grid grid-cols-2 gap-4 w-full max-w-md">
-          <Skeleton className="h-24 rounded-xl" />
-          <Skeleton className="h-24 rounded-xl" />
-        </div>
       </div>
     );
   }

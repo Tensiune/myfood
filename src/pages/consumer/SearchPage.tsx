@@ -22,7 +22,6 @@ const SearchPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterRating, setFilterRating] = useState("all");
-  const [filterDeliveryTime, setFilterDeliveryTime] = useState("all");
   const [allMerchants, setAllMerchants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { selectedAddress } = useAddresses();
@@ -30,7 +29,6 @@ const SearchPage = () => {
   const fetchMerchants = useCallback(async () => {
     setLoading(true);
     try {
-      // Busca todos os lojistas APROVADOS
       const { data, error } = await supabase
         .from('merchant_applications')
         .select('*')
@@ -44,22 +42,19 @@ const SearchPage = () => {
         const deliveryArea = meta.delivery_area || { radius: 5, exclusionZones: [] };
         
         const addr = storeDetails.address || meta.address || {};
-        const lat = parseFloat(addr.lat);
-        const lng = parseFloat(addr.lng);
+        const lat = parseFloat(addr.lat) || 0;
+        const lng = parseFloat(addr.lng) || 0;
 
         return {
           id: m.id,
           name: m.store_name || storeDetails.name || "Loja Parceira",
           cuisine: meta.category || "Restaurante",
-          imageUrl: storeDetails.imageUrl || "https://via.placeholder.com/400x200/indigo/FFFFFF?text=" + encodeURIComponent(m.store_name || "Loja"),
+          imageUrl: storeDetails.imageUrl || `https://placehold.co/400x200/6366f1/ffffff?text=${encodeURIComponent(m.store_name || "Loja")}`,
           rating: 4.5,
           deliveryTime: "30-45 min",
           category: meta.category || "Restaurantes",
           is_open: m.is_open ?? false,
-          location: { 
-            lat: isNaN(lat) ? 0 : lat, 
-            lng: isNaN(lng) ? 0 : lng 
-          },
+          location: { lat, lng },
           logistics: { 
             radius: parseFloat(deliveryArea.radius) || 5, 
             exclusionZones: Array.isArray(deliveryArea.exclusionZones) ? deliveryArea.exclusionZones : [] 
@@ -85,48 +80,32 @@ const SearchPage = () => {
     const customerLng = selectedAddress?.lng;
 
     return allMerchants.filter((restaurant) => {
-      try {
-        // 1. Filtragem por localização
-        if (customerLat != null && customerLng != null) {
-          if (restaurant.location.lat === 0 || restaurant.location.lng === 0) return false;
-          
-          const canDeliverToAddress = canDeliver(
-            customerLat, 
-            customerLng, 
-            restaurant.location.lat, 
-            restaurant.location.lng, 
-            restaurant.logistics.radius, 
-            restaurant.logistics.exclusionZones
-          );
-          if (!canDeliverToAddress) return false;
-        }
-
-        // 2. Filtragem por termo de busca
-        const matchesSearchTerm = restaurant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                  restaurant.cuisine.toLowerCase().includes(searchTerm.toLowerCase());
-        if (!matchesSearchTerm) return false;
-        
-        // 3. Filtragem por categoria
-        const matchesCategory = filterCategory === "all" || 
-                                restaurant.category.toLowerCase() === filterCategory.toLowerCase();
-        if (!matchesCategory) return false;
-        
-        // 4. Filtragem por avaliação
-        const matchesRating = filterRating === "all" || restaurant.rating >= parseFloat(filterRating);
-        if (!matchesRating) return false;
-
-        return true;
-      } catch (e) {
-        console.error("Erro ao filtrar restaurante:", restaurant.name, e);
-        return false;
+      if (customerLat != null && customerLng != null) {
+        const canDeliverToAddress = canDeliver(
+          customerLat, 
+          customerLng, 
+          restaurant.location.lat, 
+          restaurant.location.lng, 
+          restaurant.logistics.radius, 
+          restaurant.logistics.exclusionZones
+        );
+        if (!canDeliverToAddress) return false;
       }
+
+      const matchesSearchTerm = restaurant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                restaurant.cuisine.toLowerCase().includes(searchTerm.toLowerCase());
+      if (!matchesSearchTerm) return false;
+      
+      const matchesCategory = filterCategory === "all" || 
+                              restaurant.category.toLowerCase() === filterCategory.toLowerCase();
+      if (!matchesCategory) return false;
+      
+      const matchesRating = filterRating === "all" || restaurant.rating >= parseFloat(filterRating);
+      if (!matchesRating) return false;
+
+      return true;
     });
   }, [allMerchants, searchTerm, filterCategory, filterRating, selectedAddress]);
-
-  const uniqueCategories = useMemo(() => {
-    const cats = allMerchants.map(m => m.category).filter(Boolean);
-    return Array.from(new Set(cats));
-  }, [allMerchants]);
 
   if (loading) {
     return (
@@ -179,19 +158,18 @@ const SearchPage = () => {
                     <RadioGroupItem value="all" id="category-all" />
                     <Label htmlFor="category-all">Todas</Label>
                   </div>
-                  {uniqueCategories.map(cat => (
+                  {/* Categorias fixas para exemplo */}
+                  {["Lanches", "Pizza", "Japonesa", "Brasileira"].map(cat => (
                     <div key={cat} className="flex items-center space-x-2">
                       <RadioGroupItem value={cat} id={`category-${cat}`} />
-                      <Label htmlFor={`category-${cat}`} className="capitalize">{cat}</Label>
+                      <Label htmlFor={`category-${cat}`}>{cat}</Label>
                     </div>
                   ))}
                 </RadioGroup>
               </div>
-
               <Separator />
-
               <div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">Avaliação Mínima</h3>
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Avaliação</h3>
                 <RadioGroup value={filterRating} onValueChange={setFilterRating} className="space-y-2">
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="all" id="rating-all" />
@@ -199,11 +177,7 @@ const SearchPage = () => {
                   </div>
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="4.5" id="rating-4.5" />
-                    <Label htmlFor="rating-4.5">4.5+ <Star className="inline-block h-4 w-4 ml-1 text-yellow-500 fill-yellow-500" /></Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="4.0" id="rating-4.0" />
-                    <Label htmlFor="rating-4.0">4.0+ <Star className="inline-block h-4 w-4 ml-1 text-yellow-500 fill-yellow-500" /></Label>
+                    <Label htmlFor="rating-4.5">4.5+ <Star className="inline h-4 w-4 ml-1 fill-yellow-500 text-yellow-500" /></Label>
                   </div>
                 </RadioGroup>
               </div>
@@ -213,7 +187,7 @@ const SearchPage = () => {
       </div>
 
       <section className="space-y-4">
-        <h2 className="text-2xl font-semibold text-indigo-700">Resultados da Busca</h2>
+        <h2 className="text-2xl font-semibold text-indigo-700">Resultados</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredRestaurants.length > 0 ? (
             filteredRestaurants.map((restaurant) => (
@@ -227,14 +201,12 @@ const SearchPage = () => {
                   deliveryTime={restaurant.deliveryTime}
                 />
                 {!restaurant.is_open && (
-                  <Badge className="mt-1 bg-red-500 text-white rounded-full text-xs font-bold w-full justify-center">
-                    Fechado
-                  </Badge>
+                  <Badge className="mt-1 bg-red-500 text-white rounded-full text-xs font-bold w-full justify-center">Fechado</Badge>
                 )}
               </div>
             ))
           ) : (
-            <p className="text-center text-gray-600 col-span-full">Nenhum estabelecimento encontrado com os filtros aplicados.</p>
+            <p className="text-center text-gray-600 col-span-full">Nenhum estabelecimento encontrado.</p>
           )}
         </div>
       </section>

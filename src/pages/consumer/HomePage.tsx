@@ -31,7 +31,6 @@ const HomePage = () => {
     const fetchApprovedAndOpenMerchants = async () => {
       setLoading(true);
       try {
-        // Agora filtramos apenas por lojas APROVADAS e ABERTAS
         const { data, error } = await supabase
           .from('merchant_applications')
           .select('*')
@@ -46,7 +45,6 @@ const HomePage = () => {
           const deliveryArea = meta.delivery_area || { radius: 5, exclusionZones: [] };
           const addr = storeDetails.address || meta.address || {};
           
-          // Garante que lat/lng sejam números válidos, usando fallback para 0 se necessário
           const lat = parseFloat(addr.lat) || 0;
           const lng = parseFloat(addr.lng) || 0;
 
@@ -54,13 +52,10 @@ const HomePage = () => {
             id: m.id,
             name: m.store_name || storeDetails.name || "Loja",
             cuisine: meta.category || "Restaurante",
-            imageUrl: storeDetails.imageUrl || "https://via.placeholder.com/400x200/indigo/FFFFFF?text=" + encodeURIComponent(m.store_name || "Loja"),
+            imageUrl: storeDetails.imageUrl || `https://placehold.co/400x200/6366f1/ffffff?text=${encodeURIComponent(m.store_name || "Loja")}`,
             rating: 5.0,
             deliveryTime: "30-45 min",
-            location: { 
-              lat: isNaN(lat) ? 0 : lat, 
-              lng: isNaN(lng) ? 0 : lng 
-            },
+            location: { lat, lng },
             logistics: { 
               radius: deliveryArea.radius || 5, 
               exclusionZones: deliveryArea.exclusionZones || [] 
@@ -79,7 +74,6 @@ const HomePage = () => {
     fetchApprovedAndOpenMerchants();
   }, []);
 
-  // Filtragem baseada em localização
   const availableRestaurants = useMemo(() => {
     const customerLat = selectedAddress?.lat;
     const customerLng = selectedAddress?.lng;
@@ -88,8 +82,8 @@ const HomePage = () => {
 
     return restaurants.filter(rest => 
       canDeliver(
-        customerLat!, 
-        customerLng!, 
+        customerLat, 
+        customerLng, 
         rest.location.lat, 
         rest.location.lng, 
         rest.logistics.radius, 
@@ -125,17 +119,15 @@ const HomePage = () => {
 
       <section className="space-y-4">
         <h2 className="text-2xl font-semibold text-indigo-700">Categorias</h2>
-        {/* Removendo padding do container e ajustando o carrossel para usar margens negativas para o conteúdo */}
         <div className="relative"> 
           <Carousel opts={{ align: "start" }} className="w-full max-w-full mx-auto">
-            <CarouselContent className="-ml-4"> {/* Aumentando a margem negativa para compensar o padding dos itens */}
+            <CarouselContent className="-ml-4">
               {categories.map((category, index) => (
                 <CarouselItem key={index} className="pl-4 basis-1/3 sm:basis-1/4 md:basis-1/5 lg:basis-1/6">
                   <CategoryCard name={category.name} Icon={category.Icon} />
                 </CarouselItem>
               ))}
             </CarouselContent>
-            {/* Posicionando os botões nas laterais, garantindo que não sobreponham o conteúdo clicável */}
             <CarouselPrevious className="absolute left-0 top-1/2 -translate-y-1/2 z-10 hidden sm:flex" />
             <CarouselNext className="absolute right-0 top-1/2 -translate-y-1/2 z-10 hidden sm:flex" />
           </Carousel>
