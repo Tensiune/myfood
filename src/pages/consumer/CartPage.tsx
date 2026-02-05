@@ -41,12 +41,11 @@ const DELIVERY_FEE = 5.0;
 const CartPage = () => {
   const { items, updateQuantity, removeItem, getTotal, getDiscountAmount, appliedCoupon, applyCoupon, removeCoupon, deliveryType, setDeliveryType, restaurantId } = useCart();
   const { selectedAddress } = useAddresses();
-  const { savedCards, selectedPaymentType, setSelectedPaymentType, selectedCardId, setSelectedCardId } = usePayment();
+  const { savedCards, selectedPaymentType, setSelectedPaymentType, selectedCardId, setSelectedCardId, selectedFlagId, setSelectedFlagId } = usePayment();
   const navigate = useNavigate();
   
   const [isAddressSheetOpen, setIsAddressSheetOpen] = useState(false);
   const [isCardSheetOpen, setIsCardSheetOpen] = useState(false);
-  const [couponInput, setCouponInput] = useState("");
   const [loadingConfig, setLoadingConfig] = useState(true);
   
   const [availableMethods, setAvailableMethods] = useState<any[]>([]);
@@ -59,36 +58,31 @@ const CartPage = () => {
         return;
       }
       try {
-        // 1. Busca Config Global
         const { data: globalData } = await supabase.from('app_settings').select('value').eq('key', 'global_payment_methods').single();
         const global: GlobalPaymentSettings = globalData?.value || { methods: [] };
 
-        // 2. Busca Config da Loja
         const { data: merchantData } = await supabase.from('merchant_applications').select('metadata').eq('id', restaurantId).single();
         const merchantMeta = merchantData?.metadata || {};
         const merchantPay: MerchantPaymentSettings = merchantMeta.payment_settings || { enabledMethods: [], enabledFlags: {} };
         
         setAllowsPickup(merchantMeta.delivery_area?.allows_pickup !== false);
 
-        // 3. Filtra Métodos (Ativos no Global AND Ativos na Loja)
         const finalMethods = global.methods
             .filter(m => m.enabled && merchantPay.enabledMethods.includes(m.id))
             .map(m => {
-                // Filtra bandeiras da loja baseada no global
                 if (m.requiresFlag) {
                     const storeFlagIds = merchantPay.enabledFlags[m.id] || [];
                     return { ...m, flags: m.flags?.filter(f => storeFlagIds.includes(f.id)) };
                 }
                 return m;
             })
-            // Remove métodos que exigem bandeira mas a loja não habilitou nenhuma
             .filter(m => !m.requiresFlag || (m.flags && m.flags.length > 0));
 
         setAvailableMethods(finalMethods);
         
-        // Se o método selecionado anteriormente não está mais disponível, reseta para o primeiro
         if (finalMethods.length > 0 && !finalMethods.find(m => m.id === selectedPaymentType)) {
             setSelectedPaymentType(finalMethods[0].id);
+            setSelectedFlagId(null);
         }
 
       } catch (err) {
@@ -98,7 +92,7 @@ const CartPage = () => {
       }
     };
     fetchConfigs();
-  }, [restaurantId, selectedPaymentType, setSelectedPaymentType]);
+  }, [restaurantId, selectedPaymentType, setSelectedPaymentType, setSelectedFlagId]);
 
   if (items.length === 0) {
     return (
@@ -117,7 +111,16 @@ const CartPage = () => {
   const deliveryFee = deliveryType === "delivery" ? DELIVERY_FEE : 0;
   const total = subtotal - discount + deliveryFee;
 
-  const isOfflinePayment = availableMethods.find(m => m.id === selectedPaymentType)?.category === 'delivery';
+  const selectedMethodObj = availableMethods.find(m => m.id === selectedPaymentType);
+  const isOfflinePayment = selectedMethodObj?.category === 'delivery';
+
+  const handleCheckout = () => {
+    if (selectedMethodObj?.requiresFlag && !selectedFlagId) {
+        showError("Por favor, selecione a bandeira do seu cartão.");
+        return;
+    }
+    navigate("/checkout");
+  };
 
   return (
     <div className="space-y-8 pb-32 text-gray-800">
@@ -126,7 +129,6 @@ const CartPage = () => {
         <h1 className="text-2xl font-black text-indigo-900 tracking-tight">Carrinho</h1>
       </div>
 
-      {/* Tipo de Entrega */}
       <section className="space-y-3">
         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Como você quer receber?</p>
         <div className="grid grid-cols-2 gap-3">
@@ -155,7 +157,6 @@ const CartPage = () => {
         </div>
       </section>
 
-      {/* Endereço */}
       {deliveryType === "delivery" && (
         <Card className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden">
           <Sheet open={isAddressSheetOpen} onOpenChange={setIsAddressSheetOpen}>
@@ -176,7 +177,6 @@ const CartPage = () => {
         </Card>
       )}
 
-      {/* Itens */}
       <div className="space-y-4">
         {items.map(item => (
           <div key={item.id} className="flex gap-4 p-4 bg-white rounded-3xl border-none shadow-sm">
@@ -199,7 +199,6 @@ const CartPage = () => {
         ))}
       </div>
 
-      {/* PAGAMENTO DINÂMICO */}
       <section className="space-y-4">
         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Como pagar?</p>
         
@@ -207,7 +206,6 @@ const CartPage = () => {
             <div className="flex justify-center p-6"><Loader2 className="animate-spin text-indigo-600" /></div>
         ) : (
             <div className="space-y-6">
-                {/* GRUPO APP */}
                 {availableMethods.some(m => m.category === 'app') && (
                     <div className="space-y-2">
                         <p className="text-xs font-bold text-indigo-900 px-1">Pelo Aplicativo (Online)</p>
@@ -216,7 +214,7 @@ const CartPage = () => {
                                 return savedCards.filter(c => (method.id === 'card_credit_online' ? c.type === 'credit' : c.type === 'debit')).map(card => (
                                     <button 
                                       key={card.id}
-                                      onClick={() => { setSelectedPaymentType(method.id as any); setSelectedCardId(card.id); }}
+                                      onClick={() => { setSelectedPaymentType(method.id as any); setSelectedCardId(card.id); setSelectedFlagId(null); }}
                                       className={cn("flex items-center justify-between w-full p-5 rounded-2xl bg-white shadow-sm transition-all", (selectedPaymentType === method.id && selectedCardId === card.id) && "ring-2 ring-brand-accent bg-brand-accent/5")}
                                     >
                                       <div className="flex items-center gap-4">
@@ -230,7 +228,7 @@ const CartPage = () => {
                             return (
                                 <button 
                                   key={method.id}
-                                  onClick={() => { setSelectedPaymentType(method.id as any); setSelectedCardId(null); }}
+                                  onClick={() => { setSelectedPaymentType(method.id as any); setSelectedCardId(null); setSelectedFlagId(null); }}
                                   className={cn("flex items-center justify-between w-full p-5 rounded-2xl bg-white shadow-sm transition-all", (selectedPaymentType === method.id && !selectedCardId) && "ring-2 ring-brand-accent bg-brand-accent/5")}
                                 >
                                   <div className="flex items-center gap-4">
@@ -254,30 +252,48 @@ const CartPage = () => {
                     </div>
                 )}
 
-                {/* GRUPO ENTREGA */}
                 {availableMethods.some(m => m.category === 'delivery') && (
-                    <div className="space-y-2">
+                    <div className="space-y-4">
                         <p className="text-xs font-bold text-gray-500 px-1">Pagar na Entrega (Maquininha/Dinheiro)</p>
-                        {availableMethods.filter(m => m.category === 'delivery').map(method => (
-                            <button 
-                                key={method.id}
-                                onClick={() => { setSelectedPaymentType(method.id as any); setSelectedCardId(null); }}
-                                className={cn("flex items-center justify-between w-full p-5 rounded-2xl bg-white shadow-sm transition-all", selectedPaymentType === method.id && "ring-2 ring-brand-accent bg-brand-accent/5")}
-                            >
-                                <div className="flex items-center gap-4">
-                                    <div className="p-2 bg-gray-100 rounded-xl">{method.id === 'cash_delivery' ? <Banknote className="h-5 w-5 text-gray-400" /> : <CreditCard className="h-5 w-5 text-gray-400" />}</div>
-                                    <div className="text-left">
-                                        <span className="font-bold block">{method.label}</span>
-                                        {method.flags && method.flags.length > 0 && (
-                                            <p className="text-[9px] text-gray-400 font-bold uppercase truncate max-w-[200px]">
-                                                {method.flags.map(f => f.name).join(' • ')}
-                                            </p>
-                                        )}
-                                    </div>
+                        {availableMethods.filter(m => m.category === 'delivery').map(method => {
+                            const isSelected = selectedPaymentType === method.id;
+                            return (
+                                <div key={method.id} className="space-y-3">
+                                    <button 
+                                        onClick={() => { setSelectedPaymentType(method.id as any); setSelectedCardId(null); setSelectedFlagId(null); }}
+                                        className={cn("flex items-center justify-between w-full p-5 rounded-2xl bg-white shadow-sm transition-all", isSelected && "ring-2 ring-brand-accent bg-brand-accent/5")}
+                                    >
+                                        <div className="flex items-center gap-4">
+                                            <div className="p-2 bg-gray-100 rounded-xl">{method.id === 'cash_delivery' ? <Banknote className="h-5 w-5 text-gray-400" /> : <CreditCard className="h-5 w-5 text-gray-400" />}</div>
+                                            <span className="font-bold block text-left">{method.label}</span>
+                                        </div>
+                                        {isSelected && <Check className="h-5 w-5 text-brand-accent" />}
+                                    </button>
+
+                                    {isSelected && method.requiresFlag && (
+                                        <div className="pl-4 pr-1 animate-in fade-in slide-in-from-top-2">
+                                            <p className="text-[10px] font-black text-indigo-400 uppercase mb-2 ml-1">Selecione a Bandeira:</p>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {method.flags?.map((flag: any) => (
+                                                    <button 
+                                                        key={flag.id}
+                                                        onClick={() => setSelectedFlagId(flag.id)}
+                                                        className={cn(
+                                                            "p-3 rounded-xl border-2 text-xs font-black uppercase transition-all",
+                                                            selectedFlagId === flag.id 
+                                                                ? "border-indigo-600 bg-indigo-600 text-white shadow-lg" 
+                                                                : "border-gray-100 bg-white text-gray-400 hover:border-indigo-100"
+                                                        )}
+                                                    >
+                                                        {flag.name}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                                {selectedPaymentType === method.id && <Check className="h-5 w-5 text-brand-accent" />}
-                            </button>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -287,13 +303,12 @@ const CartPage = () => {
           <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 flex items-start gap-3 animate-in fade-in">
             <AlertCircle className="h-5 w-5 text-orange-600 shrink-0 mt-0.5" />
             <p className="text-xs text-orange-800 font-medium leading-relaxed">
-              <strong>Nota:</strong> Como você escolheu pagar na entrega, este pedido será entregue pela <strong>frota própria do restaurante</strong> para processar seu pagamento.
+              <strong>Nota:</strong> Como você escolheu pagar na entrega, este pedido será entregue pela <strong>frota própria do restaurante</strong> para processar seu pagamento. Se puder pague de forma online porque isso pode agilizar seu pedido.
             </p>
           </div>
         )}
       </section>
 
-      {/* Sumário */}
       <div className="p-6 bg-white rounded-[2.5rem] shadow-sm space-y-3 border border-gray-50">
         <div className="flex justify-between text-sm font-bold text-gray-400"><span>Subtotal</span><span>R$ {subtotal.toFixed(2)}</span></div>
         <div className="flex justify-between text-sm font-bold text-gray-400">
@@ -304,7 +319,7 @@ const CartPage = () => {
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 p-6 bg-white/90 backdrop-blur-xl border-t safe-area-bottom z-20">
-        <Button className="w-full py-8 rounded-[2rem] bg-brand-accent text-white font-black text-xl shadow-2xl" onClick={() => navigate("/checkout")}>
+        <Button className="w-full py-8 rounded-[2rem] bg-brand-accent text-white font-black text-xl shadow-2xl" onClick={handleCheckout}>
           Finalizar Pedido
         </Button>
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,11 +19,25 @@ const DELIVERY_FEE = 5.0;
 const CheckoutPage = () => {
   const navigate = useNavigate();
   const { items, getTotal, clearCart, restaurantId, deliveryType } = useCart();
-  const { selectedPaymentType } = usePayment();
+  const { selectedPaymentType, selectedFlagId } = usePayment();
   const { selectedAddress } = useAddresses();
   const [isProcessing, setIsProcessing] = useState(false);
   const [step, setStep] = useState<"review" | "pix_payment" | "success">("review");
   const [scheduledTime, setScheduledTime] = useState<string>("");
+  const [flagName, setFlagName] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchFlagName = async () => {
+        if (!selectedFlagId || !restaurantId) return;
+        const { data } = await supabase.from('app_settings').select('value').eq('key', 'global_payment_methods').single();
+        if (data) {
+            const method = data.value.methods.find((m: any) => m.id === selectedPaymentType);
+            const flag = method?.flags?.find((f: any) => f.id === selectedFlagId);
+            if (flag) setFlagName(flag.name);
+        }
+    };
+    fetchFlagName();
+  }, [selectedFlagId, selectedPaymentType, restaurantId]);
 
   const subtotal = getTotal();
   const deliveryFee = deliveryType === "delivery" ? DELIVERY_FEE : 0;
@@ -54,6 +68,9 @@ const CheckoutPage = () => {
         ? new Date(Date.now() + 8 * 60000).toISOString() 
         : null;
 
+      // Se houver bandeira, anexa ao nome do método para o lojista ver
+      const finalPaymentMethod = flagName ? `${selectedPaymentType} (${flagName})` : selectedPaymentType;
+
       const { error } = await supabase
         .from('orders')
         .insert({
@@ -61,7 +78,7 @@ const CheckoutPage = () => {
           merchant_id: restaurantId,
           items: items,
           total: Number(total.toFixed(2)),
-          payment_method: selectedPaymentType,
+          payment_method: finalPaymentMethod,
           delivery_address: deliveryType === "delivery" ? selectedAddress : { street: "Retirada no Local", number: "S/N" },
           status: 'PENDING',
           confirmation_code: code,
@@ -99,15 +116,17 @@ const CheckoutPage = () => {
   };
 
   const getPaymentLabel = (type: string) => {
-    switch(type) {
+    const label = type.split(' (')[0];
+    switch(label) {
       case "pix": return "PIX (Online)";
       case "card_credit_online": return "Cartão de Crédito (App)";
       case "card_debit_online": return "Cartão de Débito (App)";
-      case "card_credit_delivery": return "Cartão de Crédito (Na Entrega)";
-      case "card_debit_delivery": return "Cartão de Débito (Na Entrega)";
+      case "card_credit_delivery": return `Cartão de Crédito (Entrega)${flagName ? ` - ${flagName}` : ''}`;
+      case "card_debit_delivery": return `Cartão de Débito (Entrega)${flagName ? ` - ${flagName}` : ''}`;
+      case "meal_voucher_delivery": return `Vale Refeição (Entrega)${flagName ? ` - ${flagName}` : ''}`;
       case "pix_delivery": return "PIX (Na Entrega)";
       case "cash_delivery": return "Dinheiro (Na Entrega)";
-      default: return "Pagamento";
+      default: return type;
     }
   };
 

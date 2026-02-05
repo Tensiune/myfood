@@ -9,6 +9,7 @@ export type PaymentMethodType =
   | "card_credit_delivery" 
   | "card_debit_delivery" 
   | "pix_delivery"
+  | "meal_voucher_delivery"
   | "cash_delivery";
 
 export interface CreditCard {
@@ -28,6 +29,8 @@ interface PaymentContextType {
   setSelectedPaymentType: (type: PaymentMethodType) => void;
   selectedCardId: string | null;
   setSelectedCardId: (id: string | null) => void;
+  selectedFlagId: string | null;
+  setSelectedFlagId: (id: string | null) => void;
 }
 
 const PaymentContext = createContext<PaymentContextType | undefined>(undefined);
@@ -47,6 +50,7 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [selectedPaymentType, setSelectedPaymentType] = useState<PaymentMethodType>("pix");
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [selectedFlagId, setSelectedFlagId] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem("paymentMethods", JSON.stringify(savedCards));
@@ -75,7 +79,9 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       selectedPaymentType, 
       setSelectedPaymentType,
       selectedCardId,
-      setSelectedCardId
+      setSelectedCardId,
+      selectedFlagId,
+      setSelectedFlagId
     }}>
       {children}
     </PaymentContext.Provider>

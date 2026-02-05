@@ -124,7 +124,6 @@ const MerchantPaymentSettingsPage = () => {
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin h-10 w-10 text-indigo-600" /></div>;
 
-  // Se não houver métodos configurados globalmente, exibe aviso amigável
   if (!globalSettings || !globalSettings.methods || globalSettings.methods.length === 0) {
       return (
           <div className="text-center py-20 space-y-4">
@@ -232,7 +231,7 @@ const MerchantPaymentSettingsPage = () => {
           <h3 className="font-black text-orange-900 uppercase text-xs tracking-widest">Aviso Operacional Obrigatório</h3>
           <p className="text-orange-800/80 text-sm leading-relaxed">
             Ao ativar qualquer forma de <strong>Pagamento na Entrega</strong> (Dinheiro ou Maquininha), você assume a responsabilidade total pela cobrança. 
-            Pedidos com estes métodos serão <strong>automaticamente bloqueados</strong> para a rede de entregadores do App, exigindo o uso de sua <strong>Frota Própria</strong> (Entregadores Exclusivos).
+            Pedidos com estes métodos serão <strong>automaticamente bloqueados</strong> para a rede de entregadores do App, exigindo o uso de sua <strong>Frota Própria (Entregadores Exclusivos)</strong>, que deverão usar o aplicativo para inserir o código do cliente para confirmar a entrega.
           </p>
         </div>
       </div>
