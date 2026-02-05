@@ -15,7 +15,9 @@ import {
   CheckCircle2,
   ChevronDown,
   AlertCircle,
-  XCircle
+  XCircle,
+  UserCheck,
+  Zap
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
@@ -40,6 +42,7 @@ import { printReceipt } from "@/utils/print";
 import { useNavigate } from "react-router-dom";
 import { subHours } from "date-fns";
 import OrderCardDetails from "@/components/merchant/OrderCardDetails";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface PrintSettings {
   paperWidth: "80mm" | "58mm";
@@ -71,11 +74,16 @@ const MerchantOrdersPage = () => {
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any>(null);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
+  
+  const [isAssignDriverOpen, setIsAssignDriverOpen] = useState(false);
+  const [orderToAssign, setOrderToAssign] = useState<any>(null);
+  const [authorizedDrivers, setAuthorizedDrivers] = useState<any[]>([]);
 
   const [merchantConfig, setMerchantConfig] = useState({
     name: "Minha Loja",
     deliveryMode: 'APP' as 'APP' | 'OWN',
-    printSettings: defaultPrintSettings
+    printSettings: defaultPrintSettings,
+    authorizedEmails: [] as string[]
   });
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -88,11 +96,22 @@ const MerchantOrdersPage = () => {
         const { data } = await supabase.from('merchant_applications').select('is_open, store_name, metadata').eq('id', user.id).single();
         if (data) {
             setIsStoreOpen(data.is_open);
+            const deliveryArea = data.metadata?.delivery_area || {};
             setMerchantConfig({
                 name: data.store_name || "Minha Loja",
-                deliveryMode: data.metadata?.delivery_area?.delivery_mode || 'APP',
-                printSettings: data.metadata?.print_settings || defaultPrintSettings
+                deliveryMode: deliveryArea.delivery_mode || 'APP',
+                printSettings: data.metadata?.print_settings || defaultPrintSettings,
+                authorizedEmails: deliveryArea.authorized_drivers || []
             });
+            
+            // Busca nomes dos entregadores autorizados
+            if (deliveryArea.authorized_drivers?.length > 0) {
+                const { data: driverProfiles } = await supabase
+                    .from('driver_applications')
+                    .select('id, full_name, email')
+                    .in('email', deliveryArea.authorized_drivers);
+                if (driverProfiles) setAuthorizedDrivers(driverProfiles);
+            }
         }
     };
     loadConfig();
@@ -123,54 +142,34 @@ const MerchantOrdersPage = () => {
       const enriched = (raw || []).map(o => {
         const p = cProfiles?.find(p => p.id === o.customer_id);
         const d = dProfiles?.find(d => d.id === o.driver_id);
-        const customerName = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Cliente';
-        const driverName = d?.full_name || null;
-
         return {
           ...o,
-          customer_full_name: customerName,
-          driver_full_name: driverName,
+          customer_full_name: p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Cliente',
+          driver_full_name: d?.full_name || null,
           delivery_address: o.delivery_address || {}
         };
       });
-
       setOrders(enriched);
-    } catch (err) { 
-        console.error("Fetch error", err);
-    } finally { 
-        setLoading(false); 
-    }
+    } catch (err) { console.error(err); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
     fetchOrders();
     const channel = supabase.channel('merchant_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-            if (audioRef.current) audioRef.current.play().catch(() => {});
-        }
+        if (payload.eventType === 'INSERT' && audioRef.current) audioRef.current.play().catch(() => {});
         fetchOrders(true);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [fetchOrders]);
 
-  useEffect(() => {
-    const autoDispatchInterval = setInterval(() => {
-        const pending = orders.filter(o => o.status === 'WAITING_FOR_DRIVER' && o.logistics_mode === 'APP' && !o.current_driver_offered_id);
-        if (pending.length > 0) {
-            pending.forEach(o => supabase.functions.invoke('dispatch-order', { body: { orderId: o.id } }).catch(() => {}));
-        }
-    }, 20000);
-    return () => clearInterval(autoDispatchInterval);
-  }, [orders]);
-
   const handlePrint = useCallback((order: any) => {
     printReceipt(order, merchantConfig.name, order.customer_full_name || 'Cliente', merchantConfig.printSettings);
   }, [merchantConfig]);
 
   const handleAcceptOrder = async (order: any) => {
-    const tid = showLoading("Aceitando pedido...");
+    const tid = showLoading("Aceitando...");
     try {
       const { error } = await supabase.from('orders').update({ status: 'PREPARING', merchant_acceptance_deadline: null, logistics_mode: merchantConfig.deliveryMode }).eq('id', order.id);
       if (error) throw error;
@@ -178,49 +177,59 @@ const MerchantOrdersPage = () => {
         supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } }).catch(() => {});
       }
       if (autoPrint) handlePrint(order);
-      dismissToast(tid); 
-      showSuccess("Pedido aceito!");
+      dismissToast(tid); showSuccess("Pedido aceito!");
       fetchOrders(true);
-    } catch (err) { dismissToast(tid); showError("Erro ao aceitar pedido."); }
+    } catch (err) { dismissToast(tid); showError("Erro ao aceitar."); }
   };
 
-  const handleCancelOrder = async (orderId: string) => {
-    if (!window.confirm("Tem certeza que deseja cancelar este pedido? Esta ação não pode ser desfeita.")) return;
-    const tid = showLoading("Cancelando pedido...");
+  const handleSwitchToAppLogistics = async (orderId: string) => {
+    if (!window.confirm("Deseja enviar este pedido para a rede de entregadores do App?")) return;
+    const tid = showLoading("Atualizando logística...");
     try {
-      const { error } = await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', orderId);
-      if (error) throw error;
-      showSuccess("Pedido cancelado com sucesso.");
-      setIsDetailsDialogOpen(false);
-      fetchOrders(true);
-    } catch (err) { showError("Erro ao cancelar pedido."); }
+        const { error } = await supabase.from('orders').update({ logistics_mode: 'APP', current_driver_offered_id: null, driver_id: null }).eq('id', orderId);
+        if (error) throw error;
+        supabase.functions.invoke('dispatch-order', { body: { orderId } }).catch(() => {});
+        showSuccess("Mudado para Rede App!");
+        setIsDetailsDialogOpen(false);
+        fetchOrders(true);
+    } catch (err) { showError("Erro ao mudar logística."); }
+    finally { dismissToast(tid); }
+  };
+
+  const handleAssignOwnDriver = async (driverId: string) => {
+    if (!orderToAssign) return;
+    const tid = showLoading("Enviando para entregador...");
+    try {
+        // Envia oferta para o entregador próprio (ele aceita no app dele)
+        const expiresAt = new Date(Date.now() + 300 * 1000).toISOString(); // 5 min
+        const { error } = await supabase.from('orders').update({ 
+            current_driver_offered_id: driverId, 
+            offer_expires_at: expiresAt,
+            logistics_mode: 'OWN' 
+        }).eq('id', orderToAssign.id);
+        
+        if (error) throw error;
+        showSuccess("Oferta enviada ao entregador!");
+        setIsAssignDriverOpen(false);
+        fetchOrders(true);
+    } catch (err) { showError("Erro ao atribuir."); }
     finally { dismissToast(tid); }
   };
 
   const handleReadyForShipping = async (order: any) => {
-    const tid = showLoading("Atualizando...");
+    const tid = showLoading("Processando...");
     try {
         const newStatus = order.delivery_type === 'pickup' ? 'READY_FOR_PICKUP' : 'WAITING_FOR_DRIVER';
         const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', order.id);
         if (error) throw error;
         showSuccess("Pedido pronto!");
         fetchOrders(true);
-    } catch (err) { showError("Erro ao atualizar status."); }
+    } catch (err) { showError("Erro ao atualizar."); }
     finally { dismissToast(tid); }
   };
 
-  const filteredOrders = useMemo(() => {
-    if (!searchTerm) return orders;
-    const term = searchTerm.toLowerCase();
-    return orders.filter(o => 
-        o.id.toLowerCase().includes(term) || 
-        o.customer_full_name.toLowerCase().includes(term) ||
-        (o.delivery_address?.street || "").toLowerCase().includes(term)
-    );
-  }, [orders, searchTerm]);
-
   const renderColumn = (title: string, color: string, statusList: string[]) => {
-    const data = filteredOrders.filter(o => statusList.includes(o.status));
+    const data = orders.filter(o => statusList.includes(o.status) && (o.id.includes(searchTerm) || o.customer_full_name.toLowerCase().includes(searchTerm.toLowerCase())));
     return (
       <div className="space-y-4 flex flex-col min-h-[500px] bg-indigo-50/20 p-3 rounded-[2rem]">
         <h2 className={cn("font-black text-[10px] uppercase tracking-widest flex items-center gap-2 px-3 py-2", color)}>
@@ -251,6 +260,7 @@ const MerchantOrdersPage = () => {
                       <Bike className="h-3 w-3" />
                       <span className="text-[9px] font-black uppercase truncate">
                           {o.driver_full_name ? `Entregador: ${o.driver_full_name}` : 
+                           o.logistics_mode === 'OWN' ? "Entregador Próprio" :
                            o.current_driver_offered_id ? "Aguardando Resposta..." : "Buscando Entregador..."}
                       </span>
                     </div>
@@ -275,26 +285,23 @@ const MerchantOrdersPage = () => {
                 )}
 
                 {['READY_FOR_PICKUP', 'WAITING_FOR_DRIVER'].includes(o.status) && (
-                  <Dialog>
-                     <DialogTrigger asChild>
-                       <Button className="w-full bg-green-600 h-10 rounded-xl font-black text-xs uppercase">Validar Código</Button>
-                     </DialogTrigger>
-                     <DialogContent className="rounded-[2rem] p-8 text-center border-none shadow-2xl">
-                         <DialogHeader>
-                             <DialogTitle className="text-xl font-black text-indigo-900">Validar Entrega</DialogTitle>
-                             <DialogDescription>Insira o código informado pelo {o.status === 'READY_FOR_PICKUP' ? 'cliente' : 'entregador'}.</DialogDescription>
-                         </DialogHeader>
-                         <div className="flex justify-center my-4"><OtpInput length={4} value={verificationCode} onChange={setVerificationCode} /></div>
-                         <Button className="w-full h-14 rounded-xl bg-indigo-600 font-bold text-white shadow-lg" onClick={async () => {
-                             if (verificationCode === o.confirmation_code) {
-                                 await supabase.from('orders').update({ status: o.status === 'READY_FOR_PICKUP' ? 'DELIVERED' : 'OUT_FOR_DELIVERY' }).eq('id', o.id);
-                                 setVerificationCode("");
-                                 showSuccess("Validado com sucesso!");
-                                 fetchOrders(true);
-                             } else { showError("Código incorreto. Tente novamente."); }
-                         }}>Confirmar</Button>
-                     </DialogContent>
-                  </Dialog>
+                  o.logistics_mode === 'OWN' && o.status === 'WAITING_FOR_DRIVER' ? (
+                      <Button className="w-full bg-indigo-600 h-10 rounded-xl font-black text-xs uppercase" onClick={() => { setOrderToAssign(o); setIsAssignDriverOpen(true); }}>Definir Entregador</Button>
+                  ) : (
+                    <Dialog>
+                        <DialogTrigger asChild><Button className="w-full bg-green-600 h-10 rounded-xl font-black text-xs uppercase">Validar Código</Button></DialogTrigger>
+                        <DialogContent className="rounded-[2rem] p-8 text-center border-none shadow-2xl">
+                            <DialogHeader><DialogTitle className="text-xl font-black text-indigo-900">Validar Entrega</DialogTitle></DialogHeader>
+                            <div className="flex justify-center my-4"><OtpInput length={4} value={verificationCode} onChange={setVerificationCode} /></div>
+                            <Button className="w-full h-14 rounded-xl bg-indigo-600 font-bold text-white shadow-lg" onClick={async () => {
+                                if (verificationCode === o.confirmation_code) {
+                                    await supabase.from('orders').update({ status: o.status === 'READY_FOR_PICKUP' ? 'DELIVERED' : 'OUT_FOR_DELIVERY' }).eq('id', o.id);
+                                    setVerificationCode(""); showSuccess("Validado!"); fetchOrders(true);
+                                } else { showError("Código incorreto."); }
+                            }}>Confirmar</Button>
+                        </DialogContent>
+                    </Dialog>
+                  )
                 )}
 
                 {o.status === 'OUT_FOR_DELIVERY' && (
@@ -318,14 +325,12 @@ const MerchantOrdersPage = () => {
             <h1 className="text-2xl font-black text-indigo-900">{merchantConfig.name}</h1>
             <div className="flex items-center gap-2">
                 <Badge variant="outline" className={cn("rounded-full px-3 py-1 font-black text-[9px] gap-2 border-none", isStoreOpen ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600")}>
-                    <div className={cn("h-1.5 w-1.5 rounded-full", isStoreOpen ? "bg-green-500 animate-pulse" : "bg-red-500")} />
                     LOJA {isStoreOpen ? "ABERTA" : "FECHADA"}
                 </Badge>
                 <Switch checked={isStoreOpen} onCheckedChange={async (v) => { 
                     const { data } = await supabase.auth.getUser(); 
                     await supabase.from('merchant_applications').update({ is_open: v }).eq('id', data.user?.id); 
                     setIsStoreOpen(v); 
-                    showSuccess(v ? "Sua loja agora está visível!" : "Sua loja foi fechada.");
                 }} />
             </div>
         </div>
@@ -335,6 +340,10 @@ const MerchantOrdersPage = () => {
                 <span className="text-[9px] font-black text-gray-400 uppercase">Auto Aceite</span>
                 <Switch checked={autoAccept} onCheckedChange={(v) => { setAutoAccept(v); localStorage.setItem('merchant_auto_accept', v.toString()); }} className="scale-75" />
             </div>
+            <div className="flex items-center gap-2 px-3 border-r border-gray-200">
+                <span className="text-[9px] font-black text-gray-400 uppercase">Auto Imprimir</span>
+                <Switch checked={autoPrint} onCheckedChange={(v) => { setAutoPrint(v); localStorage.setItem('merchant_auto_print', v.toString()); }} className="scale-75" />
+            </div>
             <div className="flex items-center gap-2 px-3">
                 <span className="text-[9px] font-black text-gray-400 uppercase">Detalhes</span>
                 <Switch checked={showFullDetails} onCheckedChange={(v) => { setShowFullDetails(v); localStorage.setItem('merchant_show_details', v.toString()); }} className="scale-75" />
@@ -342,21 +351,8 @@ const MerchantOrdersPage = () => {
         </div>
       </div>
 
-      <div className="relative max-w-xl">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
-        <Input 
-          placeholder="Busque por cliente ou endereço..." 
-          className="rounded-2xl pl-11 h-12 bg-white border-none shadow-sm focus:ring-2 focus:ring-indigo-100" 
-          value={searchTerm} 
-          onChange={(e) => setSearchTerm(e.target.value)} 
-        />
-      </div>
-
       {loading ? (
-        <div className="py-40 text-center space-y-4">
-            <Loader2 className="animate-spin h-10 w-10 mx-auto text-indigo-600" />
-            <p className="text-gray-400 font-bold uppercase text-[10px]">Sincronizando pedidos...</p>
-        </div>
+        <div className="py-40 text-center"><Loader2 className="animate-spin h-10 w-10 mx-auto text-indigo-600" /></div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {renderColumn("Aceitar", "text-blue-600", ["PENDING"])}
@@ -367,6 +363,7 @@ const MerchantOrdersPage = () => {
         </div>
       )}
 
+      {/* DIALOG DE DETALHES */}
       <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
         <DialogContent className="rounded-[2.5rem] sm:max-w-xl h-[85vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
           <div className="p-6 bg-indigo-900 text-white shrink-0 flex justify-between items-center">
@@ -395,8 +392,14 @@ const MerchantOrdersPage = () => {
                         <Printer className="h-4 w-4" /> IMPRIMIR
                     </Button>
 
+                    {selectedOrderDetails.logistics_mode === 'OWN' && ['PREPARING', 'WAITING_FOR_DRIVER'].includes(selectedOrderDetails.status) && (
+                        <Button className="h-12 rounded-xl bg-brand-accent text-white font-black gap-2 shadow-lg" onClick={() => handleSwitchToAppLogistics(selectedOrderDetails.id)}>
+                            <Zap className="h-4 w-4" /> USAR REDE DO APP
+                        </Button>
+                    )}
+
                     {!['DELIVERED', 'CANCELLED'].includes(selectedOrderDetails.status) && (
-                        <Button variant="outline" className="h-12 rounded-xl border-red-100 text-red-600 font-bold gap-2 hover:bg-red-50" onClick={() => handleCancelOrder(selectedOrderDetails.id)}>
+                        <Button variant="outline" className="h-12 rounded-xl border-red-100 text-red-600 font-bold gap-2 hover:bg-red-50" onClick={() => { if(window.confirm("Cancelar pedido?")) supabase.from('orders').update({status:'CANCELLED'}).eq('id', selectedOrderDetails.id).then(()=>fetchOrders(true)); setIsDetailsDialogOpen(false); }}>
                             <XCircle className="h-4 w-4" /> CANCELAR PEDIDO
                         </Button>
                     )}
@@ -404,6 +407,40 @@ const MerchantOrdersPage = () => {
               </div>
             )}
           </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
+      {/* DIALOG DE ATRIBUIR ENTREGADOR PRÓPRIO */}
+      <Dialog open={isAssignDriverOpen} onOpenChange={setIsAssignDriverOpen}>
+        <DialogContent className="rounded-[2rem] p-8 border-none shadow-2xl sm:max-w-md">
+            <DialogHeader className="text-center">
+                <div className="bg-indigo-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><UserCheck className="h-8 w-8 text-indigo-600" /></div>
+                <DialogTitle className="text-2xl font-black text-indigo-900">Definir Entregador</DialogTitle>
+                <DialogDescription>Selecione um dos seus entregadores autorizados para esta entrega.</DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-3 py-4">
+                {authorizedDrivers.length > 0 ? (
+                    authorizedDrivers.map(driver => (
+                        <button 
+                            key={driver.id}
+                            className="w-full flex items-center justify-between p-4 rounded-2xl bg-gray-50 border border-gray-100 hover:border-indigo-600 hover:bg-indigo-50 transition-all group"
+                            onClick={() => handleAssignOwnDriver(driver.id)}
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center font-black text-indigo-600 shadow-sm">{driver.full_name.charAt(0)}</div>
+                                <span className="font-bold text-gray-800">{driver.full_name}</span>
+                            </div>
+                            <ChevronDown className="h-4 w-4 text-gray-300 group-hover:text-indigo-600 -rotate-90" />
+                        </button>
+                    ))
+                ) : (
+                    <div className="text-center py-6">
+                        <p className="text-sm text-gray-500 mb-4">Você ainda não tem entregadores autorizados cadastrados.</p>
+                        <Button variant="outline" className="rounded-xl border-indigo-200 text-indigo-600 font-bold" onClick={() => navigate("/merchant/settings")}>Cadastrar agora</Button>
+                    </div>
+                )}
+            </div>
         </DialogContent>
       </Dialog>
     </div>
