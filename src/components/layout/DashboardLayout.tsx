@@ -20,7 +20,8 @@ import {
   History,
   MessageCircle,
   Star,
-  Zap
+  Zap,
+  CreditCard
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -57,15 +58,17 @@ const DashboardLayout = () => {
     { label: "Meu Cardápio", path: "/merchant/menu", icon: Package },
     { label: "Relatórios", path: "/merchant/reports", icon: BarChart3 },
     { label: "Avaliações", path: "/merchant/ratings", icon: Star },
+    { label: "Pagamentos", path: "/merchant/payments", icon: CreditCard }, // Novo
     { label: "Configurações", path: "/merchant/settings", icon: Settings },
   ];
 
   const adminLinks = [
     { label: "Visão Geral", path: "/admin/dashboard", icon: LayoutDashboard },
     { label: "Gestão de Lojas", path: "/admin/stores", icon: Store },
-    { label: "Gestão de Entregadores", path: "/admin/drivers-management", icon: Bike }, // Link solicitado adicionado aqui
+    { label: "Gestão de Entregadores", path: "/admin/drivers-management", icon: Bike },
     { label: "Validar Lojistas", path: "/admin/merchants", icon: ShieldCheck },
     { label: "Validar Entregadores", path: "/admin/drivers", icon: Bike },
+    { label: "Gestão de Pagamentos", path: "/admin/payments", icon: CreditCard }, // Novo
     { label: "Valor da Entrega", path: "/admin/delivery-fees", icon: DollarSign },
     { label: "Taxas", path: "/admin/fees", icon: Zap },
     { label: "Usuários", path: "/admin/users", icon: Users },

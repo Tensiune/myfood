@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { DateRange } from "react-day-picker";
-import { format, getMonth, getYear, startOfWeek, subDays } from "date-fns";
+import { format, startOfWeek, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
-const DRIVER_COST_FIXED = 5.00; // Custo padrão de entrega da rede APP
+const DRIVER_COST_FIXED = 5.00;
 
 interface Order {
   id: string;
@@ -25,7 +25,6 @@ export function useMerchantReports(dateRange?: DateRange) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [stats, setStats] = useState<any>({});
   const [salesChartData, setSalesChartData] = useState<any[]>([]);
-  const [annualComparisonData, setAnnualComparisonData] = useState<any[]>([]);
   const [topProducts, setTopProducts] = useState<any[]>([]);
   const [config, setConfig] = useState<any>(null);
 
@@ -74,58 +73,70 @@ export function useMerchantReports(dateRange?: DateRange) {
     if (orders.length === 0 || !config) {
       setStats({});
       setSalesChartData([]);
-      setAnnualComparisonData([]);
       setTopProducts([]);
       return;
     }
 
-    let totalGrossRevenue = 0; // 1
-    let totalProductSales = 0; // 2
-    let totalDeliveryRevenue = 0; // 3
-    let totalDeliveryExpenses = 0; // 4
-    let totalPlatformFees = 0; // 5
-    let totalPaymentFees = 0; // 6
+    let totalGrossRevenue = 0; 
+    let totalOnlineRevenue = 0;
+    let totalOfflineRevenue = 0;
+    let totalProductSales = 0;
+    let totalDeliveryRevenue = 0; 
+    let totalDeliveryExpenses = 0;
+    let totalPlatformFees = 0;
+    let totalPaymentFees = 0;
 
     orders.forEach(order => {
-        const deliveryFeeCustomer = order.delivery_type === 'delivery' ? 5.00 : 0; // Simulado
+        const deliveryFeeCustomer = order.delivery_type === 'delivery' ? 5.00 : 0;
         const productSubtotal = order.total - deliveryFeeCustomer;
+        const isOffline = ['cash_delivery', 'card_credit_delivery', 'card_debit_delivery', 'meal_voucher_delivery'].includes(order.payment_method);
 
         totalGrossRevenue += order.total;
         totalProductSales += productSubtotal;
         totalDeliveryRevenue += deliveryFeeCustomer;
 
-        // Despesa de entrega (se usou motorista do APP)
+        if (isOffline) {
+            totalOfflineRevenue += order.total;
+        } else {
+            totalOnlineRevenue += order.total;
+        }
+
+        // Custo entrega
         if (order.driver_id && order.logistics_mode !== 'OWN') {
             totalDeliveryExpenses += DRIVER_COST_FIXED;
         }
         
-        // Comissão APP
+        // Comissão APP (Calculada sobre ONLINE e OFFLINE)
         const platformFee = config.service_fee.fixed + (order.total * (config.service_fee.percent / 100));
         totalPlatformFees += platformFee;
 
-        // Taxas Pagamento
-        const payFee = config.payment_fees[order.payment_method];
-        if (payFee) {
-            const processingFee = payFee.fixed + (order.total * (payFee.percent / 100));
-            totalPaymentFees += processingFee;
+        // Taxas Pagamento (Apenas se for ONLINE)
+        if (!isOffline) {
+            const payFee = config.payment_fees[order.payment_method];
+            if (payFee) {
+                totalPaymentFees += (payFee.fixed + (order.total * (payFee.percent / 100)));
+            }
         }
     });
 
-    const netRevenue = totalGrossRevenue - totalDeliveryExpenses - totalPlatformFees - totalPaymentFees;
+    // O LÍQUIDO É: (Vendas Online - Taxas Online) - (Comissão sobre Vendas Offline) - (Custos Motorista App)
+    // O lojista já ficou com 100% do totalOfflineRevenue.
+    const netToReceive = (totalOnlineRevenue - totalPaymentFees) - totalPlatformFees - totalDeliveryExpenses;
 
     setStats({
       totalRevenue: totalGrossRevenue,
+      onlineRevenue: totalOnlineRevenue,
+      offlineRevenue: totalOfflineRevenue,
       productSales: totalProductSales,
       deliveryRevenue: totalDeliveryRevenue,
       deliveryExpenses: totalDeliveryExpenses,
       platformFees: totalPlatformFees,
       paymentFees: totalPaymentFees,
-      netRevenue: netRevenue,
+      netRevenue: netToReceive,
       totalOrders: orders.length,
-      averageTicket: orders.length > 0 ? totalGrossRevenue / orders.length : 0,
     });
 
-    // Chart logic (keep standard)
+    // Gráfico
     const today = new Date();
     const startOfCurrentWeek = startOfWeek(today, { weekStartsOn: 1 }); 
     const weeklySales = [];
@@ -152,5 +163,5 @@ export function useMerchantReports(dateRange?: DateRange) {
 
   }, [orders, config]);
 
-  return { loading, stats, salesChartData, annualComparisonData, topProducts };
+  return { loading, stats, salesChartData, topProducts };
 }

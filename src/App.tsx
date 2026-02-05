@@ -33,7 +33,7 @@ import ValidateMerchantsPage from "./pages/admin/ValidateMerchantsPage";
 import ValidateDriversPage from "./pages/admin/ValidateDriversPage";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import MerchantOrdersPage from "./pages/merchant/MerchantOrdersPage";
-import AvailableOrdersPage from "./pages/driver/AvailableOrdersPage";
+import AvailableOrdersPage from "./driver/AvailableOrdersPage";
 import NavigationPage from "./pages/driver/NavigationPage";
 import MerchantMenuPage from "./pages/merchant/MerchantMenuPage";
 import MerchantReportsPage from "./pages/merchant/MerchantReportsPage";
@@ -53,6 +53,8 @@ import StoreManagementPage from "./pages/admin/StoreManagementPage";
 import StoreDetailPage from "./pages/admin/StoreDetailPage";
 import DriverManagementPage from "./pages/admin/DriverManagementPage";
 import DriverDetailPage from "./pages/admin/DriverDetailPage";
+import AdminPaymentSettingsPage from "./pages/admin/AdminPaymentSettingsPage"; // Novo
+import MerchantPaymentSettingsPage from "./pages/merchant/MerchantPaymentSettingsPage"; // Novo
 
 const queryClient = new QueryClient();
 
@@ -106,6 +108,7 @@ const App = () => (
                     <Route path="/merchant/menu" element={<MerchantMenuPage />} />
                     <Route path="/merchant/reports" element={<MerchantReportsPage />} />
                     <Route path="/merchant/ratings" element={<MerchantRatingsPage />} />
+                    <Route path="/merchant/payments" element={<MerchantPaymentSettingsPage />} />
                     <Route path="/merchant/settings" element={<MerchantSettingsPage />} />
                     <Route path="/merchant/setup" element={<MerchantSetupPage />} />
                     <Route path="/merchant/inbox" element={<MerchantInboxPage />} />
@@ -118,6 +121,7 @@ const App = () => (
                     <Route path="/admin/drivers/:id" element={<DriverDetailPage />} />
                     <Route path="/admin/merchants" element={<ValidateMerchantsPage />} />
                     <Route path="/admin/drivers" element={<ValidateDriversPage />} />
+                    <Route path="/admin/payments" element={<AdminPaymentSettingsPage />} />
                     <Route path="/admin/delivery-fees" element={<DeliveryFeesPage />} />
                     <Route path="/admin/fees" element={<AdminFeesPage />} />
                     <Route path="/admin/users" element={<PlaceholderPage title="Gestão de Usuários" />} />

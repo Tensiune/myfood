@@ -17,7 +17,8 @@ import {
   AlertCircle,
   XCircle,
   UserCheck,
-  Zap
+  Zap,
+  Banknote
 } from "lucide-react";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
@@ -40,7 +41,6 @@ import OrderReceipt from "@/components/merchant/OrderReceipt";
 import { Input } from "@/components/ui/input";
 import { printReceipt } from "@/utils/print";
 import { useNavigate } from "react-router-dom";
-import { subHours } from "date-fns";
 import OrderCardDetails from "@/components/merchant/OrderCardDetails";
 
 interface PrintSettings {
@@ -86,7 +86,6 @@ const MerchantOrdersPage = () => {
   });
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  // Refs para usar os valores atuais dentro do listener de realtime (que é uma closure)
   const autoAcceptRef = useRef(autoAccept);
   const merchantConfigRef = useRef(merchantConfig);
 
@@ -130,19 +129,22 @@ const MerchantOrdersPage = () => {
   const handleAcceptOrder = useCallback(async (order: any) => {
     const tid = showLoading("Aceitando...");
     try {
-      const mode = merchantConfigRef.current.deliveryMode;
+      const globalMode = merchantConfigRef.current.deliveryMode;
+      // Pagamento Offline SEMPRE força modo OWN
+      const isOffline = ['cash_delivery', 'card_credit_delivery', 'card_debit_delivery', 'meal_voucher_delivery'].includes(order.payment_method);
+      const forcedMode = isOffline ? 'OWN' : globalMode;
+
       const { error } = await supabase.from('orders').update({ 
           status: 'PREPARING', 
           merchant_acceptance_deadline: null, 
-          logistics_mode: mode 
+          logistics_mode: forcedMode 
       }).eq('id', order.id);
 
       if (error) throw error;
       
-      // Auto Print
       if (autoPrint) handlePrint(order);
       
-      if (order.delivery_type === 'delivery' && mode === 'APP') {
+      if (order.delivery_type === 'delivery' && forcedMode === 'APP') {
         supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } }).catch(() => {});
       }
       
@@ -161,7 +163,6 @@ const MerchantOrdersPage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Removido o filtro de 24 horas para mostrar todos os pedidos
       const { data: raw, error } = await supabase
         .from('orders')
         .select('*')
@@ -196,10 +197,7 @@ const MerchantOrdersPage = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
         if (payload.eventType === 'INSERT') {
             if (audioRef.current) audioRef.current.play().catch(() => {});
-            // Lógica de Auto Aceite
-            if (autoAcceptRef.current) {
-                handleAcceptOrder(payload.new);
-            }
+            if (autoAcceptRef.current) handleAcceptOrder(payload.new);
         }
         fetchOrders(true);
       })
@@ -208,6 +206,14 @@ const MerchantOrdersPage = () => {
   }, [fetchOrders, handleAcceptOrder]);
 
   const handleSwitchToAppLogistics = async (orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    const isOffline = ['cash_delivery', 'card_credit_delivery', 'card_debit_delivery', 'meal_voucher_delivery'].includes(order?.payment_method);
+    
+    if (isOffline) {
+        showError("Pedidos com pagamento na entrega não podem usar a rede do App.");
+        return;
+    }
+
     if (!window.confirm("Deseja enviar este pedido para a rede de entregadores do App?")) return;
     const tid = showLoading("Atualizando logística...");
     try {
@@ -261,82 +267,89 @@ const MerchantOrdersPage = () => {
           {title} ({data.length})
         </h2>
         <div className="space-y-3">
-          {data.map(o => (
-            <Card key={o.id} className="rounded-2xl border-none shadow-sm bg-white overflow-hidden hover:shadow-md transition-all">
-              <CardContent className="p-4 space-y-4">
-                <div className="flex justify-between items-start">
-                    <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-indigo-400" onClick={() => { setSelectedOrderDetails(o); setIsDetailsDialogOpen(true); }}><Eye className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-indigo-400" onClick={() => handlePrint(o)}><Printer className="h-4 w-4" /></Button>
-                    </div>
-                </div>
-                <div>
-                    <p className="text-sm font-bold text-gray-800 truncate">{o.customer_full_name}</p>
-                    <p className="text-[10px] text-gray-400 uppercase mt-0.5">{new Date(o.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
-                </div>
-
-                {o.delivery_type === 'delivery' && (
-                    <div className={cn(
-                        "px-2 py-1.5 rounded-lg border flex items-center gap-2",
-                        (o.driver_full_name || o.logistics_mode === 'OWN' || merchantConfig.deliveryMode === 'OWN') ? "bg-blue-50 border-blue-100 text-blue-700" : "bg-gray-50 border-gray-100 text-gray-400"
-                    )}>
-                      <Bike className="h-3 w-3" />
-                      <span className="text-[9px] font-black uppercase truncate">
-                          {o.driver_full_name ? `Entregador: ${o.driver_full_name}` : 
-                           (o.logistics_mode === 'OWN' || (o.status === 'PENDING' && merchantConfig.deliveryMode === 'OWN')) ? "Entrega Própria" :
-                           o.current_driver_offered_id ? "Aguardando Resposta..." : "Buscando Entregador..."}
-                      </span>
-                    </div>
-                )}
-
-                {showFullDetails ? <OrderCardDetails order={o} /> : (
-                   <div className="bg-gray-50 p-2 rounded-xl flex items-start gap-2 text-xs text-gray-500">
-                      <MapPin className="h-3 w-3 text-brand-accent mt-0.5 shrink-0" />
-                      <p className="line-clamp-1 truncate">{o.delivery_type === 'pickup' ? 'Retirada no Local' : `${o.delivery_address?.street}, ${o.delivery_address?.number}`}</p>
-                   </div>
-                )}
-
-                {o.status === 'PENDING' && (
-                  <div className="space-y-2">
-                      {o.merchant_acceptance_deadline && <AcceptanceTimer deadline={o.merchant_acceptance_deadline} onExpire={() => fetchOrders(true)} />}
-                      <Button className="w-full bg-blue-600 hover:bg-blue-700 h-10 rounded-xl font-black text-xs uppercase" onClick={() => handleAcceptOrder(o)}>Aceitar</Button>
+          {data.map(o => {
+            const isOffline = ['cash_delivery', 'card_credit_delivery', 'card_debit_delivery', 'meal_voucher_delivery'].includes(o.payment_method);
+            
+            return (
+              <Card key={o.id} className="rounded-2xl border-none shadow-sm bg-white overflow-hidden hover:shadow-md transition-all">
+                <CardContent className="p-4 space-y-4">
+                  <div className="flex justify-between items-start">
+                      <span className="text-[10px] font-black text-gray-300">#{o.id.slice(0, 6)}</span>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-indigo-400" onClick={() => { setSelectedOrderDetails(o); setIsDetailsDialogOpen(true); }}><Eye className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-indigo-400" onClick={() => handlePrint(o)}><Printer className="h-4 w-4" /></Button>
+                      </div>
                   </div>
-                )}
+                  <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-bold text-gray-800 truncate">{o.customer_full_name}</p>
+                        {isOffline && <Badge variant="outline" className="bg-orange-50 text-orange-600 border-none text-[8px] font-black px-1.5"><Banknote className="h-2 w-2 mr-0.5" /> OFFLINE</Badge>}
+                      </div>
+                      <p className="text-[10px] text-gray-400 uppercase mt-0.5">{new Date(o.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+                  </div>
 
-                {o.status === 'PREPARING' && (
-                  <Button className="w-full bg-orange-500 hover:bg-orange-600 h-10 rounded-xl font-black text-xs uppercase" onClick={() => handleReadyForShipping(o)}>Pronto para Envio</Button>
-                )}
+                  {o.delivery_type === 'delivery' && (
+                      <div className={cn(
+                          "px-2 py-1.5 rounded-lg border flex items-center gap-2",
+                          (o.driver_full_name || o.logistics_mode === 'OWN') ? "bg-blue-50 border-blue-100 text-blue-700" : "bg-gray-50 border-gray-100 text-gray-400"
+                      )}>
+                        {o.logistics_mode === 'OWN' ? <UserCheck className="h-3 w-3" /> : <Bike className="h-3 w-3" />}
+                        <span className="text-[9px] font-black uppercase truncate">
+                            {o.driver_full_name ? `Entregador: ${o.driver_full_name}` : 
+                             (o.logistics_mode === 'OWN') ? "Frota Própria Obrigatória" :
+                             o.current_driver_offered_id ? "Aguardando Rede..." : "Buscando Rede..."}
+                        </span>
+                      </div>
+                  )}
 
-                {['READY_FOR_PICKUP', 'WAITING_FOR_DRIVER'].includes(o.status) && (
-                  o.logistics_mode === 'OWN' && o.status === 'WAITING_FOR_DRIVER' ? (
-                      <Button className="w-full bg-indigo-600 h-10 rounded-xl font-black text-xs uppercase" onClick={() => { setOrderToAssign(o); setIsAssignDriverOpen(true); }}>Definir Entregador</Button>
-                  ) : (
-                    <Dialog>
-                        <DialogTrigger asChild><Button className="w-full bg-green-600 h-10 rounded-xl font-black text-xs uppercase">Validar Código</Button></DialogTrigger>
-                        <DialogContent className="rounded-[2rem] p-8 text-center border-none shadow-2xl">
-                            <DialogHeader><DialogTitle className="text-xl font-black text-indigo-900">Validar Entrega</DialogTitle></DialogHeader>
-                            <div className="flex justify-center my-4"><OtpInput length={4} value={verificationCode} onChange={setVerificationCode} /></div>
-                            <Button className="w-full h-14 rounded-xl bg-indigo-600 font-bold text-white shadow-lg" onClick={async () => {
-                                if (verificationCode === o.confirmation_code) {
-                                    await supabase.from('orders').update({ status: o.status === 'READY_FOR_PICKUP' ? 'DELIVERED' : 'OUT_FOR_DELIVERY' }).eq('id', o.id);
-                                    setVerificationCode(""); showSuccess("Validado!"); fetchOrders(true);
-                                } else { showError("Código incorreto."); }
-                            }}>Confirmar</Button>
-                        </DialogContent>
-                    </Dialog>
-                  )
-                )}
+                  {showFullDetails ? <OrderCardDetails order={o} /> : (
+                     <div className="bg-gray-50 p-2 rounded-xl flex items-start gap-2 text-xs text-gray-500">
+                        <MapPin className="h-3 w-3 text-brand-accent mt-0.5 shrink-0" />
+                        <p className="line-clamp-1 truncate">{o.delivery_type === 'pickup' ? 'Retirada no Local' : `${o.delivery_address?.street}, ${o.delivery_address?.number}`}</p>
+                     </div>
+                  )}
 
-                {o.status === 'OUT_FOR_DELIVERY' && (
-                   <div className="space-y-2">
-                       <Badge className="w-full py-2 justify-center bg-yellow-50 text-yellow-700 border-none rounded-lg font-bold uppercase text-[9px]">Em Entrega</Badge>
-                       <Button variant="outline" className="w-full rounded-lg border-indigo-100 text-indigo-600 text-xs h-9" onClick={() => navigate(`/chat/${o.driver_id}?orderId=${o.id}`)}><Bike className="h-3 w-3 mr-2" /> Chat</Button>
-                   </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                  {o.status === 'PENDING' && (
+                    <div className="space-y-2">
+                        {o.merchant_acceptance_deadline && <AcceptanceTimer deadline={o.merchant_acceptance_deadline} onExpire={() => fetchOrders(true)} />}
+                        <Button className="w-full bg-blue-600 hover:bg-blue-700 h-10 rounded-xl font-black text-xs uppercase" onClick={() => handleAcceptOrder(o)}>Aceitar</Button>
+                    </div>
+                  )}
+
+                  {o.status === 'PREPARING' && (
+                    <Button className="w-full bg-orange-500 hover:bg-orange-600 h-10 rounded-xl font-black text-xs uppercase" onClick={() => handleReadyForShipping(o)}>Pronto para Envio</Button>
+                  )}
+
+                  {['READY_FOR_PICKUP', 'WAITING_FOR_DRIVER'].includes(o.status) && (
+                    o.logistics_mode === 'OWN' && o.status === 'WAITING_FOR_DRIVER' ? (
+                        <Button className="w-full bg-indigo-600 h-10 rounded-xl font-black text-xs uppercase" onClick={() => { setOrderToAssign(o); setIsAssignDriverOpen(true); }}>Atribuir Frotista</Button>
+                    ) : (
+                      <Dialog>
+                          <DialogTrigger asChild><Button className="w-full bg-green-600 h-10 rounded-xl font-black text-xs uppercase">Validar Código</Button></DialogTrigger>
+                          <DialogContent className="rounded-[2rem] p-8 text-center border-none shadow-2xl">
+                              <DialogHeader><DialogTitle className="text-xl font-black text-indigo-900">Validar Entrega</DialogTitle></DialogHeader>
+                              <div className="flex justify-center my-4"><OtpInput length={4} value={verificationCode} onChange={setVerificationCode} /></div>
+                              <Button className="w-full h-14 rounded-xl bg-indigo-600 font-bold text-white shadow-lg" onClick={async () => {
+                                  if (verificationCode === o.confirmation_code) {
+                                      await supabase.from('orders').update({ status: o.status === 'READY_FOR_PICKUP' ? 'DELIVERED' : 'OUT_FOR_DELIVERY' }).eq('id', o.id);
+                                      setVerificationCode(""); showSuccess("Validado!"); fetchOrders(true);
+                                  } else { showError("Código incorreto."); }
+                              }}>Confirmar</Button>
+                          </DialogContent>
+                      </Dialog>
+                    )
+                  )}
+
+                  {o.status === 'OUT_FOR_DELIVERY' && (
+                     <div className="space-y-2">
+                         <Badge className="w-full py-2 justify-center bg-yellow-50 text-yellow-700 border-none rounded-lg font-bold uppercase text-[9px]">Em Entrega</Badge>
+                         <Button variant="outline" className="w-full rounded-lg border-indigo-100 text-indigo-600 text-xs h-9" onClick={() => navigate(`/chat/${o.driver_id}?orderId=${o.id}`)}><Bike className="h-3 w-3 mr-2" /> Chat</Button>
+                     </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </div>
     );
@@ -379,7 +392,7 @@ const MerchantOrdersPage = () => {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-300" />
           <Input 
             placeholder="Filtrar pedidos por nome ou ID..." 
-            className="rounded-2xl pl-12 h-14 bg-white border-none shadow-sm focus:ring-2 focus:ring-indigo-100 text-base"
+            className="rounded-2xl pl-12 h-14 bg-white border-none shadow-sm text-base"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -426,7 +439,7 @@ const MerchantOrdersPage = () => {
                         <Printer className="h-4 w-4" /> IMPRIMIR
                     </Button>
 
-                    {(selectedOrderDetails.logistics_mode === 'OWN' || merchantConfig.deliveryMode === 'OWN') && ['PENDING', 'PREPARING', 'WAITING_FOR_DRIVER'].includes(selectedOrderDetails.status) && (
+                    {selectedOrderDetails.logistics_mode === 'OWN' && !['cash_delivery', 'card_credit_delivery', 'card_debit_delivery', 'meal_voucher_delivery'].includes(selectedOrderDetails.payment_method) && ['PENDING', 'PREPARING', 'WAITING_FOR_DRIVER'].includes(selectedOrderDetails.status) && (
                         <Button className="h-12 rounded-xl bg-brand-accent text-white font-black gap-2 shadow-lg" onClick={() => handleSwitchToAppLogistics(selectedOrderDetails.id)}>
                             <Zap className="h-4 w-4" /> ENTREGA PELO APP
                         </Button>
@@ -449,8 +462,8 @@ const MerchantOrdersPage = () => {
         <DialogContent className="rounded-[2rem] p-8 border-none shadow-2xl sm:max-w-md">
             <DialogHeader className="text-center">
                 <div className="bg-indigo-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><UserCheck className="h-8 w-8 text-indigo-600" /></div>
-                <DialogTitle className="text-2xl font-black text-indigo-900">Definir Entregador</DialogTitle>
-                <DialogDescription>Selecione um dos seus entregadores autorizados para esta entrega.</DialogDescription>
+                <DialogTitle className="text-2xl font-black text-indigo-900">Atribuir Frotista</DialogTitle>
+                <DialogDescription>Selecione um dos seus entregadores autorizados para este pedido (exigido para pagamentos offline).</DialogDescription>
             </DialogHeader>
             
             <div className="space-y-3 py-4">
