@@ -8,6 +8,7 @@ import { Store, Bike, Loader2, CheckCircle2, Star } from "lucide-react";
 import RatingComponent from "@/components/consumer/RatingComponent";
 import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface OrderRatingDialogProps {
   order: any;
