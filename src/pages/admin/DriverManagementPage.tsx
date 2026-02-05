@@ -30,9 +30,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showError, showSuccess } from "@/utils/toast";
-import { format, startOfDay, subDays } from "date-fns";
-import { DateRangePicker } from "@/components/shared/DateRangePicker";
-import { DateRange } from "react-day-picker";
+import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { exportToExcel } from "@/utils/export";
 
@@ -49,7 +47,6 @@ const DriverManagementPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [addressFilter, setAddressFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
   // Ordenação
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' | null }>({ key: 'name', direction: 'asc' });
@@ -121,19 +118,9 @@ const DriverManagementPage = () => {
         const matchName = d.name.toLowerCase().includes(searchTerm.toLowerCase());
         const matchAddr = d.fullAddress.includes(addressFilter.toLowerCase());
         const matchStatus = statusFilter === 'all' || d.status === statusFilter;
-        
-        let matchDate = true;
-        if (dateRange?.from) {
-            const createdAt = new Date(d.created_at);
-            matchDate = createdAt >= dateRange.from;
-            if (dateRange.to) {
-                matchDate = matchDate && createdAt <= dateRange.to;
-            }
-        }
-
-        return matchName && matchAddr && matchStatus && matchDate;
+        return matchName && matchAddr && matchStatus;
     });
-  }, [drivers, orders, payments, searchTerm, addressFilter, statusFilter, dateRange]);
+  }, [drivers, orders, payments, searchTerm, addressFilter, statusFilter]);
 
   const sortedData = useMemo(() => {
     if (!sortConfig.key || !sortConfig.direction) return tableData;
@@ -160,7 +147,6 @@ const DriverManagementPage = () => {
         const { error } = await supabase.from('driver_applications').update({ status: newStatus }).eq('id', driverId);
         if (error) throw error;
         
-        // Também atualiza o metadado do auth.users (simplificado via Edge Function no backend real, aqui via RPC se houvesse)
         setDrivers(prev => prev.map(d => d.id === driverId ? { ...d, status: newStatus } : d));
         showSuccess(`Entregador ${newStatus === 'APPROVED' ? 'ativado' : 'desativado'}!`);
     } catch (e) {
@@ -201,7 +187,7 @@ const DriverManagementPage = () => {
       {/* Toolbar de Filtros */}
       <Card className="rounded-[2rem] border-none shadow-sm bg-white overflow-hidden">
         <CardContent className="p-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
               <Input 
@@ -234,7 +220,6 @@ const DriverManagementPage = () => {
                     <option value="REJECTED">Rejeitados</option>
                 </select>
             </div>
-            <DateRangePicker date={dateRange} setDate={setDateRange} className="h-12" />
           </div>
         </CardContent>
       </Card>
