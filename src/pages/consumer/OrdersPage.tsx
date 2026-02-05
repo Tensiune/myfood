@@ -3,16 +3,19 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Package, Clock, Loader2, Key, XCircle, History, MessageCircle, Bike, Store, MapPin } from "lucide-react";
+import { Package, Clock, Loader2, Key, XCircle, History, MessageCircle, Bike, Store, MapPin, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import OrderRatingDialog from "@/components/consumer/OrderRatingDialog"; // Importado
 
 const OrdersPage = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ratings, setRatings] = useState<Record<string, any>>({}); // { orderId: ratingData }
+  const [orderToRate, setOrderToRate] = useState<any>(null); // Pedido selecionado para avaliação
   const navigate = useNavigate();
 
   const fetchOrders = useCallback(async () => {
@@ -28,6 +31,24 @@ const OrdersPage = () => {
 
       if (error) throw error;
       setOrders(data || []);
+      
+      // Fetch existing ratings for delivered orders
+      const deliveredOrderIds = (data || []).filter(o => o.status === 'DELIVERED').map(o => o.id);
+      if (deliveredOrderIds.length > 0) {
+          const { data: existingRatings } = await supabase
+              .from('ratings')
+              .select('*')
+              .in('order_id', deliveredOrderIds);
+              
+          if (existingRatings) {
+              const ratingsMap = existingRatings.reduce((acc, r) => {
+                  acc[r.order_id] = r;
+                  return acc;
+              }, {});
+              setRatings(ratingsMap);
+          }
+      }
+
     } catch (err: any) {
       console.error(err);
       showError("Não foi possível carregar os pedidos.");
@@ -80,88 +101,113 @@ const OrdersPage = () => {
   const activeOrders = orders.filter(o => ['PENDING', 'PREPARING', 'WAITING_FOR_DRIVER', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP'].includes(o.status));
   const historyOrders = orders.filter(o => ['DELIVERED', 'CANCELLED'].includes(o.status));
 
-  const renderOrderCard = (order: any) => (
-    <Card key={order.id} className={cn(
-      "rounded-3xl border-none shadow-md overflow-hidden bg-white animate-in fade-in slide-in-from-bottom-2",
-      order.status === 'CANCELLED' && "opacity-90 border-l-4 border-l-red-500"
-    )}>
-      <CardContent className="p-5 space-y-4">
-        <div className="flex justify-between items-start">
-          <div>
-            <h3 className="font-black text-gray-900 text-lg">
-              {order.merchant?.store_name || "Restaurante"}
-            </h3>
-            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Pedido #{order.id.slice(0, 8)}</p>
-          </div>
-          {getStatusBadge(order.status)}
-        </div>
+  const renderOrderCard = (order: any) => {
+    const isDelivered = order.status === 'DELIVERED';
+    const isRated = !!ratings[order.id];
+    const existingRating = ratings[order.id];
 
-        {/* Botões de Chat para pedidos ativos */}
-        {!['DELIVERED', 'CANCELLED'].includes(order.status) && (
-            <div className="grid grid-cols-2 gap-2">
+    return (
+      <Card key={order.id} className={cn(
+        "rounded-3xl border-none shadow-md overflow-hidden bg-white animate-in fade-in slide-in-from-bottom-2",
+        order.status === 'CANCELLED' && "opacity-90 border-l-4 border-l-red-500"
+      )}>
+        <CardContent className="p-5 space-y-4">
+          <div className="flex justify-between items-start">
+            <div>
+              <h3 className="font-black text-gray-900 text-lg">
+                {order.merchant?.store_name || "Restaurante"}
+              </h3>
+              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Pedido #{order.id.slice(0, 8)}</p>
+            </div>
+            {getStatusBadge(order.status)}
+          </div>
+
+          {/* Botões de Chat para pedidos ativos */}
+          {!['DELIVERED', 'CANCELLED'].includes(order.status) && (
+              <div className="grid grid-cols-2 gap-2">
+                  <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="rounded-xl border-indigo-100 text-indigo-600 h-9 text-xs gap-2"
+                      onClick={() => navigate(`/chat/${order.merchant_id}?orderId=${order.id}`)}
+                  >
+                      <Store className="h-3.5 w-3.5" /> Falar com Loja
+                  </Button>
+                  {order.driver_id && (
+                      <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="rounded-xl border-blue-100 text-blue-600 h-9 text-xs gap-2"
+                          onClick={() => navigate(`/chat/${order.driver_id}?orderId=${order.id}`)}
+                      >
+                          <Bike className="h-3.5 w-3.5" /> Falar com Entregador
+                      </Button>
+                  )}
+              </div>
+          )}
+
+          {/* Informações de Retirada/Entrega */}
+          {order.status === "READY_FOR_PICKUP" && (
+            <div className="bg-green-50 p-4 rounded-2xl flex items-center justify-between border border-green-100">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white rounded-xl shadow-sm"><Key className="h-5 w-5 text-green-600" /></div>
+                <div>
+                  <p className="text-[10px] font-bold text-green-400 uppercase">Código de Retirada</p>
+                  <p className="text-xl font-black text-green-900">{order.confirmation_code}</p>
+                </div>
+              </div>
+              <Button size="sm" className="rounded-xl bg-green-600 h-10 font-bold" onClick={() => navigate(`/restaurant/${order.merchant_id}`)}>Ver Local</Button>
+            </div>
+          )}
+          
+          {order.status === "OUT_FOR_DELIVERY" && (
+            <div className="bg-indigo-50 p-4 rounded-2xl flex items-center justify-between border border-indigo-100">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white rounded-xl shadow-sm"><Key className="h-5 w-5 text-indigo-600" /></div>
+                <div>
+                  <p className="text-[10px] font-bold text-indigo-400 uppercase">Código de Entrega</p>
+                  <p className="text-xl font-black text-indigo-900">{order.confirmation_code}</p>
+                </div>
+              </div>
+              <Button size="sm" className="rounded-xl bg-indigo-600 h-10 font-bold" onClick={() => navigate(`/track/${order.id}`)}>Rastrear</Button>
+            </div>
+          )}
+          
+          <div className="space-y-1">
+             {order.items.map((item: any, i: number) => (
+               <p key={i} className="text-sm text-gray-600"><span className="font-bold text-indigo-600">{item.quantity}x</span> {item.name}</p>
+             ))}
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+            <span className="font-black text-indigo-900">Total: R$ {order.total.toFixed(2)}</span>
+            <span className="text-xs text-gray-400 font-bold uppercase">
+              {new Date(order.created_at).toLocaleDateString([], {day:'2-digit', month:'2-digit'})} {new Date(order.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+            </span>
+          </div>
+          
+          {/* AVALIAÇÃO */}
+          {isDelivered && (
+            <div className="pt-2 border-t border-gray-100">
+              {isRated ? (
+                <div className="flex items-center justify-center p-3 bg-green-50 rounded-xl text-green-700 font-bold text-sm gap-2">
+                    <Star className="h-4 w-4 fill-green-600 text-green-600" />
+                    <span>Avaliado! Loja: {existingRating.merchant_rating} {existingRating.driver_rating ? `| Entregador: ${existingRating.driver_rating}` : ''}</span>
+                </div>
+              ) : (
                 <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="rounded-xl border-indigo-100 text-indigo-600 h-9 text-xs gap-2"
-                    onClick={() => navigate(`/chat/${order.merchant_id}?orderId=${order.id}`)}
+                  className="w-full rounded-xl bg-brand-accent hover:bg-brand-accent/90 text-white font-bold h-10 text-sm"
+                  onClick={() => setOrderToRate(order)}
                 >
-                    <Store className="h-3.5 w-3.5" /> Falar com Loja
+                  <Star className="h-4 w-4 mr-2" /> Avaliar Pedido
                 </Button>
-                {order.driver_id && (
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="rounded-xl border-blue-100 text-blue-600 h-9 text-xs gap-2"
-                        onClick={() => navigate(`/chat/${order.driver_id}?orderId=${order.id}`)}
-                    >
-                        <Bike className="h-3.5 w-3.5" /> Falar com Entregador
-                    </Button>
-                )}
+              )}
             </div>
-        )}
-
-        {/* Informações de Retirada/Entrega */}
-        {order.status === "READY_FOR_PICKUP" && (
-          <div className="bg-green-50 p-4 rounded-2xl flex items-center justify-between border border-green-100">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-white rounded-xl shadow-sm"><Key className="h-5 w-5 text-green-600" /></div>
-              <div>
-                <p className="text-[10px] font-bold text-green-400 uppercase">Código de Retirada</p>
-                <p className="text-xl font-black text-green-900">{order.confirmation_code}</p>
-              </div>
-            </div>
-            <Button size="sm" className="rounded-xl bg-green-600 h-10 font-bold" onClick={() => navigate(`/restaurant/${order.merchant_id}`)}>Ver Local</Button>
-          </div>
-        )}
-        
-        {order.status === "OUT_FOR_DELIVERY" && (
-          <div className="bg-indigo-50 p-4 rounded-2xl flex items-center justify-between border border-indigo-100">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-white rounded-xl shadow-sm"><Key className="h-5 w-5 text-indigo-600" /></div>
-              <div>
-                <p className="text-[10px] font-bold text-indigo-400 uppercase">Código de Entrega</p>
-                <p className="text-xl font-black text-indigo-900">{order.confirmation_code}</p>
-              </div>
-            </div>
-            <Button size="sm" className="rounded-xl bg-indigo-600 h-10 font-bold" onClick={() => navigate(`/track/${order.id}`)}>Rastrear</Button>
-          </div>
-        )}
-        
-        <div className="space-y-1">
-           {order.items.map((item: any, i: number) => (
-             <p key={i} className="text-sm text-gray-600"><span className="font-bold text-indigo-600">{item.quantity}x</span> {item.name}</p>
-           ))}
-        </div>
-
-        <div className="flex items-center justify-between pt-2 border-t border-gray-50">
-          <span className="font-black text-indigo-900">Total: R$ {order.total.toFixed(2)}</span>
-          <span className="text-xs text-gray-400 font-bold uppercase">
-            {new Date(order.created_at).toLocaleDateString([], {day:'2-digit', month:'2-digit'})} {new Date(order.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-          </span>
-        </div>
-      </CardContent>
-    </Card>
-  );
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="space-y-6 pb-20">
@@ -194,6 +240,18 @@ const OrdersPage = () => {
           historyOrders.map(renderOrderCard)
         )}
       </section>
+      
+      {/* Rating Dialog */}
+      {orderToRate && (
+        <OrderRatingDialog 
+          order={orderToRate}
+          isOpen={!!orderToRate}
+          onClose={(rated) => {
+            setOrderToRate(null);
+            if (rated) fetchOrders(); // Refresh orders to show rating status
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -4,92 +4,59 @@ import React, { useState } from "react";
 import { Star, StarHalf } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { showSuccess, showError } from "@/utils/toast";
+import { cn } from "@/lib/utils";
 
 interface RatingComponentProps {
-  initialRating?: number;
-  onRatingSubmit?: (rating: number, comment?: string) => void;
+  ratingValue: number;
+  onRatingChange: (rating: number) => void;
+  commentValue: string;
+  onCommentChange: (comment: string) => void;
   readOnly?: boolean;
+  showComment?: boolean;
 }
 
 const RatingComponent: React.FC<RatingComponentProps> = ({
-  initialRating = 0,
-  onRatingSubmit,
+  ratingValue,
+  onRatingChange,
+  commentValue,
+  onCommentChange,
   readOnly = false,
+  showComment = true,
 }) => {
-  const [rating, setRating] = useState(initialRating);
-  const [comment, setComment] = useState("");
   const [hoverRating, setHoverRating] = useState(0);
-  const [submitting, setSubmitting] = useState(false);
 
   const handleRatingClick = (selectedRating: number) => {
     if (!readOnly) {
-      setRating(selectedRating);
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (readOnly) return;
-
-    if (rating === 0) {
-      showError("Por favor, selecione uma avaliação.");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await onRatingSubmit?.(rating, comment);
-      showSuccess("Avaliação enviada com sucesso!");
-    } catch (error) {
-      showError("Erro ao enviar avaliação.");
-    } finally {
-      setSubmitting(false);
+      onRatingChange(selectedRating);
     }
   };
 
   const renderStars = () => {
     const stars = [];
+    const currentRating = hoverRating || ratingValue;
+    
     for (let i = 1; i <= 5; i++) {
-      if (i <= (hoverRating || rating)) {
-        stars.push(
+      const isFilled = i <= currentRating;
+      
+      stars.push(
+        <div 
+          key={i}
+          className="relative"
+          onMouseEnter={() => !readOnly && setHoverRating(i)}
+          onMouseLeave={() => !readOnly && setHoverRating(0)}
+          onClick={() => handleRatingClick(i)}
+        >
           <Star
-            key={i}
-            className={`h-6 w-6 cursor-pointer ${
-              readOnly ? "text-yellow-400" : "text-yellow-500 hover:text-yellow-600"
-            }`}
-            fill={readOnly ? "currentColor" : "none"}
-            onClick={() => handleRatingClick(i)}
-            onMouseEnter={() => !readOnly && setHoverRating(i)}
-            onMouseLeave={() => !readOnly && setHoverRating(0)}
+            className={cn(
+              "h-6 w-6 transition-colors",
+              readOnly ? "text-yellow-400" : "text-gray-300 cursor-pointer hover:text-yellow-500",
+              isFilled && "text-yellow-500 fill-yellow-500"
+            )}
+            fill={isFilled ? "currentColor" : "none"}
           />
-        );
-      } else if (i - 0.5 === (hoverRating || rating)) {
-        stars.push(
-          <StarHalf
-            key={i}
-            className={`h-6 w-6 cursor-pointer ${
-              readOnly ? "text-yellow-400" : "text-yellow-500 hover:text-yellow-600"
-            }`}
-            fill={readOnly ? "currentColor" : "none"}
-            onClick={() => handleRatingClick(i - 0.5)}
-            onMouseEnter={() => !readOnly && setHoverRating(i - 0.5)}
-            onMouseLeave={() => !readOnly && setHoverRating(0)}
-          />
-        );
-      } else {
-        stars.push(
-          <Star
-            key={i}
-            className={`h-6 w-6 cursor-pointer ${
-              readOnly ? "text-gray-300" : "text-gray-300 hover:text-yellow-500"
-            }`}
-            fill="none"
-            onClick={() => handleRatingClick(i)}
-            onMouseEnter={() => !readOnly && setHoverRating(i)}
-            onMouseLeave={() => !readOnly && setHoverRating(0)}
-          />
-        );
-      }
+          {/* Half star logic is complex with Lucide, simplifying to full stars for cleaner UX/code */}
+        </div>
+      );
     }
     return stars;
   };
@@ -98,26 +65,19 @@ const RatingComponent: React.FC<RatingComponentProps> = ({
     <div className="space-y-4">
       <div className="flex items-center space-x-1">
         {renderStars()}
-        <span className="ml-2 text-lg font-medium text-gray-700">
-          {rating.toFixed(1)}
+        <span className="ml-2 text-lg font-black text-indigo-900">
+          {ratingValue.toFixed(1)}
         </span>
       </div>
 
-      {!readOnly && (
+      {showComment && !readOnly && (
         <div className="space-y-3">
           <Textarea
-            placeholder="Deixe um comentário sobre sua experiência..."
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            className="min-h-[100px]"
+            placeholder="Deixe um comentário sobre sua experiência (opcional)..."
+            value={commentValue}
+            onChange={(e) => onCommentChange(e.target.value)}
+            className="min-h-[80px] rounded-xl border-gray-200"
           />
-          <Button
-            className="rounded-lg bg-brand-accent hover:bg-brand-accent/90 text-white font-semibold"
-            onClick={handleSubmit}
-            disabled={submitting}
-          >
-            {submitting ? "Enviando..." : "Enviar Avaliação"}
-          </Button>
         </div>
       )}
     </div>

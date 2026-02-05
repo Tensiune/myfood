@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { User, LogOut, Settings, Bike, ArrowRight, ShieldCheck } from "lucide-react";
+import { User, LogOut, Settings, Bike, ArrowRight, ShieldCheck, Star, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showSuccess, showError } from "@/utils/toast";
 import RoleSwitcher from "@/components/shared/RoleSwitcher";
@@ -13,17 +13,41 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import PersonalDetailsManager from "@/components/driver/PersonalDetailsManager";
+import RatingComponent from "@/components/consumer/RatingComponent";
 
 const DriverProfilePage = () => {
   const navigate = useNavigate();
   const { user, refreshUser } = useAuth();
   const [isExclusive, setIsExclusive] = useState(false);
+  const [averageRating, setAverageRating] = useState<number | null>(null);
+  const [loadingRating, setLoadingRating] = useState(true);
+
+  const fetchRating = useCallback(async () => {
+    if (!user?.id) return;
+    setLoadingRating(true);
+    try {
+        const { data, error } = await supabase.rpc('get_average_rating', {
+            entity_id: user.id,
+            entity_type: 'DRIVER'
+        });
+        
+        if (error) throw error;
+        
+        setAverageRating(data ? parseFloat(data.toFixed(1)) : null);
+    } catch (err) {
+        console.error("Error fetching driver rating:", err);
+        setAverageRating(null);
+    } finally {
+        setLoadingRating(false);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (user?.user_metadata) {
       setIsExclusive(user.user_metadata.is_exclusive === true);
     }
-  }, [user]);
+    fetchRating();
+  }, [user, fetchRating]);
 
   const handleToggleExclusive = async (val: boolean) => {
     try {
@@ -71,6 +95,27 @@ const DriverProfilePage = () => {
           <div className="flex items-center gap-2 text-sm font-medium text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
             <Bike className="h-4 w-4" />
             <span>Entregador Parceiro</span>
+          </div>
+          
+          {/* Avaliação Média */}
+          <div className="pt-2">
+            {loadingRating ? (
+                <Loader2 className="h-5 w-5 text-indigo-400 animate-spin" />
+            ) : averageRating !== null ? (
+                <div className="flex flex-col items-center space-y-1">
+                    <RatingComponent 
+                        ratingValue={averageRating} 
+                        onRatingChange={() => {}} // No-op for readOnly
+                        commentValue=""
+                        onCommentChange={() => {}} // No-op for readOnly
+                        readOnly={true} 
+                        showComment={false}
+                    />
+                    <span className="text-xs text-gray-500 font-medium">Avaliação Média</span>
+                </div>
+            ) : (
+                <span className="text-sm text-gray-400">Sem avaliações ainda.</span>
+            )}
           </div>
         </CardContent>
       </Card>
