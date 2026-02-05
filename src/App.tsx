@@ -33,7 +33,7 @@ import ValidateMerchantsPage from "./pages/admin/ValidateMerchantsPage";
 import ValidateDriversPage from "./pages/admin/ValidateDriversPage";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import MerchantOrdersPage from "./pages/merchant/MerchantOrdersPage";
-import AvailableOrdersPage from "./driver/AvailableOrdersPage";
+import AvailableOrdersPage from "./pages/driver/AvailableOrdersPage"; // Caminho corrigido
 import NavigationPage from "./pages/driver/NavigationPage";
 import MerchantMenuPage from "./pages/merchant/MerchantMenuPage";
 import MerchantReportsPage from "./pages/merchant/MerchantReportsPage";
@@ -53,8 +53,8 @@ import StoreManagementPage from "./pages/admin/StoreManagementPage";
 import StoreDetailPage from "./pages/admin/StoreDetailPage";
 import DriverManagementPage from "./pages/admin/DriverManagementPage";
 import DriverDetailPage from "./pages/admin/DriverDetailPage";
-import AdminPaymentSettingsPage from "./pages/admin/AdminPaymentSettingsPage"; // Novo
-import MerchantPaymentSettingsPage from "./pages/merchant/MerchantPaymentSettingsPage"; // Novo
+import AdminPaymentSettingsPage from "./pages/admin/AdminPaymentSettingsPage";
+import MerchantPaymentSettingsPage from "./pages/merchant/MerchantPaymentSettingsPage";
 
 const queryClient = new QueryClient();
 
