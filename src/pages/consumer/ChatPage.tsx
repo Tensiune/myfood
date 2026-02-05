@@ -11,7 +11,6 @@ import { supabase } from "@/lib/supabase";
 import { showError } from "@/utils/toast";
 import { useAuth } from "@/context/AuthContext";
 import { useCall } from "@/context/CallContext";
-// import CallOverlay from "@/components/shared/CallOverlay"; // Removido
 
 interface Message {
   id: string;
@@ -32,6 +31,7 @@ const ChatPage = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [isCommunicationExpired, setIsCommunicationExpired] = useState(false);
   const [receiverInfo, setReceiverInfo] = useState<any>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -47,11 +47,30 @@ const ChatPage = () => {
       if (!currentUser || !receiverId) return;
 
       try {
-        // Busca info do destinatário de forma segura
         const { data: profile } = await supabase.rpc('get_user_full_name', { user_id: receiverId });
+        
+        // Regra de 24h: se o usuário for Lojista ou Entregador, verifica a última mensagem do CLIENTE
+        const userRole = currentUser.user_metadata?.role;
+        if (userRole === 'MERCHANT' || userRole === 'DRIVER') {
+            const { data: lastClientMsg } = await supabase
+                .from('order_chats')
+                .select('created_at')
+                .eq('sender_id', receiverId)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .single();
+            
+            if (lastClientMsg) {
+                const lastTime = new Date(lastClientMsg.created_at).getTime();
+                const diff = Date.now() - lastTime;
+                if (diff > 24 * 60 * 60 * 1000) {
+                    setIsCommunicationExpired(true);
+                }
+            }
+        }
+
         setReceiverInfo({ name: profile || "Contato", id: receiverId });
 
-        // Busca histórico de mensagens (simplificado para evitar erros de sintaxe no .or)
         const { data: history, error } = await supabase
           .from('order_chats')
           .select('*')
@@ -60,7 +79,6 @@ const ChatPage = () => {
 
         if (error) throw error;
         
-        // Filtra as mensagens localmente para garantir precisão e evitar erros de RLS
         const filteredHistory = (history || []).filter(m => 
             (m.sender_id === currentUser.id && m.receiver_id === receiverId) ||
             (m.sender_id === receiverId && m.receiver_id === currentUser.id)
@@ -69,27 +87,24 @@ const ChatPage = () => {
         setMessages(filteredHistory);
       } catch (err) {
         console.error("Chat init error:", err);
-        showError("Erro ao carregar chat.");
       } finally {
         setLoading(false);
         setTimeout(scrollToBottom, 100);
       }
 
-      // Inscrição em tempo real
       const channel = supabase
         .channel(`chat_${currentUser.id}_${receiverId}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_chats' }, (payload) => {
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_chats' }, (payload: any) => {
             const msg = payload.new as Message;
             const isRelevant = 
                 (msg.sender_id === currentUser.id && msg.receiver_id === receiverId) ||
                 (msg.sender_id === receiverId && msg.receiver_id === currentUser.id);
 
             if (isRelevant) {
-              setMessages(prev => {
-                if (prev.find(m => m.id === msg.id)) return prev;
-                return [...prev, msg];
-              });
+              setMessages(prev => [...prev, msg]);
               setTimeout(scrollToBottom, 50);
+              // Se o cliente mandou mensagem nova, "reseta" o timer de 24h localmente
+              if (msg.sender_id === receiverId) setIsCommunicationExpired(false);
             }
           }
         )
@@ -103,7 +118,7 @@ const ChatPage = () => {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !currentUser || !receiverId) return;
+    if (!newMessage.trim() || !currentUser || !receiverId || isCommunicationExpired) return;
 
     const content = newMessage;
     setNewMessage("");
@@ -134,7 +149,6 @@ const ChatPage = () => {
 
   return (
     <div className="fixed inset-0 bg-white z-[100] flex flex-col max-w-2xl mx-auto shadow-2xl">
-      {/* <CallOverlay /> REMOVIDO */}
       <header className="bg-white border-b border-gray-100 p-3 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full">
@@ -151,6 +165,7 @@ const ChatPage = () => {
         <Button 
           variant="ghost" size="icon" className="rounded-full text-indigo-600 bg-indigo-50"
           onClick={() => receiverId && startCall(receiverId)}
+          disabled={isCommunicationExpired}
         >
             <Phone className="h-5 w-5" />
         </Button>
@@ -168,23 +183,21 @@ const ChatPage = () => {
             </div>
           </div>
         ))}
-        {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full opacity-30 text-center px-10">
-                <MessageSquare className="h-12 w-12 mb-2" />
-                <p className="font-bold">Sua conversa com {receiverInfo?.name} começa aqui!</p>
-            </div>
-        )}
       </div>
 
       <div className="p-4 bg-white border-t border-gray-100 safe-area-bottom">
-        <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-          <Input
-            placeholder="Escreva sua mensagem..."
-            className="flex-1 rounded-2xl border-gray-100 bg-gray-50 h-12 focus:bg-white"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-          />
-          <Button type="submit" size="icon" className="h-12 w-12 rounded-2xl bg-brand-accent hover:bg-brand-accent/90 shadow-lg" disabled={!newMessage.trim()}>
+        <form onSubmit={handleSendMessage} className={cn("flex items-center gap-2", isCommunicationExpired && "opacity-50")}>
+          <div className="flex-1 relative">
+            <Input
+              placeholder={isCommunicationExpired ? "Chat bloqueado (24h sem resposta do cliente)" : "Escreva sua mensagem..."}
+              className="flex-1 rounded-2xl border-gray-100 bg-gray-50 h-12"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              disabled={isCommunicationExpired}
+            />
+            {isCommunicationExpired && <div className="absolute inset-0 cursor-not-allowed z-10" />}
+          </div>
+          <Button type="submit" size="icon" className="h-12 w-12 rounded-2xl bg-brand-accent hover:bg-brand-accent/90 shadow-lg" disabled={!newMessage.trim() || isCommunicationExpired}>
             <Send className="h-5 w-5 text-white" />
           </Button>
         </form>

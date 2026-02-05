@@ -39,6 +39,7 @@ import MerchantMenuPage from "./pages/merchant/MerchantMenuPage";
 import MerchantReportsPage from "./pages/merchant/MerchantReportsPage";
 import MerchantSetupPage from "./pages/merchant/MerchantSetupPage";
 import MerchantSettingsPage from "./pages/merchant/MerchantSettingsPage";
+import MerchantInboxPage from "./pages/merchant/MerchantInboxPage";
 import DriverSetupPage from "./pages/driver/DriverSetupPage";
 import DriverProfilePage from "./pages/driver/DriverProfilePage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
@@ -99,6 +100,7 @@ const App = () => (
                     <Route path="/merchant/reports" element={<MerchantReportsPage />} />
                     <Route path="/merchant/settings" element={<MerchantSettingsPage />} />
                     <Route path="/merchant/setup" element={<MerchantSetupPage />} />
+                    <Route path="/merchant/inbox" element={<MerchantInboxPage />} />
                     <Route path="/merchant/history" element={<MerchantOrderHistoryPage />} />
                     
                     {/* Admin Routes */}

@@ -17,7 +17,8 @@ import {
   Bike,
   DollarSign,
   Loader2,
-  History
+  History,
+  MessageCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -143,6 +144,18 @@ const DashboardLayout = () => {
           </Button>
 
           <div className="ml-auto flex items-center gap-4">
+            {/* NOVO: Atalho para Caixa de Mensagens do Lojista */}
+            {role === 'MERCHANT' && (
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="rounded-full relative text-gray-500 hover:bg-gray-50"
+                  onClick={() => navigate("/merchant/inbox")}
+                >
+                  <MessageCircle className="h-5 w-5" />
+                </Button>
+            )}
+            
             <RoleSwitcher className="hidden sm:flex" />
             
             <Sheet>

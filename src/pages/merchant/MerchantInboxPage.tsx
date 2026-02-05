@@ -35,7 +35,6 @@ const MerchantInboxPage = () => {
     setLoading(true);
 
     try {
-      // 1. Buscar todas as mensagens onde o lojista é o remetente OU o destinatário
       const { data: rawMessages, error } = await supabase
         .from('order_chats')
         .select('*')
@@ -48,26 +47,24 @@ const MerchantInboxPage = () => {
       const chatMap = new Map<string, ChatSummary>();
       const contactIds = new Set<string>();
 
-      // 2. Agrupar por contato (o outro ID na conversa)
       messages.forEach(msg => {
         const otherId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
-        const chatId = otherId; // Usamos o ID do contato como chave do chat
+        const chatId = otherId;
         contactIds.add(otherId);
 
         if (!chatMap.has(chatId)) {
           chatMap.set(chatId, {
             contactId: otherId,
             contactName: "Carregando...",
-            contactRole: 'CUSTOMER', // Será atualizado depois
+            contactRole: 'CUSTOMER',
             lastMessage: msg.message,
             lastMessageTime: msg.created_at,
-            unreadCount: 0, // Simplificado, precisaria de lógica de leitura mais complexa
+            unreadCount: 0,
             orderId: msg.order_id,
           });
         }
       });
 
-      // 3. Buscar nomes e metadados dos contatos
       const { data: profiles } = await supabase.from('profiles').select('id, first_name, last_name').in('id', Array.from(contactIds));
       const { data: drivers } = await supabase.from('driver_applications').select('id, full_name').in('id', Array.from(contactIds));
       
@@ -81,9 +78,6 @@ const MerchantInboxPage = () => {
         if (driver) {
             name = driver.full_name || `Entregador #${chat.contactId.slice(0, 4)}`;
             role = 'DRIVER';
-        } else if (name === 'Contato Desconhecido') {
-            // Tenta buscar o nome do perfil do usuário logado (se for o caso de chat consigo mesmo, o que não deve ocorrer)
-            name = user.user_metadata?.store_name || user.email?.split('@')[0] || 'Contato';
         }
 
         return {
@@ -106,7 +100,6 @@ const MerchantInboxPage = () => {
 
   useEffect(() => {
     fetchChats();
-    // Atualiza a cada 15 segundos para simular tempo real
     const interval = setInterval(fetchChats, 15000);
     return () => clearInterval(interval);
   }, [fetchChats]);
@@ -154,11 +147,6 @@ const MerchantInboxPage = () => {
                         {chat.contactName.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    {chat.unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 h-5 w-5 bg-brand-accent text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white">
-                        {chat.unreadCount}
-                      </span>
-                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start">
