@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge"; // Corrigido: Importação adicionada
+import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,7 +14,9 @@ import {
   Search, 
   Download, 
   Package,
-  ReceiptText
+  ReceiptText,
+  Truck,
+  ShieldCheck
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { showError } from "@/utils/toast";
@@ -229,16 +231,27 @@ const MerchantOrderHistoryPage = () => {
                             </div>
                           ))}
                         </div>
-                        <div className="mt-4 pt-4 border-t border-dashed border-gray-200 flex justify-between items-center">
-                            <div className="flex items-center gap-4">
-                                <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 rounded-lg text-[9px] font-black uppercase">
-                                  {o.delivery_type === 'delivery' ? 'Entrega em Domicílio' : 'Retirada no Local'}
-                                </Badge>
-                                <div className="flex items-center gap-1.5">
-                                  <ReceiptText className="h-3 w-3 text-gray-400" />
-                                  <span className="text-[10px] font-bold text-gray-400 uppercase">{getFriendlyPaymentMethod(o.payment_method)}</span>
-                                </div>
+                        <div className="mt-6 pt-4 border-t border-dashed border-gray-200 flex flex-wrap gap-4 items-center">
+                            <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 rounded-lg text-[9px] font-black uppercase px-3 py-1.5">
+                              {o.delivery_type === 'delivery' ? 'Entrega em Domicílio' : 'Retirada no Local'}
+                            </Badge>
+                            
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100">
+                              <ReceiptText className="h-3.5 w-3.5 text-gray-400" />
+                              <span className="text-[10px] font-black text-gray-500 uppercase">{getFriendlyPaymentMethod(o.payment_method)}</span>
                             </div>
+
+                            {o.delivery_type === 'delivery' && (
+                                <div className={cn(
+                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border",
+                                    o.logistics_mode === 'OWN' ? "bg-amber-50 border-amber-100 text-amber-700" : "bg-blue-50 border-blue-100 text-blue-700"
+                                )}>
+                                  {o.logistics_mode === 'OWN' ? <ShieldCheck className="h-3.5 w-3.5" /> : <Truck className="h-3.5 w-3.5" />}
+                                  <span className="text-[10px] font-black uppercase">
+                                      {o.logistics_mode === 'OWN' ? "Entregador Próprio/Frotista" : "Rede de Entregadores App"}
+                                  </span>
+                                </div>
+                            )}
                         </div>
                       </div>
                     </TableCell>
