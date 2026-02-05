@@ -51,16 +51,15 @@ const ChatPage = () => {
         const { data: profile } = await supabase.rpc('get_user_full_name', { user_id: receiverId });
         setReceiverInfo({ name: profile || "Contato", id: receiverId });
 
-        // LÓGICA DE EXPIRAÇÃO BASEADA NO STATUS DO PEDIDO
+        // LÓGICA DE EXPIRAÇÃO
         const userRole = currentUser.user_metadata?.role;
         if (userRole === 'MERCHANT' || userRole === 'DRIVER') {
             let activeOrderId = orderId;
 
-            // Se não veio orderId na URL, busca o último pedido entre essas duas partes
             if (!activeOrderId) {
                 const { data: lastOrder } = await supabase
                     .from('orders')
-                    .select('id, status, updated_at')
+                    .select('id')
                     .or(`customer_id.eq.${receiverId},merchant_id.eq.${receiverId},driver_id.eq.${receiverId}`)
                     .order('created_at', { ascending: false })
                     .limit(1)
@@ -72,29 +71,24 @@ const ChatPage = () => {
             if (activeOrderId) {
                 const { data: order } = await supabase
                     .from('orders')
-                    .select('status, updated_at')
+                    .select('status, updated_at, created_at')
                     .eq('id', activeOrderId)
                     .single();
                 
                 if (order) {
                     const isFinished = ['DELIVERED', 'CANCELLED'].includes(order.status);
-                    
                     if (isFinished) {
-                        const finishTime = new Date(order.updated_at).getTime();
+                        // Usa updated_at se existir, senão created_at
+                        const referenceTime = new Date(order.updated_at || order.created_at).getTime();
                         const twentyFourHours = 24 * 60 * 60 * 1000;
-                        
-                        if (Date.now() - finishTime > twentyFourHours) {
+                        if (Date.now() - referenceTime > twentyFourHours) {
                             setIsCommunicationExpired(true);
                         }
-                    } else {
-                        // Pedido ainda está ativo (PENDING, PREPARING, etc) - Chat sempre liberado
-                        setIsCommunicationExpired(false);
                     }
                 }
             }
         }
 
-        // Carrega histórico de mensagens
         const { data: history, error } = await supabase
           .from('order_chats')
           .select('*')

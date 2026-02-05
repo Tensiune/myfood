@@ -112,20 +112,40 @@ const MerchantOrdersPage = () => {
       if (updateError) throw updateError;
       
       if (order.delivery_type === 'delivery' && mode === 'APP') {
-        // Ignora erro se a função de despacho falhar (ex: sem entregadores), 
-        // o importante é o pedido ter sido aceito.
         supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } }).catch(console.error);
       }
       
       if (autoPrint) handlePrint(order);
       if (!isSilent) { dismissToast(tid); showSuccess("Pedido aceito!"); }
-    } catch (err: any) { 
-      if (!isSilent) { 
-          dismissToast(tid); 
-          showError("Erro técnico: " + (err.message || "Tente novamente")); 
-      } 
+    } catch (err) { 
+      if (!isSilent) { dismissToast(tid); showError("Erro ao aceitar."); } 
     }
   }, [handlePrint, merchantDeliveryMode, autoPrint]);
+
+  const handleReadyForShipping = async (order: any) => {
+    const tid = showLoading("Atualizando status...");
+    try {
+        const newStatus = order.delivery_type === 'pickup' ? 'READY_FOR_PICKUP' : 'WAITING_FOR_DRIVER';
+        const { error } = await supabase
+            .from('orders')
+            .update({ status: newStatus })
+            .eq('id', order.id);
+        
+        if (error) throw error;
+        
+        // Se for entrega via rede do app, tenta despachar imediatamente
+        if (newStatus === 'WAITING_FOR_DRIVER' && order.logistics_mode === 'APP') {
+            supabase.functions.invoke('dispatch-order', { body: { orderId: order.id } }).catch(console.error);
+        }
+
+        showSuccess("Pedido pronto!");
+        fetchOrders(true);
+    } catch (err: any) {
+        showError("Erro ao atualizar.");
+    } finally {
+        dismissToast(tid);
+    }
+  };
 
   const fetchOrders = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -155,20 +175,34 @@ const MerchantOrdersPage = () => {
 
       if (error) throw error;
 
+      // Buscar nomes de clientes e entregadores
       const cIds = Array.from(new Set((raw || []).map(o => o.customer_id).filter(Boolean)));
-      const { data: profiles } = cIds.length > 0 ? await supabase.from('profiles').select('id, first_name, last_name').in('id', cIds) : { data: [] };
+      const dIds = Array.from(new Set((raw || []).map(o => o.driver_id).filter(Boolean)));
+      
+      const { data: cProfiles } = cIds.length > 0 ? await supabase.from('profiles').select('id, first_name, last_name').in('id', cIds) : { data: [] };
+      const { data: dProfiles } = dIds.length > 0 ? await supabase.from('driver_applications').select('id, full_name').in('id', dIds) : { data: [] };
 
       const enriched = (raw || []).map(o => {
-        const p = profiles?.find(p => p.id === o.customer_id);
-        const name = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Cliente';
+        const p = cProfiles?.find(p => p.id === o.customer_id);
+        const d = dProfiles?.find(d => d.id === o.driver_id);
+        
+        const customerName = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Cliente';
+        const driverName = d?.full_name || null;
         
         if (o.status === 'PENDING' && autoAccept) {
             handleAcceptOrder(o, true);
         }
 
+        // Se o pedido estiver esperando entregador e for da rede do app, e não houver oferta ativa, tenta buscar
+        if (o.status === 'WAITING_FOR_DRIVER' && o.logistics_mode === 'APP' && !o.current_driver_offered_id) {
+            // Chamada de background
+            supabase.functions.invoke('dispatch-order', { body: { orderId: o.id } }).catch(() => {});
+        }
+
         return {
           ...o,
-          customer_full_name: name,
+          customer_full_name: customerName,
+          driver_full_name: driverName,
           delivery_address: o.delivery_address || {}
         };
       });
@@ -187,8 +221,20 @@ const MerchantOrdersPage = () => {
         if (payload.eventType === 'INSERT') playAlert();
         fetchOrders(true);
     }).subscribe();
-    return () => { supabase.removeChannel(chan); };
-  }, [fetchOrders, playAlert]);
+
+    // Busca contínua por entregadores (a cada 15s para pedidos WAITING_FOR_DRIVER sem oferta)
+    const searchInterval = setInterval(() => {
+        const pendingDispatch = orders.filter(o => o.status === 'WAITING_FOR_DRIVER' && o.logistics_mode === 'APP' && !o.current_driver_offered_id);
+        pendingDispatch.forEach(o => {
+            supabase.functions.invoke('dispatch-order', { body: { orderId: o.id } }).catch(() => {});
+        });
+    }, 15000);
+
+    return () => { 
+        supabase.removeChannel(chan); 
+        clearInterval(searchInterval);
+    };
+  }, [fetchOrders, playAlert, orders]);
 
   const filteredOrders = useMemo(() => {
     if (!searchTerm) return orders;
@@ -239,6 +285,20 @@ const MerchantOrdersPage = () => {
                       <p className="text-[10px] text-gray-400 uppercase mt-0.5 flex items-center gap-1"><Clock className="h-3 w-3" /> {new Date(o.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
                   </div>
 
+                  {/* Informação do Entregador */}
+                  {o.delivery_type === 'delivery' && (
+                      <div className={cn(
+                          "px-3 py-2 rounded-xl border flex items-center gap-2",
+                          o.driver_full_name ? "bg-blue-50 border-blue-100 text-blue-700" : "bg-gray-50 border-gray-100 text-gray-500"
+                      )}>
+                        <Bike className="h-3.5 w-3.5" />
+                        <span className="text-[10px] font-black uppercase truncate">
+                            {o.driver_full_name ? `Entregador: ${o.driver_full_name}` : 
+                             o.current_driver_offered_id ? "Aguardando Resposta..." : "Buscando Entregador..."}
+                        </span>
+                      </div>
+                  )}
+
                   {showFullDetails && <OrderCardDetails order={o} />}
 
                   {!showFullDetails && (
@@ -256,7 +316,12 @@ const MerchantOrdersPage = () => {
                   )}
 
                   {o.status === 'PREPARING' && (
-                    <Button className="w-full bg-orange-500 hover:bg-orange-600 h-12 rounded-xl font-black text-xs uppercase" onClick={() => supabase.from('orders').update({ status: o.delivery_type === 'pickup' ? 'READY_FOR_PICKUP' : 'WAITING_FOR_DRIVER' }).eq('id', o.id)}>Pronto para Envio</Button>
+                    <Button 
+                        className="w-full bg-orange-500 hover:bg-orange-600 h-12 rounded-xl font-black text-xs uppercase" 
+                        onClick={() => handleReadyForShipping(o)}
+                    >
+                        Pronto para Envio
+                    </Button>
                   )}
 
                   {['READY_FOR_PICKUP', 'WAITING_FOR_DRIVER'].includes(o.status) && (
