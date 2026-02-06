@@ -4,14 +4,13 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, CreditCard, CheckCircle2, QrCode, Wallet, Truck, Loader2, Calendar, Clock, Store, Banknote, Copy, ExternalLink } from "lucide-react";
+import { ArrowLeft, CreditCard, CheckCircle2, QrCode, Wallet, Truck, Loader2, Calendar, Clock, Store, Banknote, Copy, ExternalLink, X } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { usePayment } from "@/context/PaymentContext";
 import { useAddresses } from "@/context/AddressContext";
 import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 const DELIVERY_FEE = 5.0;
@@ -83,13 +82,13 @@ const CheckoutPage = () => {
       // 1. Cria o pedido primeiro (status PENDING)
       const order = await createOrder("mercadopago");
       
-      // 2. Gera o link de pagamento
+      // 2. Gera o link de pagamento via Edge Function
       const { data, error } = await supabase.functions.invoke('create-mercadopago-preference', {
         body: {
           orderId: order.id,
           totalAmount: total,
           items: items,
-          origin: window.location.origin // Passa a URL atual para os back_urls
+          origin: window.location.origin
         }
       });
 
@@ -98,13 +97,13 @@ const CheckoutPage = () => {
       dismissToast(tid);
       setMpInitPoint(data.initPoint);
       setStep("mercadopago_payment");
-      clearCart(); // Limpa o carrinho local
+      clearCart();
       
     } catch (err: any) {
       console.error("MP Error:", err);
       dismissToast(tid);
       setIsProcessing(false);
-      showError(err.message || "Erro ao iniciar Mercado Pago");
+      showError(err.message || "Erro ao iniciar Mercado Pago. Verifique se o Token foi configurado.");
     }
   };
 
@@ -114,13 +113,9 @@ const CheckoutPage = () => {
       return;
     }
 
-    if (selectedPaymentType === "mercadopago") {
+    // Se o usuário selecionou Mercado Pago OU o PIX padrão do App (estamos migrando PIX para MP)
+    if (selectedPaymentType === "mercadopago" || selectedPaymentType === "pix") {
       await handleMercadoPagoCheckout();
-      return;
-    }
-
-    if (selectedPaymentType === "pix" && step !== "pix_payment") {
-      setStep("pix_payment");
       return;
     }
 
@@ -143,8 +138,8 @@ const CheckoutPage = () => {
   const getPaymentLabel = (type: string) => {
     const label = type.split(' (')[0];
     switch(label) {
-      case "pix": return "PIX (Online)";
-      case "mercadopago": return "Mercado Pago (Online)";
+      case "pix": return "PIX (Processado via Mercado Pago)";
+      case "mercadopago": return "Mercado Pago (Cartão/Outros)";
       case "card_credit_online": return "Cartão de Crédito (App)";
       case "card_debit_online": return "Cartão de Débito (App)";
       case "card_credit_delivery": return `Cartão de Crédito (Entrega)${flagName ? ` - ${flagName}` : ''}`;
@@ -187,7 +182,7 @@ const CheckoutPage = () => {
         </div>
         <div className="flex items-center gap-4 pt-4 border-t border-gray-50">
             <div className="p-3 bg-green-50 rounded-2xl">
-                {selectedPaymentType === 'cash_delivery' ? <Banknote className="text-green-600 h-6 w-6" /> : <CreditCard className="text-green-600 h-6 w-6" />}
+                {['cash_delivery', 'pix_delivery'].includes(selectedPaymentType) ? <Banknote className="text-green-600 h-6 w-6" /> : <CreditCard className="text-green-600 h-6 w-6" />}
             </div>
             <div>
                 <p className="font-black text-gray-800 text-sm uppercase">{getPaymentLabel(selectedPaymentType)}</p>
@@ -196,13 +191,15 @@ const CheckoutPage = () => {
         </div>
       </Card>
 
-      {/* DIALOG MERCADO PAGO */}
+      {/* DIALOG MERCADO PAGO - Corrigido com Description */}
       {step === "mercadopago_payment" && mpInitPoint && (
         <Dialog open={true} onOpenChange={() => setStep("review")}>
           <DialogContent className="rounded-[2.5rem] p-8 space-y-6 text-center border-none shadow-2xl">
             <DialogHeader>
               <DialogTitle className="text-3xl font-black text-indigo-900">Pagar agora</DialogTitle>
-              <DialogDescription className="font-medium text-gray-500">Clique no botão abaixo para abrir o Mercado Pago e finalizar seu pedido.</DialogDescription>
+              <DialogDescription className="font-medium text-gray-500">
+                Você será redirecionado para o ambiente seguro do Mercado Pago para concluir sua transação via PIX ou Cartão.
+              </DialogDescription>
             </DialogHeader>
             <div className="bg-blue-50 p-8 rounded-[2rem] flex flex-col items-center gap-4 border border-blue-100">
               <Wallet className="h-16 w-16 text-blue-600" />
@@ -213,19 +210,26 @@ const CheckoutPage = () => {
                 className="w-full h-16 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black text-lg shadow-xl flex gap-2" 
                 onClick={() => window.open(mpInitPoint, '_blank')}
               >
-                Pagar com Mercado Pago <ExternalLink className="h-5 w-5" />
+                Abrir Mercado Pago <ExternalLink className="h-5 w-5" />
               </Button>
-              <Button variant="ghost" className="w-full text-gray-400 font-bold" onClick={() => navigate("/orders")}>Ver meus pedidos</Button>
+              <Button variant="ghost" className="w-full text-gray-400 font-bold" onClick={() => navigate("/orders")}>
+                Ver meus pedidos
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
       )}
 
-      {/* DIALOG PIX */}
+      {/* DIALOG PIX MANUAL (LEGACY) - Corrigido com Description */}
       {step === "pix_payment" && (
         <Dialog open={true} onOpenChange={() => setStep("review")}>
           <DialogContent className="rounded-[2.5rem] p-8 space-y-6 text-center border-none shadow-2xl">
-            <DialogHeader><DialogTitle className="text-3xl font-black text-indigo-900">Pague com PIX</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle className="text-3xl font-black text-indigo-900">Pague com PIX</DialogTitle>
+              <DialogDescription className="text-gray-500">
+                Copie o código abaixo e utilize o "Pix Copia e Cola" no aplicativo do seu banco.
+              </DialogDescription>
+            </DialogHeader>
             <div className="bg-gray-50 p-8 rounded-[2rem] flex flex-col items-center gap-6 border border-indigo-50">
               <QrCode className="h-40 w-40 text-indigo-600" />
               <div className="bg-white p-4 rounded-2xl border border-gray-100 w-full flex items-center justify-between gap-3">
