@@ -27,6 +27,7 @@ import { GlobalPaymentSettings, PaymentMethodConfig, PaymentFlag } from "@/types
 
 const INITIAL_METHODS: PaymentMethodConfig[] = [
   { id: "pix", label: "PIX", category: "app", enabled: true },
+  { id: "mercadopago", label: "Mercado Pago", category: "app", enabled: true }, // Adicionado Mercado Pago
   { id: "card_credit_online", label: "Cartão de Crédito", category: "app", enabled: true },
   { id: "card_debit_online", label: "Cartão de Débito", category: "app", enabled: true },
   { id: "apple_pay", label: "Apple Pay", category: "app", enabled: false },
@@ -47,7 +48,7 @@ const AdminPaymentSettingsPage = () => {
   useEffect(() => {
     const fetchSettings = async () => {
       setLoading(true);
-      const { data } = await supabase.from('app_settings').select('*').eq('key', 'global_payment_methods').single();
+      const { data } = await supabase.from('app_settings').select('*').eq('key', 'global_payment_methods').maybeSingle();
       if (data) {
         setSettings(data.value);
       }
@@ -136,7 +137,7 @@ const AdminPaymentSettingsPage = () => {
                 <div key={method.id} className="py-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className={cn("p-2 rounded-xl", method.enabled ? "bg-indigo-50 text-indigo-600" : "bg-gray-50 text-gray-400")}>
-                      {method.id === 'pix' ? <Wallet className="h-5 w-5" /> : <CreditCard className="h-5 w-5" />}
+                      {method.id === 'pix' ? <Wallet className="h-5 w-5" /> : method.id === 'mercadopago' ? <CreditCard className="h-5 w-5" /> : <CreditCard className="h-5 w-5" />}
                     </div>
                     <span className={cn("font-bold", !method.enabled && "text-gray-400")}>{method.label}</span>
                   </div>
@@ -162,7 +163,7 @@ const AdminPaymentSettingsPage = () => {
                       <div className={cn("p-2 rounded-xl", method.enabled ? "bg-indigo-50 text-indigo-600" : "bg-gray-50 text-gray-400")}>
                         {method.id === 'cash_delivery' ? <Banknote className="h-5 w-5" /> : <CreditCard className="h-5 w-5" />}
                       </div>
-                      <span className={cn("font-bold", !method.enabled && "text-gray-400")}>{method.label}</span>
+                      <span className="font-bold">{method.label}</span>
                     </div>
                     <Switch checked={method.enabled} onCheckedChange={() => handleToggleMethod(method.id)} />
                   </div>

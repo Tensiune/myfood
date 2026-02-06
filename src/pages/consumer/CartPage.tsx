@@ -226,6 +226,24 @@ const CartPage = () => {
                                     </button>
                                 ));
                             }
+                            
+                            // Novo: Mercado Pago
+                            if (method.id === 'mercadopago') {
+                                return (
+                                    <button 
+                                      key={method.id}
+                                      onClick={() => { setSelectedPaymentType(method.id as any); setSelectedCardId(null); setSelectedFlagId(null); }}
+                                      className={cn("flex items-center justify-between w-full p-5 rounded-2xl bg-white shadow-sm transition-all", (selectedPaymentType === method.id && !selectedCardId) && "ring-2 ring-brand-accent bg-brand-accent/5")}
+                                    >
+                                      <div className="flex items-center gap-4">
+                                          <div className="p-2 bg-indigo-50 rounded-xl"><Wallet className="h-5 w-5 text-indigo-600" /></div>
+                                          <span className="font-bold">{method.label}</span>
+                                      </div>
+                                      {selectedPaymentType === method.id && !selectedCardId && <Check className="h-5 w-5 text-brand-accent" />}
+                                    </button>
+                                );
+                            }
+
                             return (
                                 <button 
                                   key={method.id}

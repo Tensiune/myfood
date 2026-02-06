@@ -22,9 +22,10 @@ const CheckoutPage = () => {
   const { selectedPaymentType, selectedFlagId } = usePayment();
   const { selectedAddress } = useAddresses();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [step, setStep] = useState<"review" | "pix_payment" | "success">("review");
+  const [step, setStep] = useState<"review" | "pix_payment" | "mercadopago_payment" | "success">("review");
   const [scheduledTime, setScheduledTime] = useState<string>("");
   const [flagName, setFlagName] = useState<string | null>(null);
+  const [mpInitPoint, setMpInitPoint] = useState<string | null>(null); // Link de pagamento do MP
 
   useEffect(() => {
     const fetchFlagName = async () => {
@@ -44,9 +45,76 @@ const CheckoutPage = () => {
   const deliveryFee = deliveryType === "delivery" ? DELIVERY_FEE : 0;
   const total = subtotal + deliveryFee;
 
+  const createOrder = async (finalPaymentMethod: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Usuário não autenticado");
+
+    const phone = user.user_metadata?.phone || "0000";
+    const code = phone.replace(/\D/g, "").slice(-4) || "1234";
+    
+    const acceptanceDeadline = (deliveryType === "delivery" && !scheduledTime)
+      ? new Date(Date.now() + 8 * 60000).toISOString() 
+      : null;
+
+    const { data: orderData, error } = await supabase
+      .from('orders')
+      .insert({
+        customer_id: user.id,
+        merchant_id: restaurantId,
+        items: items,
+        total: Number(total.toFixed(2)),
+        payment_method: finalPaymentMethod,
+        delivery_address: deliveryType === "delivery" ? selectedAddress : { street: "Retirada no Local", number: "S/N" },
+        status: 'PENDING',
+        confirmation_code: code,
+        scheduled_at: scheduledTime || null,
+        merchant_acceptance_deadline: acceptanceDeadline,
+        delivery_type: deliveryType
+      }).select().single();
+
+    if (error) throw error;
+    return orderData;
+  };
+
+  const handleMercadoPagoCheckout = async () => {
+    setIsProcessing(true);
+    const tid = showLoading("Criando link de pagamento...");
+    
+    try {
+      const order = await createOrder(selectedPaymentType);
+      
+      const { data, error } = await supabase.functions.invoke('create-mercadopago-preference', {
+        body: {
+          orderId: order.id,
+          totalAmount: total,
+          description: `Pedido FoodApp #${order.id.slice(0, 6)}`,
+          items: items.map(i => ({ name: i.name, price: i.price, quantity: i.quantity }))
+        }
+      });
+
+      if (error) throw error;
+      
+      dismissToast(tid);
+      setMpInitPoint(data.initPoint);
+      setStep("mercadopago_payment");
+      clearCart(); // Limpa o carrinho após a criação do pedido
+      
+    } catch (err: any) {
+      console.error("Mercado Pago Checkout Error:", err);
+      dismissToast(tid);
+      setIsProcessing(false);
+      showError("Erro ao iniciar pagamento: " + (err.message || "Tente novamente"));
+    }
+  };
+
   const handleFinishOrder = async () => {
     if (deliveryType === "delivery" && !selectedAddress) {
       showError("Selecione um endereço de entrega.");
+      return;
+    }
+
+    if (selectedPaymentType === "mercadopago") {
+      await handleMercadoPagoCheckout();
       return;
     }
 
@@ -59,36 +127,10 @@ const CheckoutPage = () => {
     const tid = showLoading("Finalizando seu pedido...");
     
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Usuário não autenticado");
-
-      const phone = user.user_metadata?.phone || "0000";
-      const code = phone.replace(/\D/g, "").slice(-4) || "1234";
-      
-      const acceptanceDeadline = (deliveryType === "delivery" && !scheduledTime)
-        ? new Date(Date.now() + 8 * 60000).toISOString() 
-        : null;
-
       // Se houver bandeira, anexa ao nome do método para o lojista ver
       const finalPaymentMethod = flagName ? `${selectedPaymentType} (${flagName})` : selectedPaymentType;
-
-      const { error } = await supabase
-        .from('orders')
-        .insert({
-          customer_id: user.id,
-          merchant_id: restaurantId,
-          items: items,
-          total: Number(total.toFixed(2)),
-          payment_method: finalPaymentMethod,
-          delivery_address: deliveryType === "delivery" ? selectedAddress : { street: "Retirada no Local", number: "S/N" },
-          status: 'PENDING',
-          confirmation_code: code,
-          scheduled_at: scheduledTime || null,
-          merchant_acceptance_deadline: acceptanceDeadline,
-          delivery_type: deliveryType
-        });
-
-      if (error) throw error;
+      
+      await createOrder(finalPaymentMethod);
 
       dismissToast(tid);
       setStep("success");
@@ -120,6 +162,7 @@ const CheckoutPage = () => {
     const label = type.split(' (')[0];
     switch(label) {
       case "pix": return "PIX (Online)";
+      case "mercadopago": return "Mercado Pago (Online)"; // Adicionado
       case "card_credit_online": return "Cartão de Crédito (App)";
       case "card_debit_online": return "Cartão de Débito (App)";
       case "card_credit_delivery": return `Cartão de Crédito (Entrega)${flagName ? ` - ${flagName}` : ''}`;
@@ -267,6 +310,36 @@ const CheckoutPage = () => {
             <div className="space-y-3">
               <Button className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-lg shadow-xl" onClick={handleFinishOrder}>Já realizei o pagamento</Button>
               <Button variant="ghost" className="w-full text-gray-400 font-bold" onClick={() => setStep("review")}>Voltar e alterar pagamento</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+      
+      {step === "mercadopago_payment" && mpInitPoint && (
+        <Dialog open={true} onOpenChange={() => setStep("review")}>
+          <DialogContent className="rounded-[2.5rem] p-8 space-y-6 text-center border-none shadow-2xl">
+            <DialogHeader>
+              <DialogTitle className="text-3xl font-black text-indigo-900">Pagar com Mercado Pago</DialogTitle>
+              <DialogDescription className="font-medium text-gray-500">Você será redirecionado para o ambiente seguro do Mercado Pago.</DialogDescription>
+            </DialogHeader>
+            <div className="bg-gray-50 p-8 rounded-[2rem] flex flex-col items-center gap-6 border border-indigo-50">
+              <Wallet className="h-20 w-20 text-indigo-600" />
+              <p className="text-lg font-bold text-gray-800">Total: R$ {total.toFixed(2)}</p>
+            </div>
+            <div className="space-y-3">
+              <Button 
+                className="w-full h-16 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black text-lg shadow-xl" 
+                onClick={() => window.open(mpInitPoint, '_blank')}
+              >
+                Ir para o Pagamento
+              </Button>
+              <Button 
+                variant="ghost" 
+                className="w-full text-gray-400 font-bold" 
+                onClick={() => navigate("/orders")}
+              >
+                Acompanhar Pedido (Aguardando Pagamento)
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

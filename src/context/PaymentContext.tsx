@@ -10,7 +10,8 @@ export type PaymentMethodType =
   | "card_debit_delivery" 
   | "pix_delivery"
   | "meal_voucher_delivery"
-  | "cash_delivery";
+  | "cash_delivery"
+  | "mercadopago"; // Adicionado
 
 export interface CreditCard {
   id: string;
