@@ -92,7 +92,11 @@ const CheckoutPage = () => {
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        // Se a função retornar um erro no corpo (400), o invoke do supabase pode não lançar exceção, verificamos o data
+        const errorMsg = data?.error || error?.message || "Erro desconhecido";
+        throw new Error(errorMsg);
+      }
       
       dismissToast(tid);
       setMpInitPoint(data.initPoint);
@@ -103,7 +107,7 @@ const CheckoutPage = () => {
       console.error("MP Error:", err);
       dismissToast(tid);
       setIsProcessing(false);
-      showError(err.message || "Erro ao iniciar Mercado Pago. Verifique se o Token foi configurado.");
+      showError(err.message || "Erro ao iniciar Mercado Pago.");
     }
   };
 
@@ -113,7 +117,6 @@ const CheckoutPage = () => {
       return;
     }
 
-    // Se o usuário selecionou Mercado Pago OU o PIX padrão do App (estamos migrando PIX para MP)
     if (selectedPaymentType === "mercadopago" || selectedPaymentType === "pix") {
       await handleMercadoPagoCheckout();
       return;
@@ -138,7 +141,7 @@ const CheckoutPage = () => {
   const getPaymentLabel = (type: string) => {
     const label = type.split(' (')[0];
     switch(label) {
-      case "pix": return "PIX (Processado via Mercado Pago)";
+      case "pix": return "PIX (Automático)";
       case "mercadopago": return "Mercado Pago (Cartão/Outros)";
       case "card_credit_online": return "Cartão de Crédito (App)";
       case "card_debit_online": return "Cartão de Débito (App)";
@@ -191,7 +194,7 @@ const CheckoutPage = () => {
         </div>
       </Card>
 
-      {/* DIALOG MERCADO PAGO - Corrigido com Description */}
+      {/* DIALOG MERCADO PAGO */}
       {step === "mercadopago_payment" && mpInitPoint && (
         <Dialog open={true} onOpenChange={() => setStep("review")}>
           <DialogContent className="rounded-[2.5rem] p-8 space-y-6 text-center border-none shadow-2xl">
@@ -216,28 +219,6 @@ const CheckoutPage = () => {
                 Ver meus pedidos
               </Button>
             </div>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* DIALOG PIX MANUAL (LEGACY) - Corrigido com Description */}
-      {step === "pix_payment" && (
-        <Dialog open={true} onOpenChange={() => setStep("review")}>
-          <DialogContent className="rounded-[2.5rem] p-8 space-y-6 text-center border-none shadow-2xl">
-            <DialogHeader>
-              <DialogTitle className="text-3xl font-black text-indigo-900">Pague com PIX</DialogTitle>
-              <DialogDescription className="text-gray-500">
-                Copie o código abaixo e utilize o "Pix Copia e Cola" no aplicativo do seu banco.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="bg-gray-50 p-8 rounded-[2rem] flex flex-col items-center gap-6 border border-indigo-50">
-              <QrCode className="h-40 w-40 text-indigo-600" />
-              <div className="bg-white p-4 rounded-2xl border border-gray-100 w-full flex items-center justify-between gap-3">
-                <span className="text-[10px] font-black text-indigo-900 truncate">00020126360014BR.GOV.BCB.PIX0114+5511999999999</span>
-                <Button variant="ghost" size="icon" onClick={() => { navigator.clipboard.writeText("00020126360014BR.GOV.BCB.PIX0114+5511999999999"); showSuccess("Copiado!"); }}><Copy className="h-4 w-4" /></Button>
-              </div>
-            </div>
-            <Button className="w-full h-16 rounded-2xl bg-indigo-600 text-white font-black text-lg shadow-xl" onClick={handleFinishOrder}>Confirmar Pagamento</Button>
           </DialogContent>
         </Dialog>
       )}

@@ -9,32 +9,35 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
-  const supabaseAdmin = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-  )
-
   try {
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    )
+
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders })
+      return new Response(JSON.stringify({ error: 'Não autorizado' }), { status: 401, headers: corsHeaders })
     }
     
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(authHeader.replace('Bearer ', ''))
-    if (authError || !user) throw new Error("User not authenticated.")
+    if (authError || !user) throw new Error("Usuário não autenticado.")
 
-    const { orderId, totalAmount, items, origin } = await req.json()
+    const { orderId, items, origin } = await req.json()
     
+    // Validar se o origin existe e não termina com barra para evitar URLs malformadas
+    const baseOrigin = origin ? origin.replace(/\/$/, "") : "";
+    if (!baseOrigin) throw new Error("Origem (URL do app) não fornecida.");
+
     const MERCADOPAGO_ACCESS_TOKEN = Deno.env.get('MERCADOPAGO_ACCESS_TOKEN')
     if (!MERCADOPAGO_ACCESS_TOKEN) {
         throw new Error("MERCADOPAGO_ACCESS_TOKEN não configurado no Supabase.");
     }
 
-    // URL do projeto para o Webhook (hardcoded para segurança)
-    const projectUrl = "https://ulaosfxeilccmptlpwxr.supabase.co";
-
+    // Configuração da Preferência de Pagamento
     const preference = {
       items: items.map((item: any) => ({
+        id: item.id,
         title: item.name,
         unit_price: Number(item.price),
         quantity: Number(item.quantity),
@@ -45,15 +48,16 @@ serve(async (req) => {
       },
       external_reference: orderId,
       back_urls: {
-        // O usuário volta para a página de pedidos do seu App
-        success: `${origin}/orders?status=success&orderId=${orderId}`,
-        pending: `${origin}/orders?status=pending&orderId=${orderId}`,
-        failure: `${origin}/orders?status=error&orderId=${orderId}`,
+        success: `${baseOrigin}/orders`,
+        pending: `${baseOrigin}/orders`,
+        failure: `${baseOrigin}/orders`,
       },
       auto_return: "approved",
-      // O Mercado Pago avisa o seu servidor nesta URL
-      notification_url: `${projectUrl}/functions/v1/mercadopago-webhook`,
+      // A URL de notificação DEVE ser acessível publicamente (URL da sua edge function de webhook)
+      notification_url: `https://ulaosfxeilccmptlpwxr.supabase.co/functions/v1/mercadopago-webhook`,
     }
+
+    console.log("[create-mercadopago-preference] Enviando payload:", JSON.stringify(preference));
 
     const mpResponse = await fetch("https://api.mercadopago.com/checkout/preferences", {
       method: "POST",
@@ -67,8 +71,8 @@ serve(async (req) => {
     const mpData = await mpResponse.json()
 
     if (!mpResponse.ok) {
-        console.error("[MP API Error]", mpData);
-        throw new Error(mpData.message || "Falha ao gerar preferência no Mercado Pago.");
+        console.error("[MP API Error]", JSON.stringify(mpData));
+        throw new Error(mpData.message || "Erro na API do Mercado Pago.");
     }
 
     return new Response(JSON.stringify({ 
@@ -81,6 +85,9 @@ serve(async (req) => {
 
   } catch (err: any) {
     console.error(`[MP Function Error]`, err.message);
-    return new Response(JSON.stringify({ error: err.message }), { status: 400, headers: corsHeaders })
+    return new Response(JSON.stringify({ error: err.message }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    })
   }
 })
