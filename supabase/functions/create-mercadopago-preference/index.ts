@@ -25,7 +25,6 @@ serve(async (req) => {
 
     const { orderId, items, origin } = await req.json()
     
-    // Validar se o origin existe e não termina com barra para evitar URLs malformadas
     const baseOrigin = origin ? origin.replace(/\/$/, "") : "";
     if (!baseOrigin) throw new Error("Origem (URL do app) não fornecida.");
 
@@ -52,12 +51,14 @@ serve(async (req) => {
         pending: `${baseOrigin}/orders`,
         failure: `${baseOrigin}/orders`,
       },
-      auto_return: "approved",
-      // A URL de notificação DEVE ser acessível publicamente (URL da sua edge function de webhook)
+      // REMOVIDO: auto_return: "approved"
+      // Motivo: O Mercado Pago exige HTTPS para redirecionamento automático. 
+      // Ao remover, o checkout funcionará em http://localhost para seus testes.
+      
       notification_url: `https://ulaosfxeilccmptlpwxr.supabase.co/functions/v1/mercadopago-webhook`,
     }
 
-    console.log("[create-mercadopago-preference] Enviando payload:", JSON.stringify(preference));
+    console.log("[create-mercadopago-preference] Enviando payload para MP...");
 
     const mpResponse = await fetch("https://api.mercadopago.com/checkout/preferences", {
       method: "POST",
