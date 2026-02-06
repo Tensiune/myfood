@@ -43,22 +43,22 @@ const HomePage = () => {
           const meta = m.metadata || {};
           const storeDetails = meta.store_details || {};
           const deliveryArea = meta.delivery_area || { radius: 5, exclusionZones: [] };
-          const addr = storeDetails.address || meta.address || {};
+          const addr = storeDetails?.address || meta?.address || {};
           
-          const lat = parseFloat(addr.lat) || 0;
-          const lng = parseFloat(addr.lng) || 0;
+          const lat = parseFloat(addr?.lat) || 0;
+          const lng = parseFloat(addr?.lng) || 0;
 
           return {
             id: m.id,
-            name: m.store_name || storeDetails.name || "Loja",
-            cuisine: meta.category || "Restaurante",
-            imageUrl: storeDetails.imageUrl || `https://placehold.co/400x200/6366f1/ffffff?text=${encodeURIComponent(m.store_name || "Loja")}`,
+            name: m.store_name || storeDetails?.name || "Loja",
+            cuisine: meta?.category || "Restaurante",
+            imageUrl: storeDetails?.imageUrl || `https://placehold.co/400x200/6366f1/ffffff?text=${encodeURIComponent(m.store_name || "Loja")}`,
             rating: 5.0,
             deliveryTime: "30-45 min",
             location: { lat, lng },
             logistics: { 
-              radius: deliveryArea.radius || 5, 
-              exclusionZones: deliveryArea.exclusionZones || [] 
+              radius: deliveryArea?.radius || 5, 
+              exclusionZones: deliveryArea?.exclusionZones || [] 
             }
           };
         });

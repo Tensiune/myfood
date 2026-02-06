@@ -41,23 +41,23 @@ const SearchPage = () => {
         const storeDetails = meta.store_details || {};
         const deliveryArea = meta.delivery_area || { radius: 5, exclusionZones: [] };
         
-        const addr = storeDetails.address || meta.address || {};
-        const lat = parseFloat(addr.lat) || 0;
-        const lng = parseFloat(addr.lng) || 0;
+        const addr = storeDetails?.address || meta?.address || {};
+        const lat = parseFloat(addr?.lat) || 0;
+        const lng = parseFloat(addr?.lng) || 0;
 
         return {
           id: m.id,
-          name: m.store_name || storeDetails.name || "Loja Parceira",
-          cuisine: meta.category || "Restaurante",
-          imageUrl: storeDetails.imageUrl || `https://placehold.co/400x200/6366f1/ffffff?text=${encodeURIComponent(m.store_name || "Loja")}`,
+          name: m.store_name || storeDetails?.name || "Loja Parceira",
+          cuisine: meta?.category || "Restaurante",
+          imageUrl: storeDetails?.imageUrl || `https://placehold.co/400x200/6366f1/ffffff?text=${encodeURIComponent(m.store_name || "Loja")}`,
           rating: 4.5,
           deliveryTime: "30-45 min",
-          category: meta.category || "Restaurantes",
+          category: meta?.category || "Restaurantes",
           is_open: m.is_open ?? false,
           location: { lat, lng },
           logistics: { 
-            radius: parseFloat(deliveryArea.radius) || 5, 
-            exclusionZones: Array.isArray(deliveryArea.exclusionZones) ? deliveryArea.exclusionZones : [] 
+            radius: parseFloat(deliveryArea?.radius) || 5, 
+            exclusionZones: Array.isArray(deliveryArea?.exclusionZones) ? deliveryArea?.exclusionZones : [] 
           }
         };
       });
