@@ -51,9 +51,12 @@ serve(async (req) => {
         pending: `${baseOrigin}/orders`,
         failure: `${baseOrigin}/orders`,
       },
-      // REMOVIDO: auto_return: "approved"
-      // Motivo: O Mercado Pago exige HTTPS para redirecionamento automático. 
-      // Ao remover, o checkout funcionará em http://localhost para seus testes.
+      // Adicionado: Exclui o tipo de pagamento 'ticket' (boleto bancário)
+      payment_methods: {
+        excluded_payment_types: [
+          { id: "ticket" }
+        ]
+      },
       
       notification_url: `https://ulaosfxeilccmptlpwxr.supabase.co/functions/v1/mercadopago-webhook`,
     }
