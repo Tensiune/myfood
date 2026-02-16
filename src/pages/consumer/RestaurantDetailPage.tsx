@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Star, Clock, Plus, Minus, ShoppingCart, Loader2, Store } from "lucide-react";
+import { Star, Clock, Plus, Minus, ShoppingCart, Loader2, Store, Pizza as PizzaIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { showSuccess, showError } from "@/utils/toast";
 import { useCart } from "@/context/CartContext";
 import { supabase } from "@/lib/supabase";
+import PizzaSelectionDialog from "@/components/consumer/PizzaSelectionDialog";
 
 const RestaurantDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -19,6 +20,9 @@ const RestaurantDetailPage = () => {
   const [restaurant, setRestaurant] = useState<any>(null);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  const [selectedPizza, setSelectedPizza] = useState<any>(null);
+  const [isPizzaDialogOpen, setIsPizzaDialogOpen] = useState(false);
 
   useEffect(() => {
     const fetchRestaurantAndProducts = async () => {
@@ -67,34 +71,21 @@ const RestaurantDetailPage = () => {
     fetchRestaurantAndProducts();
   }, [id]);
 
-  const incrementQuantity = (itemId: string) => {
-    setQuantities(prev => ({
-      ...prev,
-      [itemId]: (prev[itemId] || 0) + 1
-    }));
-  };
-
-  const decrementQuantity = (itemId: string) => {
-    setQuantities(prev => ({
-      ...prev,
-      [itemId]: Math.max((prev[itemId] || 0) - 1, 0)
-    }));
-  };
-
-  const handleAddToCart = (item: any) => {
-    const quantity = quantities[item.id] || 0;
-    if (quantity > 0) {
-      addItem(
-        {
-          id: item.id,
-          restaurantId: restaurant.id,
-          name: item.name,
-          price: parseFloat(item.price.toString()),
-          imageUrl: item.imageurl,
-        },
-        quantity
-      );
-      setQuantities(prev => ({ ...prev, [item.id]: 0 }));
+  const handleAction = (item: any) => {
+    const type = item.optiongroups?.type;
+    
+    if (type === 'PIZZA') {
+        setSelectedPizza(item.optiongroups.pizzaDetails);
+        setIsPizzaDialogOpen(true);
+    } else {
+        const quantity = quantities[item.id] || 1;
+        addItem({
+            id: item.id,
+            restaurantId: restaurant.id,
+            name: item.name,
+            price: parseFloat(item.price.toString()),
+            imageUrl: item.imageurl,
+        }, quantity);
     }
   };
 
@@ -109,121 +100,108 @@ const RestaurantDetailPage = () => {
     );
   }
 
-  if (!restaurant) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
-        <Store className="h-16 w-16 text-gray-200 mb-4" />
-        <h2 className="text-xl font-bold text-gray-800">Restaurante não encontrado</h2>
-        <Button className="mt-4 rounded-xl bg-indigo-600" onClick={() => navigate("/")}>Voltar para o início</Button>
-      </div>
-    );
-  }
-
-  const totalItems = getItemCount();
-
   return (
     <div className="space-y-6 pb-24">
-      <Card className="rounded-xl shadow-lg overflow-hidden border-none">
-        <img src={restaurant.imageUrl} alt={restaurant.name} className="w-full h-48 object-cover" />
-        <CardContent className="p-4">
+      <Card className="rounded-[2.5rem] shadow-lg overflow-hidden border-none bg-white">
+        <img src={restaurant.imageUrl} alt={restaurant.name} className="w-full h-56 object-cover" />
+        <CardContent className="p-8">
           <div className="flex justify-between items-start">
             <div>
-              <CardTitle className="text-2xl font-bold text-gray-800">{restaurant.name}</CardTitle>
-              <p className="text-gray-600">{restaurant.cuisine}</p>
+              <CardTitle className="text-3xl font-black text-indigo-900 leading-tight">{restaurant.name}</CardTitle>
+              <p className="text-indigo-400 font-bold uppercase tracking-wider text-xs">{restaurant.cuisine}</p>
             </div>
-            <div className="flex items-center space-x-2">
-              <Badge className="bg-green-500 hover:bg-green-600 text-white rounded-full">
-                <Star className="h-4 w-4 mr-1" /> {restaurant.rating}
-              </Badge>
-              <Badge variant="secondary" className="rounded-full">
-                <Clock className="h-4 w-4 mr-1" /> {restaurant.deliveryTime}
-              </Badge>
-            </div>
+            <Badge className="bg-green-50 text-green-600 border-none font-black px-4 py-2 rounded-2xl text-lg">
+              <Star className="h-5 w-5 mr-1 fill-green-600" /> {restaurant.rating.toFixed(1)}
+            </Badge>
           </div>
-          <p className="text-sm text-gray-600 mt-2">{restaurant.description}</p>
-          <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-200">
-            <p className="text-sm text-gray-500">Taxa de entrega: {restaurant.deliveryFee}</p>
+          <p className="text-sm text-gray-500 mt-4 leading-relaxed">{restaurant.description}</p>
+          <div className="flex items-center gap-6 mt-6 pt-6 border-t border-gray-50">
+             <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-indigo-300" />
+                <span className="text-xs font-bold text-gray-600">{restaurant.deliveryTime}</span>
+             </div>
+             <div className="flex items-center gap-2">
+                <ShoppingCart className="h-4 w-4 text-indigo-300" />
+                <span className="text-xs font-bold text-gray-600">Taxa: {restaurant.deliveryFee}</span>
+             </div>
           </div>
         </CardContent>
       </Card>
 
-      <div className="space-y-6">
+      <div className="space-y-10">
         {products.length === 0 ? (
-          <div className="text-center py-12 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-100">
-            <p className="text-gray-500">Nenhum produto disponível no momento.</p>
+          <div className="text-center py-20 bg-gray-50 rounded-[2.5rem] border-2 border-dashed border-gray-100">
+            <p className="text-gray-400 font-bold">O cardápio está sendo atualizado.</p>
           </div>
         ) : (
           categories.map((catName) => (
             <section key={catName}>
-              <h2 className="text-xl font-semibold text-indigo-700 mb-3 border-b-2 border-indigo-200 pb-2">
+              <h2 className="text-xl font-black text-indigo-900 mb-6 flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-brand-accent" />
                 {catName}
               </h2>
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4">
                 {products
                   .filter(p => (p.category || "Outros") === catName)
-                  .map((item) => (
-                    <Card key={item.id} className="rounded-lg shadow-sm hover:shadow-md transition-shadow border border-gray-100">
-                      <CardContent className="p-3">
-                        <div className="flex space-x-3">
+                  .map((item) => {
+                    const isPizza = item.optiongroups?.type === 'PIZZA';
+                    return (
+                      <Card key={item.id} className="rounded-3xl border-none shadow-sm hover:shadow-md transition-all overflow-hidden bg-white">
+                        <CardContent className="p-4 flex gap-4">
                           <img
                             src={item.imageurl || "https://placehold.co/200x200/f3f4f6/9ca3af?text=Produto"}
                             alt={item.name}
-                            className="w-20 h-20 object-cover rounded-lg"
+                            className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-2xl shadow-inner bg-gray-50 shrink-0"
                           />
-                          <div className="flex-1 space-y-1">
-                            <h3 className="font-semibold text-gray-800">{item.name}</h3>
-                            <p className="text-sm text-gray-600 line-clamp-2">{item.description}</p>
-                            <p className="font-bold text-indigo-600">R$ {parseFloat(item.price.toString()).toFixed(2).replace('.', ',')}</p>
-                          </div>
-                          <div className="flex flex-col items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <Button
-                                size="icon"
-                                variant="outline"
-                                className="h-8 w-8 rounded-full border-indigo-200"
-                                onClick={() => decrementQuantity(item.id)}
-                              >
-                                <Minus className="h-4 w-4 text-indigo-600" />
-                              </Button>
-                              <span className="w-6 text-center font-medium">
-                                {quantities[item.id] || 0}
-                              </span>
-                              <Button
-                                size="icon"
-                                variant="outline"
-                                className="h-8 w-8 rounded-full border-indigo-200"
-                                onClick={() => incrementQuantity(item.id)}
-                              >
-                                <Plus className="h-4 w-4 text-indigo-600" />
-                              </Button>
+                          <div className="flex-1 min-w-0 flex flex-col justify-between py-1">
+                            <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                    {isPizza && <PizzaIcon className="h-3 w-3 text-brand-accent" />}
+                                    <h3 className="font-black text-gray-800 truncate">{item.name}</h3>
+                                </div>
+                                <p className="text-xs text-gray-500 line-clamp-2 mb-2">{item.description}</p>
                             </div>
-                            <Button
-                              size="sm"
-                              className="rounded-lg bg-brand-accent hover:bg-brand-accent/90 text-white font-medium mt-2"
-                              onClick={() => handleAddToCart(item)}
-                              disabled={(quantities[item.id] || 0) === 0}
-                            >
-                              Adicionar
-                            </Button>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{isPizza ? 'A partir de' : 'Valor'}</p>
+                                    <p className="text-xl font-black text-indigo-600">R$ {parseFloat(item.price.toString()).toFixed(2)}</p>
+                                </div>
+                                <Button 
+                                    className="rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-black h-12 px-6"
+                                    onClick={() => handleAction(item)}
+                                >
+                                    {isPizza ? 'Montar' : <Plus className="h-5 w-5" />}
+                                </Button>
+                            </div>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
               </div>
             </section>
           ))
         )}
       </div>
 
-      {totalItems > 0 && (
-        <div className="fixed bottom-20 left-0 right-0 p-4 bg-white shadow-lg border-t border-gray-200 z-20">
+      {isPizzaDialogOpen && selectedPizza && (
+        <PizzaSelectionDialog 
+            isOpen={isPizzaDialogOpen}
+            onClose={() => { setIsPizzaDialogOpen(false); setSelectedPizza(null); }}
+            onAddToCart={(item) => addItem(item, 1)}
+            pizzaDetails={selectedPizza}
+            restaurantId={restaurant.id}
+        />
+      )}
+
+      {getItemCount() > 0 && (
+        <div className="fixed bottom-20 left-0 right-0 p-4 bg-white/80 backdrop-blur-xl border-t border-gray-100 z-20 safe-area-bottom">
           <Button
-            className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 text-lg"
+            className="w-full rounded-2xl bg-brand-accent hover:bg-brand-accent/90 text-white font-black h-16 text-lg shadow-2xl shadow-brand-accent/20"
             onClick={() => navigate("/cart")}
           >
-            <ShoppingCart className="h-5 w-5 mr-2" />
-            Ver Carrinho ({totalItems} item{totalItems !== 1 ? 's' : ''})
+            <ShoppingCart className="h-6 w-6 mr-3" />
+            Ver Carrinho ({getItemCount()})
           </Button>
         </div>
       )}
