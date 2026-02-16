@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import React, { useState, useMemo, useEffect } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { PizzaDetails, PizzaFlavor, PizzaSize, PizzaDough, PizzaCrust } from "@/types/product";
-import { Check, Plus, Minus, Info, ShoppingCart, Star } from "lucide-react";
+import { Check, Info, ShoppingCart, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
@@ -15,6 +15,7 @@ interface PizzaSelectionDialogProps {
   onAddToCart: (cartItem: any) => void;
   pizzaDetails: PizzaDetails;
   restaurantId: string;
+  initialSizeId?: string; // Novo prop para pular a seleção de tamanho
 }
 
 const PizzaSelectionDialog: React.FC<PizzaSelectionDialogProps> = ({ 
@@ -22,26 +23,51 @@ const PizzaSelectionDialog: React.FC<PizzaSelectionDialogProps> = ({
   onClose, 
   onAddToCart, 
   pizzaDetails,
-  restaurantId
+  restaurantId,
+  initialSizeId
 }) => {
   const [step, setStep] = useState<"size" | "flavors" | "dough" | "crust">("size");
   const [selectedSize, setSelectedSize] = useState<PizzaSize | null>(null);
   const [selectedFlavors, setSelectedFlavors] = useState<PizzaFlavor[]>([]);
-  const [selectedDough, setSelectedDough] = useState<PizzaDough | null>(pizzaDetails.doughs[0] || null);
-  const [selectedCrust, setSelectedCrust] = useState<PizzaCrust | null>(pizzaDetails.crusts[0] || null);
+  const [selectedDough, setSelectedDough] = useState<PizzaDough | null>(null);
+  const [selectedCrust, setSelectedCrust] = useState<PizzaCrust | null>(null);
+
+  // Inicializa o tamanho e pula o passo se fornecido
+  useEffect(() => {
+    if (isOpen) {
+        if (initialSizeId) {
+            const size = pizzaDetails.sizes.find(s => s.id === initialSizeId);
+            if (size) {
+                setSelectedSize(size);
+                setStep("flavors");
+            }
+        } else {
+            setStep("size");
+            setSelectedSize(null);
+        }
+        setSelectedFlavors([]);
+        // Seleciona massa e borda padrão (mais baratas e disponíveis)
+        const defDough = pizzaDetails.doughs.filter(d => d.available).sort((a, b) => a.price - b.price)[0];
+        const defCrust = pizzaDetails.crusts.filter(c => c.available).sort((a, b) => a.price - b.price)[0];
+        setSelectedDough(defDough || null);
+        setSelectedCrust(defCrust || null);
+    }
+  }, [isOpen, initialSizeId, pizzaDetails]);
 
   const currentPrice = useMemo(() => {
     if (!selectedSize) return 0;
     
-    // Preço dos sabores (Média aritmética)
     let flavorsPrice = 0;
     if (selectedFlavors.length > 0) {
+      // Média aritmética dos sabores conforme solicitado
       const sum = selectedFlavors.reduce((acc, f) => acc + (f.prices[selectedSize.id] || 0), 0);
       flavorsPrice = sum / selectedFlavors.length;
     } else {
-      // Se nenhum sabor selecionado ainda, mostra o menor preço possível para o tamanho
-      const allPrices = pizzaDetails.flavors.map(f => f.prices[selectedSize.id] || 999999);
-      flavorsPrice = Math.min(...allPrices);
+      // Valor base do tamanho (menor sabor disponível)
+      const allPrices = pizzaDetails.flavors
+        .filter(f => f.available && f.prices[selectedSize.id] > 0)
+        .map(f => f.prices[selectedSize.id]);
+      flavorsPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
     }
 
     return flavorsPrice + (selectedDough?.price || 0) + (selectedCrust?.price || 0);
@@ -64,7 +90,8 @@ const PizzaSelectionDialog: React.FC<PizzaSelectionDialogProps> = ({
   };
 
   const toggleFlavor = (flavor: PizzaFlavor) => {
-    if (selectedFlavors.find(f => f.id === flavor.id)) {
+    const isSelected = !!selectedFlavors.find(f => f.id === flavor.id);
+    if (isSelected) {
       setSelectedFlavors(selectedFlavors.filter(f => f.id !== flavor.id));
     } else {
       if (selectedFlavors.length < (selectedSize?.maxFlavors || 1)) {
@@ -77,16 +104,30 @@ const PizzaSelectionDialog: React.FC<PizzaSelectionDialogProps> = ({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-xl w-[95vw] rounded-[2.5rem] h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
         <DialogHeader className="p-8 bg-indigo-900 text-white shrink-0">
-          <DialogTitle className="text-2xl font-black">Personalize sua Pizza</DialogTitle>
+          <div className="flex items-center gap-4">
+             {step !== "size" && !initialSizeId && (
+                 <Button variant="ghost" size="icon" className="text-white hover:bg-white/10" onClick={() => setStep("size")}>
+                    <ArrowLeft />
+                 </Button>
+             )}
+             <DialogTitle className="text-2xl font-black">
+                {selectedSize ? `Pizza ${selectedSize.name}` : "Escolha o Tamanho"}
+             </DialogTitle>
+          </div>
+          
           <div className="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-hide">
               {["Tamanho", "Sabores", "Massa", "Borda"].map((label, idx) => {
                   const stepKeys: any[] = ["size", "flavors", "dough", "crust"];
                   const isActive = step === stepKeys[idx];
+                  if (initialSizeId && idx === 0) return null;
                   return (
                     <button 
                         key={label} 
-                        className={cn("px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all", isActive ? "bg-brand-accent text-white" : "text-white/40 hover:text-white/60")}
-                        onClick={() => idx === 0 || selectedSize ? setStep(stepKeys[idx]) : null}
+                        className={cn(
+                            "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", 
+                            isActive ? "bg-brand-accent text-white" : "text-white/40"
+                        )}
+                        onClick={() => (idx === 0 || selectedSize) ? setStep(stepKeys[idx]) : null}
                     >
                         {label}
                     </button>
@@ -98,7 +139,6 @@ const PizzaSelectionDialog: React.FC<PizzaSelectionDialogProps> = ({
         <ScrollArea className="flex-1 bg-white p-6">
           {step === "size" && (
             <div className="space-y-4">
-              <h3 className="font-black text-indigo-900 text-lg mb-4">Escolha o tamanho:</h3>
               {pizzaDetails.sizes.map(s => (
                 <button 
                   key={s.id}
@@ -120,12 +160,14 @@ const PizzaSelectionDialog: React.FC<PizzaSelectionDialogProps> = ({
 
           {step === "flavors" && selectedSize && (
             <div className="space-y-6">
-              <div className="bg-indigo-50 p-4 rounded-2xl flex items-center justify-between">
+              <div className="bg-indigo-50 p-4 rounded-2xl flex items-center justify-between border border-indigo-100">
                   <div className="flex items-center gap-2 text-indigo-900">
                     <Info className="h-4 w-4" />
-                    <span className="text-sm font-bold">Escolha até {selectedSize.maxFlavors} sabores</span>
+                    <span className="text-sm font-bold">Selecione até {selectedSize.maxFlavors} sabores</span>
                   </div>
-                  <Badge variant="secondary" className="bg-indigo-600 text-white rounded-full">{selectedFlavors.length} / {selectedSize.maxFlavors}</Badge>
+                  <Badge variant="secondary" className="bg-indigo-600 text-white rounded-full font-black">
+                    {selectedFlavors.length} / {selectedSize.maxFlavors}
+                  </Badge>
               </div>
 
               <div className="grid grid-cols-1 gap-4">
@@ -141,7 +183,7 @@ const PizzaSelectionDialog: React.FC<PizzaSelectionDialogProps> = ({
                         isSelected ? "border-indigo-600 bg-indigo-50" : "border-gray-100 hover:border-indigo-200"
                       )}
                     >
-                      <img src={f.imageUrl} className="w-16 h-16 rounded-2xl object-cover shadow-sm" />
+                      <img src={f.imageUrl} className="w-16 h-16 rounded-2xl object-cover shadow-sm bg-gray-50" />
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-gray-800 truncate">{f.name}</p>
                         <p className="text-xs text-gray-500 line-clamp-2 leading-tight">{f.description}</p>
@@ -159,13 +201,13 @@ const PizzaSelectionDialog: React.FC<PizzaSelectionDialogProps> = ({
 
           {step === "dough" && (
             <div className="space-y-4">
-              <h3 className="font-black text-indigo-900 text-lg mb-4">Tipo de massa:</h3>
+              <h3 className="font-black text-indigo-900 text-lg mb-4 px-2">Escolha a Massa:</h3>
               {pizzaDetails.doughs.filter(d => d.available).map(d => (
                 <button 
                   key={d.id}
                   onClick={() => { setSelectedDough(d); setStep("crust"); }}
                   className={cn(
-                    "w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all",
+                    "w-full flex items-center justify-between p-6 rounded-3xl border-2 transition-all",
                     selectedDough?.id === d.id ? "border-indigo-600 bg-indigo-50" : "border-gray-100 hover:bg-gray-50"
                   )}
                 >
@@ -181,13 +223,13 @@ const PizzaSelectionDialog: React.FC<PizzaSelectionDialogProps> = ({
 
           {step === "crust" && (
             <div className="space-y-4">
-              <h3 className="font-black text-indigo-900 text-lg mb-4">Escolha a borda:</h3>
+              <h3 className="font-black text-indigo-900 text-lg mb-4 px-2">Deseja Borda Recheada?</h3>
               {pizzaDetails.crusts.filter(c => c.available).map(c => (
                 <button 
                   key={c.id}
                   onClick={() => setSelectedCrust(c)}
                   className={cn(
-                    "w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all",
+                    "w-full flex items-center justify-between p-6 rounded-3xl border-2 transition-all",
                     selectedCrust?.id === c.id ? "border-indigo-600 bg-indigo-50" : "border-gray-100 hover:bg-gray-50"
                   )}
                 >
@@ -204,21 +246,31 @@ const PizzaSelectionDialog: React.FC<PizzaSelectionDialogProps> = ({
 
         <div className="p-8 bg-gray-50 border-t flex flex-col sm:flex-row justify-between items-center gap-6 shrink-0">
           <div className="text-center sm:text-left">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total do Produto</p>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Valor do Produto</p>
             <p className="text-3xl font-black text-indigo-900">R$ {currentPrice.toFixed(2)}</p>
           </div>
           <div className="flex gap-2 w-full sm:w-auto">
-            {step === "crust" ? (
-                <Button 
-                    className="flex-1 sm:flex-initial rounded-2xl bg-indigo-600 text-white font-black h-16 px-10 shadow-xl shadow-indigo-100"
-                    onClick={handleFinish}
-                    disabled={selectedFlavors.length === 0}
-                >
-                    <ShoppingCart className="mr-2 h-5 w-5" /> Adicionar
-                </Button>
+            {step === "crust" || (step === "flavors" && selectedFlavors.length > 0) ? (
+                <div className="flex gap-2 w-full">
+                   {step === "flavors" && (
+                       <Button 
+                            className="flex-1 rounded-2xl bg-brand-accent text-white font-black h-16 px-6 shadow-xl"
+                            onClick={() => setStep("dough")}
+                        >
+                            Massa e Borda
+                        </Button>
+                   )}
+                   <Button 
+                        className="flex-1 rounded-2xl bg-indigo-600 text-white font-black h-16 px-10 shadow-xl shadow-indigo-100"
+                        onClick={handleFinish}
+                        disabled={selectedFlavors.length === 0}
+                    >
+                        <ShoppingCart className="mr-2 h-5 w-5" /> Adicionar
+                    </Button>
+                </div>
             ) : (
                 <Button 
-                    className="flex-1 sm:flex-initial rounded-2xl bg-brand-accent text-white font-black h-16 px-10 shadow-xl"
+                    className="w-full sm:w-48 rounded-2xl bg-brand-accent text-white font-black h-16 shadow-xl"
                     onClick={() => {
                         if (step === "size") setStep("flavors");
                         else if (step === "flavors") setStep("dough");
