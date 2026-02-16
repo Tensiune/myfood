@@ -51,31 +51,34 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
   // Efeito para sincronizar/resetar o formulário quando o produto mudar
   useEffect(() => {
     if (product) {
+      // Mapeamento crítico: O banco retorna 'optiongroups', 'imageurl', 'isavailable'
+      const opts = product.optiongroups || product.optionGroups || {};
+      
       setFormData({
         id: product.id || null,
         name: product.name || "",
         description: product.description || "",
         price: product.price || 0,
         category: product.category || categories[0],
-        imageUrl: product.imageUrl || "",
-        isAvailable: product.isAvailable ?? true,
-        type: product.optionGroups?.type || null,
-        ean: product.optionGroups?.ean || "",
-        pizzaDetails: product.optionGroups?.pizzaDetails || {
+        imageUrl: product.imageurl || product.imageUrl || "",
+        isAvailable: product.isavailable ?? product.isAvailable ?? true,
+        type: opts.type || null,
+        ean: opts.ean || "",
+        pizzaDetails: opts.pizzaDetails || {
           sizes: [],
           doughs: [],
           crusts: [],
           flavors: []
         }
       });
-      // Se estiver editando, pula a seleção de tipo se ele já existir
-      if (product.optionGroups?.type) {
+
+      // Se já tem um tipo definido, pula a seleção de tipo
+      if (opts.type) {
         setStep(2);
       } else {
         setStep(1);
       }
     } else {
-      // Reset completo para novo produto
       setFormData({
         id: null,
         name: "",
@@ -122,17 +125,7 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
         if (!formData.name) { showError("Nome é obrigatório."); return; }
     }
 
-    setLoading(true);
-    try {
-      if (formData.type === 'PIZZA' && step >= 2) {
-          await saveToDatabase();
-      }
-      setStep(prev => prev + 1);
-    } catch (err) {
-      showError("Erro ao salvar progresso.");
-    } finally {
-      setLoading(false);
-    }
+    setStep(prev => prev + 1);
   };
 
   const handleBack = () => setStep(prev => prev - 1);
@@ -172,7 +165,6 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
       .single();
 
     if (error) throw error;
-    if (data) setFormData(prev => ({ ...prev, id: data.id }));
     return data;
   };
 
