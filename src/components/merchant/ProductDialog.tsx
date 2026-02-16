@@ -7,7 +7,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { ImagePlus, Plus, Trash2, ArrowRight, ArrowLeft, Loader2, CheckCircle2, LayoutGrid, Pizza as PizzaIcon } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { showSuccess, showError } from "@/utils/toast";
@@ -31,31 +30,72 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
   const [loading, setLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   
-  // Dados comuns
   const [formData, setFormData] = useState({
-    id: product?.id || null,
-    name: product?.name || "",
-    description: product?.description || "",
-    price: product?.price || 0,
-    category: product?.category || categories[0],
-    imageUrl: product?.imageUrl || "",
-    isAvailable: product?.isAvailable ?? true,
-    type: (product?.optiongroups?.type as ProductType) || null,
-    ean: product?.optiongroups?.ean || "",
-    pizzaDetails: (product?.optiongroups?.pizzaDetails as PizzaDetails) || {
+    id: null,
+    name: "",
+    description: "",
+    price: 0,
+    category: categories[0],
+    imageUrl: "",
+    isAvailable: true,
+    type: null as ProductType | null,
+    ean: "",
+    pizzaDetails: {
       sizes: [],
       doughs: [],
       crusts: [],
       flavors: []
-    }
+    } as PizzaDetails
   });
 
-  // Se estiver editando, pula a seleção de tipo
+  // Efeito para sincronizar/resetar o formulário quando o produto mudar
   useEffect(() => {
-    if (product?.id && formData.type) {
+    if (product) {
+      setFormData({
+        id: product.id || null,
+        name: product.name || "",
+        description: product.description || "",
+        price: product.price || 0,
+        category: product.category || categories[0],
+        imageUrl: product.imageUrl || "",
+        isAvailable: product.isAvailable ?? true,
+        type: product.optionGroups?.type || null,
+        ean: product.optionGroups?.ean || "",
+        pizzaDetails: product.optionGroups?.pizzaDetails || {
+          sizes: [],
+          doughs: [],
+          crusts: [],
+          flavors: []
+        }
+      });
+      // Se estiver editando, pula a seleção de tipo se ele já existir
+      if (product.optionGroups?.type) {
         setStep(2);
+      } else {
+        setStep(1);
+      }
+    } else {
+      // Reset completo para novo produto
+      setFormData({
+        id: null,
+        name: "",
+        description: "",
+        price: 0,
+        category: categories[0],
+        imageUrl: "",
+        isAvailable: true,
+        type: null,
+        ean: "",
+        pizzaDetails: {
+          sizes: [],
+          doughs: [],
+          crusts: [],
+          flavors: []
+        }
+      });
+      setStep(1);
     }
-  }, [product]);
+  }, [product, categories]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -78,19 +118,16 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
       return;
     }
     
-    // Validações básicas por tipo
     if (step === 2 && formData.type !== 'PIZZA') {
         if (!formData.name) { showError("Nome é obrigatório."); return; }
     }
 
     setLoading(true);
     try {
-      // Se for Pizza, salvamos o progresso a cada etapa
       if (formData.type === 'PIZZA' && step >= 2) {
           await saveToDatabase();
       }
-      
-      setStep(step + 1);
+      setStep(prev => prev + 1);
     } catch (err) {
       showError("Erro ao salvar progresso.");
     } finally {
@@ -98,12 +135,11 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
     }
   };
 
-  const handleBack = () => setStep(step - 1);
+  const handleBack = () => setStep(prev => prev - 1);
 
   const saveToDatabase = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     
-    // Cálculo do menor preço para Pizzas (a partir de)
     let displayPrice = Number(formData.price);
     if (formData.type === 'PIZZA' && formData.pizzaDetails.flavors.length > 0 && formData.pizzaDetails.sizes.length > 0) {
         const firstSize = formData.pizzaDetails.sizes[0];
@@ -145,80 +181,13 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
     try {
       const saved = await saveToDatabase();
       onSave(saved);
-      showSuccess("Produto cadastrado com sucesso!");
+      showSuccess("Produto salvo!");
     } catch (err) {
-      showError("Erro ao finalizar cadastro.");
+      showError("Erro ao finalizar.");
     } finally {
       setLoading(false);
     }
   };
-
-  const renderPreparedForm = () => (
-    <div className="space-y-6">
-        <div className="flex flex-col items-center gap-6">
-            <div className="w-full h-56 rounded-3xl bg-gray-50 border-2 border-dashed border-gray-200 overflow-hidden relative group hover:border-brand-accent transition-all flex items-center justify-center">
-                {isUploading ? (
-                    <Loader2 className="h-10 w-10 animate-spin text-brand-accent" />
-                ) : formData.imageUrl ? (
-                    <img src={formData.imageUrl} className="w-full h-full object-cover" />
-                ) : (
-                    <div className="text-center">
-                        <ImagePlus className="h-10 w-10 text-gray-300 mx-auto mb-2" />
-                        <span className="text-[10px] font-black text-gray-400 uppercase">Adicionar Foto</span>
-                    </div>
-                )}
-                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleImageUpload} accept="image/*" />
-            </div>
-        </div>
-        <div className="space-y-4">
-            <div className="space-y-2">
-                <Label className="font-bold">Nome do Produto</Label>
-                <Input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ex: Hambúrguer Duplo" className="rounded-xl h-12" />
-            </div>
-            <div className="space-y-2">
-                <Label className="font-bold">Preço (R$)</Label>
-                <Input type="number" step="0.01" value={formData.price} onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})} className="rounded-xl h-12" />
-            </div>
-            <div className="space-y-2">
-                <Label className="font-bold">Descrição</Label>
-                <Textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Descreva os ingredientes..." className="rounded-xl resize-none h-24" />
-            </div>
-        </div>
-    </div>
-  );
-
-  const renderIndustrializedForm = () => (
-    <div className="space-y-6">
-        <div className="flex flex-col items-center gap-6">
-            <div className="w-full h-56 rounded-3xl bg-gray-50 border-2 border-dashed border-gray-200 overflow-hidden relative flex items-center justify-center">
-                {formData.imageUrl ? <img src={formData.imageUrl} className="w-full h-full object-cover" /> : <ImagePlus className="h-10 w-10 text-gray-300" />}
-                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleImageUpload} />
-            </div>
-        </div>
-        <div className="space-y-4">
-            <div className="space-y-2">
-                <Label className="font-bold">Nome do Produto</Label>
-                <Input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ex: Coca-Cola 350ml" className="rounded-xl h-12" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                    <Label className="font-bold">Preço (R$)</Label>
-                    <Input type="number" step="0.01" value={formData.price} onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})} className="rounded-xl h-12" />
-                </div>
-                <div className="space-y-2">
-                    <Label className="font-bold text-gray-400">Código EAN (Opcional)</Label>
-                    <Input value={formData.ean} onChange={e => setFormData({...formData, ean: e.target.value})} placeholder="789..." className="rounded-xl h-12" />
-                </div>
-            </div>
-            <div className="space-y-2">
-                <Label className="font-bold">Descrição</Label>
-                <Textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="rounded-xl h-12" />
-            </div>
-        </div>
-    </div>
-  );
-
-  const totalPizzaSteps = 5;
 
   return (
     <DialogContent className="sm:max-w-[750px] w-[95vw] rounded-[2.5rem] h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
@@ -242,7 +211,7 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
             <div className="space-y-6">
                 <div className="space-y-2 mb-6">
                     <Label className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Categoria do Cardápio</Label>
-                    <Select value={formData.category} onValueChange={v => setFormData({...formData, category: v})}>
+                    <Select value={formData.category} onValueChange={v => setFormData(prev => ({...prev, category: v}))}>
                         <SelectTrigger className="rounded-2xl h-14 border-gray-100 bg-gray-50/50">
                             <SelectValue />
                         </SelectTrigger>
@@ -251,28 +220,66 @@ const ProductDialog: React.FC<ProductDialogProps> = ({ product, onSave, categori
                         </SelectContent>
                     </Select>
                 </div>
-                <ProductTypeSelector selected={formData.type} onSelect={t => setFormData({...prev => prev, type: t})} />
+                <ProductTypeSelector selected={formData.type} onSelect={t => setFormData(prev => ({...prev, type: t}))} />
             </div>
         )}
 
         {step === 2 && (
-            formData.type === 'PREPARED' ? renderPreparedForm() : 
-            formData.type === 'INDUSTRIALIZED' ? renderIndustrializedForm() :
-            <PizzaStepSizes sizes={formData.pizzaDetails.sizes} setSizes={s => setFormData({...formData, pizzaDetails: {...formData.pizzaDetails, sizes: s}})} />
+            formData.type === 'PREPARED' ? (
+              <div className="space-y-6">
+                  <div className="w-full h-56 rounded-3xl bg-gray-50 border-2 border-dashed border-gray-200 overflow-hidden relative flex items-center justify-center">
+                      {isUploading ? <Loader2 className="animate-spin" /> : formData.imageUrl ? <img src={formData.imageUrl} className="w-full h-full object-cover" /> : <ImagePlus className="text-gray-300" />}
+                      <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleImageUpload} />
+                  </div>
+                  <div className="space-y-4">
+                      <Label className="font-bold">Nome do Produto</Label>
+                      <Input value={formData.name} onChange={e => setFormData(prev => ({...prev, name: e.target.value}))} className="rounded-xl h-12" />
+                      <Label className="font-bold">Preço (R$)</Label>
+                      <Input type="number" value={formData.price} onChange={e => setFormData(prev => ({...prev, price: parseFloat(e.target.value)}))} className="rounded-xl h-12" />
+                      <Label className="font-bold">Descrição</Label>
+                      <Textarea value={formData.description} onChange={e => setFormData(prev => ({...prev, description: e.target.value}))} className="rounded-xl" />
+                  </div>
+              </div>
+            ) : formData.type === 'INDUSTRIALIZED' ? (
+              <div className="space-y-6">
+                  <div className="w-full h-56 rounded-3xl bg-gray-50 border-2 border-dashed border-gray-200 overflow-hidden relative flex items-center justify-center">
+                      {isUploading ? <Loader2 className="animate-spin" /> : formData.imageUrl ? <img src={formData.imageUrl} className="w-full h-full object-cover" /> : <ImagePlus className="text-gray-300" />}
+                      <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleImageUpload} />
+                  </div>
+                  <div className="space-y-4">
+                      <Label className="font-bold">Nome do Produto</Label>
+                      <Input value={formData.name} onChange={e => setFormData(prev => ({...prev, name: e.target.value}))} className="rounded-xl h-12" />
+                      <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <Label className="font-bold">Preço</Label>
+                            <Input type="number" value={formData.price} onChange={e => setFormData(prev => ({...prev, price: parseFloat(e.target.value)}))} className="rounded-xl h-12" />
+                          </div>
+                          <div>
+                            <Label className="font-bold">EAN</Label>
+                            <Input value={formData.ean} onChange={e => setFormData(prev => ({...prev, ean: e.target.value}))} className="rounded-xl h-12" />
+                          </div>
+                      </div>
+                      <Label className="font-bold">Descrição</Label>
+                      <Textarea value={formData.description} onChange={e => setFormData(prev => ({...prev, description: e.target.value}))} className="rounded-xl" />
+                  </div>
+              </div>
+            ) : (
+              <PizzaStepSizes sizes={formData.pizzaDetails.sizes} setSizes={s => setFormData(prev => ({...prev, pizzaDetails: {...prev.pizzaDetails, sizes: s}}))} />
+            )
         )}
 
         {step === 3 && formData.type === 'PIZZA' && (
-            <PizzaStepDough doughs={formData.pizzaDetails.doughs} setDoughs={d => setFormData({...formData, pizzaDetails: {...formData.pizzaDetails, doughs: d}})} />
+            <PizzaStepDough doughs={formData.pizzaDetails.doughs} setDoughs={d => setFormData(prev => ({...prev, pizzaDetails: {...prev.pizzaDetails, doughs: d}}))} />
         )}
 
         {step === 4 && formData.type === 'PIZZA' && (
-            <PizzaStepCrust crusts={formData.pizzaDetails.crusts} setCrusts={c => setFormData({...formData, pizzaDetails: {...formData.pizzaDetails, crusts: c}})} />
+            <PizzaStepCrust crusts={formData.pizzaDetails.crusts} setCrusts={c => setFormData(prev => ({...prev, pizzaDetails: {...prev.pizzaDetails, crusts: c}}))} />
         )}
 
         {step === 5 && formData.type === 'PIZZA' && (
             <PizzaStepFlavors 
                 flavors={formData.pizzaDetails.flavors} 
-                setFlavors={f => setFormData({...formData, pizzaDetails: {...formData.pizzaDetails, flavors: f}})} 
+                setFlavors={f => setFormData(prev => ({...prev, pizzaDetails: {...prev.pizzaDetails, flavors: f}}))} 
                 sizes={formData.pizzaDetails.sizes}
             />
         )}
