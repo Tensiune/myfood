@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import ProductDialog from "@/components/merchant/ProductDialog";
-import { showSuccess, showError } from "@/utils/toast";
+import { showSuccess, showError, showLoading, dismissToast } from "@/utils/toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 
@@ -33,13 +33,14 @@ const MerchantMenuPage = () => {
         const { data, error } = await supabase
           .from('products')
           .select('*')
-          .eq('merchant_id', user.id);
+          .eq('merchant_id', user.id)
+          .order('created_at', { ascending: false });
 
         if (error) throw error;
         if (data) setProducts(data);
       } catch (err) {
         console.error("Erro ao carregar menu:", err);
-        showError("Erro ao carregar seus produtos do servidor.");
+        showError("Erro ao carregar seu cardápio.");
       } finally {
         setLoading(false);
       }
@@ -48,61 +49,31 @@ const MerchantMenuPage = () => {
     loadMenu();
   }, []);
 
-  const handleSaveProduct = async (data: any) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    // Mapeamento crucial: convertendo camelCase do front para snake_case/lowercase do banco
-    const productData = {
-      merchant_id: user.id,
-      name: data.name,
-      description: data.description,
-      price: parseFloat(data.price),
-      category: data.category,
-      imageurl: data.imageUrl || "https://via.placeholder.com/300?text=Sem+Imagem",
-      isavailable: data.isAvailable ?? true,
-      stock: data.stock ? parseInt(data.stock) : null,
-      optiongroups: data.optionGroups || [],
-    };
-
-    try {
-      const { data: savedData, error } = await supabase
-        .from('products')
-        .upsert({ 
-          ...(editingProduct?.id ? { id: editingProduct.id } : {}),
-          ...productData 
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      if (editingProduct) {
-        setProducts(prev => prev.map(p => p.id === editingProduct.id ? savedData : p));
-        showSuccess("Produto atualizado com sucesso!");
-      } else {
-        setProducts([savedData, ...products]);
-        showSuccess("Produto salvo com sucesso no servidor!");
-      }
-      
-      setIsAddingProduct(false);
-      setEditingProduct(null);
-    } catch (err: any) {
-      console.error(err);
-      showError("Erro ao salvar no Supabase: " + err.message);
+  const handleSaveProduct = async (savedData: any) => {
+    // O ProductDialog agora envia o objeto já salvo ou atualizado pelo banco
+    if (editingProduct) {
+      setProducts(prev => prev.map(p => p.id === savedData.id ? savedData : p));
+    } else {
+      setProducts(prev => [savedData, ...prev]);
     }
+    
+    setIsAddingProduct(false);
+    setEditingProduct(null);
   };
 
   const deleteProduct = async (id: string) => {
     if (!window.confirm("Tem certeza que deseja excluir este produto?")) return;
     
+    const tid = showLoading("Removendo...");
     try {
       const { error } = await supabase.from('products').delete().eq('id', id);
       if (error) throw error;
-      setProducts(products.filter(p => p.id !== id));
+      setProducts(prev => prev.filter(p => p.id !== id));
       showSuccess("Produto removido.");
     } catch (err: any) {
       showError("Erro ao remover: " + err.message);
+    } finally {
+      dismissToast(tid);
     }
   };
 
@@ -112,7 +83,7 @@ const MerchantMenuPage = () => {
 
     const newStatus = !product.isavailable;
     
-    // Update local state first for UX
+    // Update local state first for snappy UI
     setProducts(prev => prev.map(p => p.id === id ? { ...p, isavailable: newStatus } : p));
 
     try {
@@ -166,12 +137,7 @@ const MerchantMenuPage = () => {
           </DialogTrigger>
           <ProductDialog 
             categories={categories} 
-            product={editingProduct ? {
-              ...editingProduct,
-              imageUrl: editingProduct.imageurl, // Map back for dialog
-              isAvailable: editingProduct.isavailable,
-              optionGroups: editingProduct.optiongroups
-            } : null} 
+            product={editingProduct} 
             onSave={handleSaveProduct} 
           />
         </Dialog>
@@ -251,16 +217,13 @@ const MerchantMenuPage = () => {
                     <Badge variant="outline" className="text-[10px] uppercase font-black text-indigo-400 border-indigo-50">
                       {product.category}
                     </Badge>
-                    {product.stock && (
-                      <Badge variant="secondary" className="text-[10px] uppercase font-black bg-gray-100 text-gray-500 border-none">
-                        <Package className="h-3 w-3 mr-1" /> {product.stock} em estoque
-                      </Badge>
-                    )}
                   </div>
                   <h3 className="font-black text-xl text-gray-900">{product.name}</h3>
                   <p className="text-sm text-gray-500 line-clamp-2">{product.description}</p>
                   <div className="pt-2">
-                     <span className="text-2xl font-black text-indigo-600">R$ {product.price ? parseFloat(product.price.toString()).toFixed(2) : '0.00'}</span>
+                     <span className="text-2xl font-black text-indigo-600">
+                         R$ {product.price ? parseFloat(product.price.toString()).toFixed(2) : '0.00'}
+                     </span>
                   </div>
                 </div>
 
